@@ -25,6 +25,11 @@ def main():
     except Exception:
         bail()
 
+    # Valid JSON is not necessarily an object. A list or a bare string here used to raise on
+    # .get() and exit non-zero, which an agent may read as a hook failure.
+    if not isinstance(payload, dict):
+        bail()
+
     if payload.get("tool_name") != "AskUserQuestion":
         bail()
 
@@ -35,14 +40,21 @@ def main():
     except OSError:
         bail()
 
-    tool_input = payload.get("tool_input") or {}
-    questions = tool_input.get("questions") or []
+    tool_input = payload.get("tool_input")
+    if not isinstance(tool_input, dict):
+        bail()
+    questions = tool_input.get("questions")
+    if not isinstance(questions, list):
+        bail()
     # Multi-question prompts need a sequence the notch cannot express yet; defer to Claude.
     if len(questions) != 1:
         bail()
 
     q = questions[0]
-    options = [o.get("label", "") for o in (q.get("options") or []) if o.get("label")]
+    if not isinstance(q, dict):
+        bail()
+    options = [o.get("label", "") for o in (q.get("options") or [])
+               if isinstance(o, dict) and o.get("label")]
     if not options:
         bail()
 

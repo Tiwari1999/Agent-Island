@@ -434,6 +434,19 @@ check("hit region refreshes on state change, not only on poll",
 check("poll is a backstop, not the primary path",
       "state == .collapsed ? 0.75 : 0.06" in isl)
 
+print("\n=== 23. adversarial input and concurrency ===")
+# These run as their own suites because they are slow and destructive; assert they exist and
+# that the guards they proved are still in the source.
+for name in ("fuzz-hooks.py", "concurrency.py", "soak.py", "purge-synthetic.py"):
+    check(f"tests/{name} present", os.path.exists(os.path.join(REPO, "tests", name)))
+_q=open(os.path.join(REPO,"hooks/agentisland-question.py")).read()
+_r=open(os.path.join(REPO,"hooks/agentisland-rules.py")).read()
+check("question hook guards non-object JSON", "isinstance(payload, dict)" in _q)
+check("question hook guards non-list questions", "isinstance(questions, list)" in _q)
+check("rules hook guards non-object JSON", "isinstance(payload, dict)" in _r)
+_b=open(os.path.join(REPO,"tests/benchmark.py")).read()
+check("benchmark writes to its own spool by default", "agentisland-bench.jsonl" in _b)
+
 print("\n=== 23. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")
 check("binary exists", os.path.exists(b))

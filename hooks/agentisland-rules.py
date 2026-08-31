@@ -42,6 +42,9 @@ def main():
         payload = json.load(sys.stdin)
     except Exception:
         sys.exit(0)
+    # Valid JSON need not be an object; a list would raise on .get() below.
+    if not isinstance(payload, dict):
+        sys.exit(0)
     try:
         rules = json.load(open(RULES))
     except Exception:
