@@ -279,8 +279,14 @@ struct PanelView: View {
 
             if store.rows.isEmpty {
                 VStack(spacing: 5) {
-                    Text("No sessions").font(Theme.name(12)).foregroundColor(Theme.muted)
-                    Text("start one with `claude`, `codex` or `cursor-agent`").font(Theme.mono(9.5)).foregroundColor(Theme.faint)
+                    // An app that has never refreshed and one with nothing to show used to look
+                    // identical, which is how a silent failure reads as an empty desk.
+                    Text(store.hasRefreshed ? "No sessions" : "Looking for agents…")
+                        .font(Theme.name(12)).foregroundColor(Theme.muted)
+                    Text(store.hasRefreshed
+                         ? "start one with `claude`, `codex` or `cursor-agent`"
+                         : "reading Claude Code, Codex and Cursor")
+                        .font(Theme.mono(9.5)).foregroundColor(Theme.faint)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {

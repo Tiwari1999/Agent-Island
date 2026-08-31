@@ -14,14 +14,27 @@ RULES = os.environ.get("AGENTISLAND_RULES",
 
 
 def subject(tool, inp):
-    """The text a rule matches against, per tool."""
-    if tool == "Bash":
-        return inp.get("command", "")
-    if tool in ("Read", "Edit", "Write", "NotebookEdit"):
-        return inp.get("file_path", "")
+    """The text a rule matches against, per tool.
+
+    Vendors name the same tool differently — Claude's Bash is Cursor's Shell — so one rule set
+    can govern every agent only if the names are folded together here.
+    """
+    if tool in ("Bash", "Shell", "run_terminal_cmd"):
+        return inp.get("command") or inp.get("cmd") or ""
+    if tool in ("Read", "Edit", "Write", "NotebookEdit", "read_file", "edit_file"):
+        return inp.get("file_path") or inp.get("path") or ""
     if tool == "Grep":
         return inp.get("pattern", "")
     return json.dumps(inp)
+
+
+ALIASES = [{"Bash", "Shell", "run_terminal_cmd"},
+           {"Read", "read_file"},
+           {"Edit", "Write", "edit_file"}]
+
+
+def _same_tool(a, b):
+    return any(a in group and b in group for group in ALIASES)
 
 
 def main():
@@ -36,7 +49,8 @@ def main():
     if not isinstance(rules, list):
         sys.exit(0)
 
-    tool = payload.get("tool_name", "")
+    # Cursor sends camelCase event names; the rule file should not have to know that.
+    tool = payload.get("tool_name") or payload.get("toolName") or ""
     inp = payload.get("tool_input") or {}
     cwd = payload.get("cwd", "")
     text = subject(tool, inp)
@@ -44,7 +58,8 @@ def main():
     for r in rules:
         if not isinstance(r, dict):
             continue
-        if r.get("tool") and r["tool"] != tool:
+        # A rule naming "Bash" should also govern Cursor's "Shell".
+        if r.get("tool") and r["tool"] != tool and not _same_tool(r["tool"], tool):
             continue
         if r.get("cwd") and not cwd.startswith(r["cwd"]):
             continue

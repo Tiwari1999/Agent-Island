@@ -26,6 +26,15 @@ enum Titles {
     private static var promptCache: [String: String] = [:]
     private static var promptChecked: [String: Date] = [:]
 
+    /// Drop entries for sessions that are no longer listed, so the caches track the panel
+    /// rather than every session the app has ever seen.
+    static func retain(_ ids: Set<String>) {
+        cache = cache.filter { ids.contains($0.key) }
+        checked = checked.filter { ids.contains($0.key) }
+        promptCache = promptCache.filter { ids.contains($0.key) }
+        promptChecked = promptChecked.filter { ids.contains($0.key) }
+    }
+
     /// The user's most recent instruction — the single most useful line for recognising a session.
     static func lastPrompt(for sessionId: String, cwd: String?) -> String? {
         if let hit = promptCache[sessionId],

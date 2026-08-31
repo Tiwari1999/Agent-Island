@@ -109,4 +109,38 @@ if os.path.isdir(os.path.expanduser("~/.codex")):
 else:
     print("  Codex: not installed, skipped")
 
+# --- Cursor ------------------------------------------------------------------
+# Cursor's schema is flatter: {"hooks": {"event": [{"command": "..."}]}} with its own event
+# names, which HookStream.canonical() maps onto the shared vocabulary.
+CURSOR_EVENTS = ["beforeSubmitPrompt", "beforeShellExecution", "afterShellExecution",
+                 "afterFileEdit", "afterAgentResponse", "stop",
+                 "subagentStart", "subagentStop"]
+
+cursor_path = os.path.expanduser("~/.cursor/hooks.json")
+if os.path.isdir(os.path.expanduser("~/.cursor")):
+    cfg = load(cursor_path)
+    if cfg is not None:
+        hooks = cfg.setdefault("hooks", {})
+        foreign = sum(len(v) for k, v in hooks.items()
+                      for _ in [0]) - sum(1 for v in hooks.values() for h in v
+                                          if MARK in json.dumps(h))
+        added = 0
+        for event in CURSOR_EVENTS:
+            entries = hooks.setdefault(event, [])
+            if any(MARK in json.dumps(e) for e in entries):
+                continue
+            entries.append({"command": HOOK})
+            added += 1
+        if added:
+            b = backup(cursor_path)
+            with open(cursor_path, "w") as f:
+                json.dump(cfg, f, indent=2)
+            print(f"  Cursor: added {added} entries  ({foreign} other tools' hooks preserved)")
+            if b:
+                print(f"    backup: {b}")
+        else:
+            print(f"  Cursor: already installed, nothing changed  ({foreign} other tools' hooks left alone)")
+else:
+    print("  Cursor: not installed, skipped")
+
 print("\n  Uninstall with: python3 scripts/uninstall-hooks.py")

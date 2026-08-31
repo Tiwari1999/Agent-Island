@@ -106,7 +106,7 @@ final class HookStream: ObservableObject {
                 obj = payload
             }
             guard let session = obj["session_id"] as? String else { continue }
-            let event = obj["hook_event_name"] as? String ?? ""
+            let event = Self.canonical(obj["hook_event_name"] as? String ?? "")
             var state = updates[session] ?? live[session] ?? LiveState()
             state.at = Date()
 
@@ -169,6 +169,36 @@ final class HookStream: ObservableObject {
         }
     }
 
+    /// Map every vendor's spelling onto one vocabulary.
+    ///
+    /// Claude Code sends PascalCase (`PreToolUse`), Cursor sends camelCase with its own names
+    /// (`preToolUse`, `beforeSubmitPrompt`, `afterShellExecution`). The switch below only ever
+    /// saw Claude's, so Cursor events landed in the spool and were silently discarded — the
+    /// rows looked static while the data was arriving all along.
+    static func canonical(_ raw: String) -> String {
+        switch raw {
+        // Claude Code — already canonical
+        case "PreToolUse", "PostToolUse", "Notification", "PermissionRequest",
+             "Stop", "SessionEnd", "SessionStart", "UserPromptSubmit", "StopFailure":
+            return raw
+        // Cursor
+        case "preToolUse", "beforeShellExecution", "beforeMCPExecution", "beforeReadFile":
+            return "PreToolUse"
+        case "postToolUse", "afterShellExecution", "afterMCPExecution", "afterFileEdit":
+            return "PostToolUse"
+        case "afterAgentResponse", "stop":            return "Stop"
+        case "sessionStart", "subagentStart":         return "SessionStart"
+        case "sessionEnd", "subagentStop":            return "SessionEnd"
+        case "beforeSubmitPrompt":                    return "UserPromptSubmit"
+        case "afterAgentThought":                     return "PostToolUse"
+        default:
+            // Unknown spellings normalise to PascalCase rather than being dropped, so a vendor
+            // adding an event degrades to "something happened" instead of silence.
+            guard let f = raw.first else { return raw }
+            return f.uppercased() + raw.dropFirst()
+        }
+    }
+
     /// One short human line for what the tool is doing — the thing worth reading at a glance.
     private static func describe(tool: String?, input: Any?) -> String? {
         guard let tool else { return nil }
@@ -179,7 +209,8 @@ final class HookStream: ObservableObject {
             return one.count > n ? String(one.prefix(n)) + "…" : one
         }
         switch tool {
-        case "Bash":  return short(d["command"] as? String)
+        case "Bash", "Shell", "run_terminal_cmd":
+            return short((d["command"] as? String) ?? (d["cmd"] as? String))
         case "Read", "Edit", "Write":
             let p = (d["file_path"] as? String) ?? ""
             return "\(tool) \((p as NSString).lastPathComponent)"

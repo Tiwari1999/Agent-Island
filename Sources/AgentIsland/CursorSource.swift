@@ -20,6 +20,7 @@ struct CursorSource: AgentSource {
         let cap = 12
         let fm = FileManager.default
         let running = Self.runningSessions()
+        Self.refreshIndex()
         var agents: [Agent] = []
 
         // Hundreds of sessions accumulate here, so filter on directory mtime before reading
@@ -39,16 +40,20 @@ struct CursorSource: AgentSource {
                 guard (meta["hasConversation"] as? Bool) ?? false else { continue }
 
                 let cwd = meta["cwd"] as? String
+                // A directory that no longer exists cannot be opened or resumed, so the row
+                // would be a dead end. Scratch directories are the common case.
+                if let c = cwd, !fm.fileExists(atPath: c) { continue }
                 let updated = (meta["updatedAtMs"] as? NSNumber).map {
                     Date(timeIntervalSince1970: $0.doubleValue / 1000)
                 } ?? mtime
                 let live = cwd.flatMap { running[$0] }
+                let activity = Self.activity(sessionId: session)
 
                 agents.append(Agent(
                     sessionId: session,
                     name: nil,
                     cwd: cwd,
-                    state: live != nil ? "idle" : nil,
+                    state: activity.state ?? (live != nil ? "idle" : nil),
                     status: nil,
                     pid: live,
                     vendor: .cursor,
@@ -63,6 +68,60 @@ struct CursorSource: AgentSource {
             .map { $0 }
     }
 
+    /// Liveness, from the append-only transcript Cursor writes per session.
+    ///
+    /// Hooks are the official signal and are registered, but they only fire for interactive
+    /// sessions — a headless run emits nothing, so hooks alone would leave those rows dead.
+    /// The transcript is written either way: a recent append means the agent is working, and a
+    /// trailing `turn_ended` means it has stopped and is waiting.
+    ///
+    /// Indexed once per refresh rather than probed per session: there are ~600 transcripts, and
+    /// two subprocess spawns each took discovery from 0.6s to 4.3s.
+    private static var index: [String: String] = [:]
+    private static var indexedAt = Date.distantPast
+
+    private static func refreshIndex() {
+        guard Date().timeIntervalSince(indexedAt) > 30 else { return }
+        indexedAt = Date()
+        let root = NSHomeDirectory() + "/.cursor/projects"
+        let listing = Shell.runSync("/usr/bin/find", [
+            root, "-name", "*.jsonl", "-path", "*/agent-transcripts/*", "-newermt", "-2 days"])
+        var map: [String: String] = [:]
+        for path in listing.split(whereSeparator: \.isNewline).map(String.init) {
+            // .../agent-transcripts/<session-uuid>/<file>.jsonl
+            let session = (path as NSString).deletingLastPathComponent
+            map[(session as NSString).lastPathComponent] = path
+        }
+        if !map.isEmpty { index = map }
+    }
+
+    private static func activity(sessionId: String) -> (state: String?, at: Date?) {
+        guard let path = index[sessionId],
+              let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+              let mtime = attrs[.modificationDate] as? Date else { return (nil, nil) }
+        // Only read the file at all when it was touched recently; a stale one is idle by
+        // definition and its contents cannot change that.
+        guard Date().timeIntervalSince(mtime) < 30 else { return ("idle", mtime) }
+        let ended = lastLine(path).contains("turn_ended")
+        return (ended ? "idle" : "busy", mtime)
+    }
+
+    /// Read the tail in-process rather than spawning `tail`.
+    private static func lastLine(_ path: String) -> String {
+        guard let h = FileHandle(forReadingAtPath: path) else { return "" }
+        defer { try? h.close() }
+        let size = (try? h.seekToEnd()) ?? 0
+        let back = UInt64(min(size, 2048))
+        try? h.seek(toOffset: size - back)
+        let data = h.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8)?
+            .split(whereSeparator: \.isNewline).last.map(String.init) ?? ""
+    }
+
+    private static func shellQuote(_ s: String) -> String {
+        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
     /// prompt_history.json is a plain array of the instructions given, newest last.
     private static func lastPrompt(dir: String) -> String? {
         guard let data = FileManager.default.contents(atPath: "\(dir)/prompt_history.json"),
@@ -73,17 +132,11 @@ struct CursorSource: AgentSource {
     }
 
     private static func runningSessions() -> [String: Int] {
+        // Full-command match is required here: cursor-agent execs a versioned node binary, so
+        // the process name is "node". It matches a single process, unlike codex.
         let pids = Shell.runSync("/usr/bin/pgrep", ["-f", "cursor-agent"])
             .split(whereSeparator: \.isNewline).compactMap { Int($0) }
-        var byCwd: [String: Int] = [:]
-        for pid in pids {
-            let cwd = Shell.runSync("/bin/sh", ["-c",
-                "lsof -a -p \(pid) -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1"])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !cwd.isEmpty else { continue }
-            if byCwd[cwd] == nil { byCwd[cwd] = pid } else { byCwd[cwd] = -1 }
-        }
-        return byCwd.filter { $0.value > 0 }
+        return Cwd.map(pids: pids)
     }
 }
 

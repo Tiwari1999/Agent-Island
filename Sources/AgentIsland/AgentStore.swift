@@ -18,6 +18,8 @@ struct Agent: Identifiable, Decodable {
     var lastActiveOverride: Date?
     var titleOverride: String?
     var promptOverride: String?
+    /// Vendors without a statusLine report context pressure at discovery instead.
+    var contextPctOverride: Int?
 
     enum CodingKeys: String, CodingKey {
         case sessionId, name, cwd, state, status, pid
@@ -25,7 +27,8 @@ struct Agent: Identifiable, Decodable {
 
     init(sessionId: String, name: String?, cwd: String?, state: String?, status: String?,
          pid: Int?, vendor: Vendor = .claude, lastActiveOverride: Date? = nil,
-         titleOverride: String? = nil, promptOverride: String? = nil) {
+         titleOverride: String? = nil, promptOverride: String? = nil,
+         contextPctOverride: Int? = nil) {
         self.sessionId = sessionId
         self.name = name
         self.cwd = cwd
@@ -36,6 +39,7 @@ struct Agent: Identifiable, Decodable {
         self.lastActiveOverride = lastActiveOverride
         self.titleOverride = titleOverride
         self.promptOverride = promptOverride
+        self.contextPctOverride = contextPctOverride
     }
 
     var id: String { sessionId }
@@ -75,8 +79,18 @@ struct AgentRow: Identifiable {
     var displayName: String { tabTitle ?? aiTitle ?? agent.label }
     /// Keep the handle visible when a real title replaced it, so rows stay cross-referenceable.
     var subtitle: String { displayName == agent.label ? agent.project : agent.label }
+    /// What this row cannot show, because its vendor does not publish it. Shown in place of a
+    /// blank, so an unsupported capability never reads as a broken one.
+    var unsupported: String? {
+        switch agent.vendor {
+        case .claude: return nil
+        case .codex:  return tasks == nil ? "no task list" : nil
+        case .cursor: return "no quota data"
+        }
+    }
+
     /// Context pressure — the compaction cliff is at 90%.
-    var contextPct: Int? { status?.contextPct }
+    var contextPct: Int? { agent.contextPctOverride ?? status?.contextPct }
     var nearCompaction: Bool { (status?.contextPct ?? 0) >= 90 }
 
     /// Where this session runs, for the row's context chip.
@@ -113,6 +127,9 @@ struct AgentRow: Identifiable {
 @MainActor
 final class AgentStore: ObservableObject {
     @Published private(set) var rows: [AgentRow] = []
+    /// False until discovery has completed once, so the empty state can tell "nothing yet" from
+    /// "nothing at all".
+    @Published private(set) var hasRefreshed = false
     let hooks = HookStream()
 
     private var timer: Timer?
@@ -173,7 +190,10 @@ final class AgentStore: ObservableObject {
             let found = sources.filter(\.isAvailable).flatMap { $0.discover() }
             Diagnostics.log("refresh: \(found.count) sessions in "
                             + String(format: "%.2fs", Date().timeIntervalSince(started)))
-            Task { @MainActor in self?.rebuild(found) }
+            Task { @MainActor in
+                self?.hasRefreshed = true
+                self?.rebuild(found)
+            }
         }
     }
 
@@ -183,7 +203,15 @@ final class AgentStore: ObservableObject {
             // One ps call for every pid we have not seen, instead of two per agent per cycle.
             let pids = agents.compactMap(\.pid)
             ProcEnv.prime(pids: pids)
-            ProcEnv.retain(Set(pids))
+            // Every per-process and per-session cache is bounded to what is currently live.
+            // Without this they grow for the life of the app — invisible in a 60-second
+            // benchmark, and a real leak over a day of agents starting and stopping.
+            let alive = Set(pids)
+            ProcEnv.retain(alive)
+            Cwd.retain(alive)
+            let ids = Set(agents.map(\.sessionId))
+            Transcript.retain(ids)
+            Titles.retain(ids)
             let resolved: [(Agent, String?, Date?, WarpTabs.Tab?, HostTerminal)] = agents.map { a in
                 (a, a.pid.flatMap { WarpJump.focusURL(pid: $0) },
                  a.lastActiveOverride ?? Transcript.lastActive(a),
@@ -282,6 +310,11 @@ enum Transcript {
     /// its transcript touched without any new content, so a 25-day-old conversation reported
     /// minutes. The last entry's own timestamp cannot be faked that way.
     private static var activeCache: [String: (mtime: Date, value: Date?)] = [:]
+
+    /// Drop entries for sessions that are no longer listed.
+    static func retain(_ ids: Set<String>) {
+        activeCache = activeCache.filter { ids.contains($0.key) }
+    }
 
     static func lastActive(_ a: Agent) -> Date? {
         guard let path = path(for: a) else { return nil }

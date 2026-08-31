@@ -59,6 +59,39 @@ def clean(name, path):
 clean("Claude Code", os.path.expanduser("~/.claude/settings.json"))
 clean("Codex", os.path.expanduser("~/.codex/hooks.json"))
 
+
+def clean_cursor(path):
+    """Cursor's schema is flat — {"hooks": {"event": [{"command": ...}]}} — so it needs its own
+    pass rather than the nested walk above."""
+    if not os.path.exists(path):
+        print("  Cursor: no config, nothing to do")
+        return
+    try:
+        with open(path) as f:
+            cfg = json.load(f)
+    except json.JSONDecodeError:
+        print("  Cursor: config is not valid JSON, refusing to touch it")
+        return
+    removed, kept = 0, {}
+    for event, entries in cfg.get("hooks", {}).items():
+        survivors = [e for e in entries if MARK not in json.dumps(e)]
+        removed += len(entries) - len(survivors)
+        if survivors:
+            kept[event] = survivors
+    if not removed:
+        print("  Cursor: nothing of ours found")
+        return
+    shutil.copy2(path, f"{path}.backup.agentisland-uninstall."
+                       f"{time.strftime('%Y-%m-%dT%H-%M-%SZ', time.gmtime())}")
+    cfg["hooks"] = kept
+    with open(path, "w") as f:
+        json.dump(cfg, f, indent=2)
+    print(f"  Cursor: removed {removed} hook(s); "
+          f"{sum(len(v) for v in kept.values())} other hooks left intact")
+
+
+clean_cursor(os.path.expanduser("~/.cursor/hooks.json"))
+
 for p in ["/tmp/agentisland-events.jsonl", "/tmp/agentisland.alive", "/tmp/agentisland.log",
           "/tmp/agentisland-status.json"]:
     if os.path.exists(p):

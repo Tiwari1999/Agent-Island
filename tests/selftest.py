@@ -11,7 +11,7 @@ def check(name, ok, detail=""):
     print(f"  {'PASS' if ok else 'FAIL'}  {name}{('  — '+detail) if detail else ''}")
     if not ok: fails.append(name)
 
-print("=== 1. agent enumeration ===")
+print("=== AGENTISLAND SELF-TEST ===\n\n=== 1. agent enumeration ===")
 raw=subprocess.run([CLAUDE,"agents","--json","--all"],capture_output=True,text=True)
 agents=json.loads(raw.stdout or "[]")
 check("claude agents --json returns sessions", len(agents)>0, f"{len(agents)} sessions")
@@ -73,7 +73,7 @@ if os.path.exists(hook):
         back=json.loads(open(tmp).read().strip().split("\n")[0])
         check("written event round-trips as JSON", back.get("session_id")==sample["session_id"])
 
-    live="/tmp/agentisland-events.jsonl"
+    live="/tmp/agentisland-events.jsonl"   # read-only check, never written by the suite
     check("live session events are reaching the spool",
           os.path.exists(live) and os.path.getsize(live)>0,
           f"{os.path.getsize(live) if os.path.exists(live) else 0} bytes")
@@ -81,7 +81,8 @@ else:
     check("hook script exists", False, "not created yet")
 
 print("\n=== 6. attention pipeline (toast triggers) ===")
-live="/tmp/agentisland-events.jsonl"
+# Its own file: a suite that writes to the spool the app reads puts fake rows in the panel.
+live="/tmp/agentisland-selftest.jsonl"
 sess="selftest-peek"
 before=os.path.getsize(live) if os.path.exists(live) else 0
 with open(live,"a") as f:
@@ -364,8 +365,9 @@ if os.path.isdir(cur):
            if time.time()-os.path.getmtime(os.path.dirname(m)) < 2*86400]
     check("cursor sessions are discoverable on disk", len(metas)>0, f"{len(metas)} in 2d window")
 
+_store = open(f"{src}/AgentStore.swift").read()
 check("refresh hops back onto the main actor",
-      "Task { @MainActor in self?.rebuild" in open(f"{src}/AgentStore.swift").read())
+      "Task { @MainActor in" in _store and "self?.rebuild(found)" in _store)
 check("sources are snapshotted before leaving the actor",
       "let sources = self.sources" in open(f"{src}/AgentStore.swift").read())
 live_log="/tmp/agentisland.log"
@@ -391,13 +393,26 @@ for name,p in [("claude","~/.claude/settings.json"),("codex","~/.codex/hooks.jso
                    for h in e.get("hooks",[]) if "agentisland" not in json.dumps(h))
         check(f"{name}: other tools' hooks survived install", theirs>0, f"{theirs} preserved")
 
-print("\n=== 19. honest degradation ===")
+print("\n=== 19. cache bounds (soak safety) ===")
+_st=open(f"{src}/AgentStore.swift").read()
+for name in ("ProcEnv.retain","Cwd.retain","Transcript.retain","Titles.retain"):
+    check(f"{name} is called each refresh", name in _st)
+check("codex rollout cache is trimmed",
+      "trimCache(keeping" in open(f"{src}/CodexSource.swift").read())
+_cwd=open(f"{src}/Cwd.swift").read()
+check("cwd lookups are batched into one lsof", "-p \\(list)" in _cwd)
+check("cwd misses are recorded so they are not retried",
+      "not retried every cycle" in _cwd or 'found[pid] == nil { found[pid] = "" }' in _cwd)
+_cx=open(f"{src}/CodexSource.swift").read()
+check("codex pgrep is exact-match, not full command line", '"-x", "codex"' in _cx)
+
+print("\n=== 20. honest degradation ===")
 host=open(f"{src}/HostTerminal.swift").read()
 check("a capable host with no handle degrades rather than guessing", "case degraded" in host)
 check("degraded jump deliberately does nothing", "Deliberately does nothing" in host)
 check("every vendor has a resume path", "codex resume" in open(f"{src}/Reopen.swift").read())
 
-print("\n=== 20. notification noise ===")
+print("\n=== 21. notification noise ===")
 hs=open(os.path.join(REPO,"Sources/AgentIsland/HookStream.swift")).read()
 check("idle_prompt is not treated as an ask", "idle_prompt" in hs)
 check("only real asks set waiting", 'kind == "idle_prompt"' in hs)
@@ -409,7 +424,7 @@ if os.path.exists("/tmp/agentisland-events.jsonl"):
             except Exception: pass
 check("idle_prompt observed in the wild (the noisy one)", "idle_prompt" in seen, str(sorted(x for x in seen if x)))
 
-print("\n=== 18. first-click reliability ===")
+print("\n=== 22. first-click reliability ===")
 isl=open(os.path.join(REPO,"Sources/AgentIsland/Island.swift")).read()
 check("hosting view accepts first mouse (panel is never key)",
       "acceptsFirstMouse" in isl and "FirstMouseHostingView" in isl)
@@ -419,7 +434,7 @@ check("hit region refreshes on state change, not only on poll",
 check("poll is a backstop, not the primary path",
       "state == .collapsed ? 0.75 : 0.06" in isl)
 
-print("\n=== 19. binary builds & launches ===")
+print("\n=== 23. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")
 check("binary exists", os.path.exists(b))
 

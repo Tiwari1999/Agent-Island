@@ -7,7 +7,9 @@ named window and reports mean and p95, so the number can be compared against a r
 """
 import argparse, json, os, subprocess, sys, time
 
-SPOOL = "/tmp/agentisland-events.jsonl"
+# Never the live spool by default: synthetic sessions leaking into the panel is worse than a
+# benchmark that needs one flag. Pass --live to measure the real app end to end.
+SPOOL = os.environ.get("AGENTISLAND_SPOOL", "/tmp/agentisland-bench.jsonl")
 PROC = "AgentIsland.app/Contents/MacOS/AgentIsland"
 
 
@@ -57,7 +59,14 @@ def main():
     ap.add_argument("--rate", type=float, default=2.0, help="tool-call bursts per second")
     ap.add_argument("--window", type=int, default=300, help="measurement window, seconds")
     ap.add_argument("--idle", action="store_true", help="measure idle instead, for the baseline")
+    ap.add_argument("--live", action="store_true",
+                    help="drive the real spool the app reads (pollutes the panel until purged)")
     a = ap.parse_args()
+
+    global SPOOL
+    if a.live:
+        SPOOL = "/tmp/agentisland-events.jsonl"
+        print("  ! driving the LIVE spool — run tests/purge-synthetic.py afterwards")
 
     p = pid()
     if not p:
