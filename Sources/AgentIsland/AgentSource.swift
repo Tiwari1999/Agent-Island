@@ -113,6 +113,31 @@ enum PromptCheck {
              "a long line ending in a colon is content, not a label"),
         ]
         var failed = 0
+        // Hook shapes that have blanked a row. Cursor's shell hooks carry no tool_name.
+        let hooks: [([String: Any], String?, String)] = [
+            (["hook_event_name": "beforeShellExecution", "command": "git log --oneline -5"],
+             "git log --oneline -5", "cursor shell hook: command at the top level"),
+            (["hook_event_name": "preToolUse", "tool_name": "Shell",
+              "tool_input": ["command": "swift build"]],
+             "swift build", "cursor preToolUse: normal tool_input"),
+            (["hook_event_name": "PreToolUse", "tool_name": "Read",
+              "tool_input": ["file_path": "/a/b/Views.swift"]],
+             "Read Views.swift", "claude read"),
+        ]
+        for (obj, want, why) in hooks {
+            let got = HookStream.activity(from: obj)?.detail
+            if got != want {
+                failed += 1
+                FileHandle.standardError.write(
+                    "FAIL \(why)\n  want: \(want ?? "nil")\n  got:  \(got ?? "nil")\n"
+                        .data(using: .utf8)!)
+            }
+        }
+        if HookStream.activity(from: ["hook_event_name": "Stop"]) != nil {
+            failed += 1
+            FileHandle.standardError.write(
+                "FAIL an unreadable event must not erase the current activity\n".data(using: .utf8)!)
+        }
         for (input, want, why) in cases {
             let got = PromptText.humanLine(input)
             if got != want {
@@ -122,7 +147,8 @@ enum PromptCheck {
                         .data(using: .utf8)!)
             }
         }
-        print("prompt extraction: \(cases.count - failed)/\(cases.count) cases")
+        print("pure-logic checks: \(cases.count + hooks.count + 1 - failed)/"
+              + "\(cases.count + hooks.count + 1) cases")
         return failed == 0 ? 0 : 1
     }
 }

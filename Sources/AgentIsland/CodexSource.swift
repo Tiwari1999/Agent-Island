@@ -85,6 +85,7 @@ struct CodexSource: AgentSource {
         guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return r }
 
         var lastUsage: [String: Any]?
+        var window: Double?
         for line in text.split(whereSeparator: \.isNewline) {
             // Cheap substring gate before paying for JSON on a line we do not want.
             // Older rollouts logged a `user_message` event; newer ones record the turn as a
@@ -100,13 +101,20 @@ struct CodexSource: AgentSource {
                 if r.firstPrompt == nil { r.firstPrompt = String(t.prefix(60)) }
                 r.lastPrompt = t.count > 120 ? String(t.prefix(120)) + "…" : t
             }
-            if wantsUsage, let u = payload["total_token_usage"] as? [String: Any] { lastUsage = u }
+            if wantsUsage {
+                // The accounting sits under `info`, and the cumulative total counts every turn
+                // ever sent — using it put every row at the compaction cliff. The last turn's
+                // input is the context that actually exists right now.
+                let info = (payload["info"] as? [String: Any]) ?? payload
+                if let u = info["last_token_usage"] as? [String: Any] { lastUsage = u }
+                if let w = (info["model_context_window"] as? NSNumber)?.doubleValue, w > 0 {
+                    window = w
+                }
+            }
         }
-        if let u = lastUsage,
-           let used = (u["total_tokens"] as? NSNumber)?.doubleValue
-                   ?? (u["input_tokens"] as? NSNumber)?.doubleValue {
-            // Codex does not publish the window size in the stream; 200k is its documented default.
-            r.contextPct = min(99, Int(used / 200_000 * 100))
+        if let u = lastUsage, let used = (u["input_tokens"] as? NSNumber)?.doubleValue {
+            // Codex publishes the window it is actually using; 200k is only the fallback.
+            r.contextPct = min(99, Int(used / (window ?? 200_000) * 100))
         }
         cache[path] = (mtime, r)
         return r

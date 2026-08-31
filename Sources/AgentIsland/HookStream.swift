@@ -113,8 +113,10 @@ final class HookStream: ObservableObject {
             switch event {
             case "PreToolUse", "PostToolUse":
                 revived.insert(session)
-                state.tool = obj["tool_name"] as? String
-                state.detail = Self.describe(tool: state.tool, input: obj["tool_input"])
+                // Cursor's shell hooks name no tool and put the command at the top level, so
+                // reading the fields literally blanked the row for the whole run. An event we
+                // cannot read leaves the last known activity alone rather than erasing it.
+                if let a = Self.activity(from: obj) { state.tool = a.tool; state.detail = a.detail }
                 state.waiting = false
             case "Notification", "PermissionRequest":
                 // `idle_prompt` just means the session finished its turn and is sitting at a
@@ -175,6 +177,21 @@ final class HookStream: ObservableObject {
     /// (`preToolUse`, `beforeSubmitPrompt`, `afterShellExecution`). The switch below only ever
     /// saw Claude's, so Cursor events landed in the spool and were silently discarded — the
     /// rows looked static while the data was arriving all along.
+    /// What a tool event says the agent is doing, across vendors that describe it differently.
+    ///
+    /// Cursor's shell hooks name no tool and put the command at the top level. Returning nil for
+    /// an event we cannot read leaves the last known activity in place, which reads better than
+    /// blanking the row mid-run.
+    static func activity(from obj: [String: Any]) -> (tool: String?, detail: String?)? {
+        if let name = obj["tool_name"] as? String {
+            return (name, describe(tool: name, input: obj["tool_input"]))
+        }
+        if let command = obj["command"] as? String, !command.isEmpty {
+            return ("Shell", describe(tool: "Shell", input: ["command": command]))
+        }
+        return nil
+    }
+
     static func canonical(_ raw: String) -> String {
         switch raw {
         // Claude Code — already canonical

@@ -267,7 +267,7 @@ shown_blocked=sum(1 for r in rows if r.get("blocked"))
 # with machinery, a bare id, or nothing.
 pc=subprocess.run([os.path.join(REPO,".build/release/AgentIsland"),"--check-prompts"],
                   capture_output=True,text=True)
-check("prompt extraction handles every shape that has broken it",
+check("pure logic handles every shape that has broken a row",
       pc.returncode==0, (pc.stdout+pc.stderr).strip().splitlines()[-1] if (pc.stdout or pc.stderr) else "")
 
 check("blocked badge matches the jobs actually blocked on disk",
