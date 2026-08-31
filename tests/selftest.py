@@ -270,6 +270,14 @@ pc=subprocess.run([os.path.join(REPO,".build/release/AgentIsland"),"--check-prom
 check("pure logic handles every shape that has broken a row",
       pc.returncode==0, (pc.stdout+pc.stderr).strip().splitlines()[-1] if (pc.stdout or pc.stderr) else "")
 
+# Codex publishes its own window and per-turn usage; reading the cumulative total instead
+# pinned every row at the compaction cliff, and reading the wrong nesting level showed nothing.
+cx=[r["context"] for r in rows if r["vendor"]=="codex"]
+check("codex rows carry a context reading", any(c>=0 for c in cx),
+      f"{sum(1 for c in cx if c>=0)}/{len(cx)} rows")
+check("no codex row is pinned at the compaction cliff", not [c for c in cx if c>=99],
+      f"max {max(cx) if cx else 0}%")
+
 check("blocked badge matches the jobs actually blocked on disk",
       shown_blocked<=disk_blocked, f"{shown_blocked} shown, {disk_blocked} on disk")
 

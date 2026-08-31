@@ -95,7 +95,10 @@ struct CursorSource: AgentSource {
         indexedAt = Date()
         let root = NSHomeDirectory() + "/.cursor/projects"
         let listing = Shell.runSync("/usr/bin/find", [
-            root, "-name", "*.jsonl", "-path", "*/agent-transcripts/*", "-newermt", "-2 days"])
+            // Wider than the two-day session window on purpose: a chat directory can be touched
+            // long after its transcript was last written, and matching the windows left those
+            // rows with no title and no activity.
+            root, "-name", "*.jsonl", "-path", "*/agent-transcripts/*", "-newermt", "-30 days"])
         var map: [String: String] = [:]
         for path in listing.split(whereSeparator: \.isNewline).map(String.init) {
             // .../agent-transcripts/<session-uuid>/<file>.jsonl
