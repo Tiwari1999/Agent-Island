@@ -254,7 +254,8 @@ final class AgentStore: ObservableObject {
         let items = rows.map { r -> [String: Any] in
             ["sessionId": r.agent.sessionId, "vendor": r.agent.vendor.rawValue,
              "title": r.displayName, "cwd": r.agent.cwd ?? "",
-             "lastActive": r.lastActive.map { ISO8601DateFormatter().string(from: $0) } ?? ""]
+             "lastActive": r.lastActive.map { ISO8601DateFormatter().string(from: $0) } ?? "",
+             "blocked": r.dormantBlocked, "working": r.agent.isWorking]
         }
         guard let data = try? JSONSerialization.data(withJSONObject: items) else { return }
         let path = "/tmp/agentisland.rows.json"

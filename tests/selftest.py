@@ -254,6 +254,17 @@ check("no row is labelled with a bare session id", not bare,
       bare[0]["title"] if bare else "")
 check("every row has a last-active time", all(r["lastActive"] for r in rows))
 
+# "blocked" is the panel's most alarming badge; it must match the jobs on disk exactly, since
+# a stale one is how a session reads as stuck when it is fine.
+disk_blocked=0
+for jp in glob.glob(f"{home}/.claude/jobs/*/state.json"):
+    try: jo=json.load(open(jp))
+    except Exception: continue
+    if jo.get("state")=="blocked" and (jo.get("needs") or jo.get("detail")): disk_blocked+=1
+shown_blocked=sum(1 for r in rows if r.get("blocked"))
+check("blocked badge matches the jobs actually blocked on disk",
+      shown_blocked<=disk_blocked, f"{shown_blocked} shown, {disk_blocked} on disk")
+
 print("\n=== 10. one-click answers (must never hang a session) ===")
 qh=os.path.join(REPO,"hooks/agentisland-question.py")
 QREQ=json.dumps({"session_id":"selftest","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion",
