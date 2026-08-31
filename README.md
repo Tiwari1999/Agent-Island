@@ -1,96 +1,126 @@
-# AgentIsland
+<div align="center">
 
-A macOS notch panel for Claude Code. See every session at a glance, jump to the exact terminal
-tab that needs you, and approve or answer a blocked agent without leaving the notch.
+# 🏝️ Agent Island
 
-Native Swift/SwiftUI. No Electron, no server, no telemetry, no API key — everything is read from
-files Claude Code already writes on your machine.
+**Your MacBook notch, turned into mission control for Claude Code.**
+
+See every agent at a glance · jump to the exact terminal tab · approve and answer without leaving the notch
+
+[![Platform](https://img.shields.io/badge/macOS-14%2B-000000?style=flat-square&logo=apple&logoColor=white)](https://www.apple.com/macos/)
+[![Swift](https://img.shields.io/badge/Swift-6.0-F05138?style=flat-square&logo=swift&logoColor=white)](https://swift.org)
+[![No Xcode](https://img.shields.io/badge/Xcode-not%20required-4BC51D?style=flat-square)](https://www.swift.org/getting-started/)
+[![Tests](https://img.shields.io/badge/self--tests-65-4BC51D?style=flat-square)](tests/selftest.py)
+[![Licence](https://img.shields.io/badge/licence-MIT-blue?style=flat-square)](#-licence)
+
+</div>
+
+---
+
+> [!NOTE]
+> Everything runs locally. No server, no telemetry, no API key, no subscription.
+> Agent Island reads only what Claude Code already writes to your own disk.
 
 <!-- Add a screenshot or short GIF of the expanded panel here. -->
 
-## Why
+## 🤔 Why
 
-Running five to ten concurrent Claude Code sessions, the bottleneck stops being the agents and
-becomes *you*: which one is blocked, which is burning quota, and which terminal tab does this
-notification even belong to. Claude Code exposes enough to answer all three — it just doesn't
-surface it anywhere.
+Running five to ten Claude Code sessions at once, the bottleneck stops being the agents — it becomes **you**.
 
-## Features
+Which one is blocked? Which is quietly burning the 5-hour window? Which of nine identical terminal tabs did that notification come from? Claude Code knows all of it. It just never shows you.
 
-- **Live session list** — every agent with its title, project, model, terminal, and current tool call
-- **Precise jump** — click a row and land on that agent's exact Warp tab, not just the app
-- **Approve from the notch** — permission requests appear as a card; `⌘⌥A` / `⌘⌥D`
-- **Answer questions in one click** — multiple-choice prompts answered with `⌘⌥1`–`⌘⌥4`
-- **Auto-approve rules** — regex allowlist so routine commands never interrupt you
-- **Quota** — 5h and 7d windows, plus a measured burn rate and projected exhaustion
-- **Context pressure** — a per-session ring, so you can compact before the cliff instead of after
-- **Task progress** — `4/9` with the current step, from Claude's own task list
-- **Died vs finished** — a rate-limited session is shown as dead, not complete
-- **Desktop alerts** — only when you're not already looking at the terminal
+Agent Island puts the answer where your eyes already are.
 
-## How the Warp jump works
+## ✨ Features
 
-The interesting bit. Other notch apps resolve Warp tabs by reading `warp.sqlite` and driving a
-keystroke loop, because the `warp://action/*` scheme is a closed whitelist that rejects focus
-intents. That approach cannot disambiguate tabs sharing a working directory.
+### 👀 See
+| | |
+|---|---|
+| 📋 **Live sessions** | Title, project, model, terminal and the tool call happening right now |
+| 🎯 **Task progress** | `4/9` with the current step, from Claude's own task list |
+| 🧠 **Context pressure** | A per-session ring — compact *before* the cliff, not after |
+| ⚡ **Quota** | 5h and 7d windows, a measured burn rate, and projected exhaustion |
+| 💀 **Died vs finished** | A rate-limited session shows as dead, not complete |
+| 🧊 **Blocked, not shouting** | Agents stuck on an old question stay visible without crying wolf |
 
-Warp exports a per-session handle into every shell it spawns:
+### 🚀 Act
+| | |
+|---|---|
+| 🎬 **Precise jump** | Click a row → land on that agent's **exact Warp tab**, not just the app |
+| ✅ **Approve from the notch** | Permission cards, answered with `⌘⌥A` / `⌘⌥D` |
+| 💬 **One-click answers** | Multiple-choice prompts answered with `⌘⌥1`–`⌘⌥4` |
+| 🤖 **Auto-approve rules** | A regex allowlist, so routine commands never interrupt you |
+| 🔔 **Alerts that respect you** | Desktop notifications only when you're *not* already looking |
 
-```
+## 🧭 The Warp jump
+
+The interesting part. 👇
+
+Other notch apps resolve Warp tabs by reading `warp.sqlite` and driving a **keystroke loop**, because the `warp://action/*` scheme is a closed whitelist that rejects focus intents. That approach can't tell apart tabs that share a working directory — so if all your agents live in one monorepo, it lands on the wrong one.
+
+But Warp exports a per-session handle into every shell it spawns:
+
+```bash
 WARP_TERMINAL_SESSION_UUID=936130df75f04ef3937afb799bdb1946
 WARP_FOCUS_URL=warp://session/936130df75f04ef3937afb799bdb1946
 ```
 
-Opening that URL makes Warp fire a `handle_pane_navigation_event` and focus the tab. So the whole
-jump is: read the agent's pid from `claude agents --json`, read `WARP_FOCUS_URL` out of that
-process's environment, and `open` it. No database, no synthetic keystrokes, no Accessibility
-permission — and it works even when every tab shares one repo.
+Opening that URL makes Warp fire a `handle_pane_navigation_event` and focus the tab. So the whole jump is:
 
-## Requirements
+```
+claude agents --json  →  pid  →  WARP_FOCUS_URL from that process's env  →  open
+```
 
-- macOS 14+
-- Claude Code (`claude` on your `PATH`)
-- Warp, for the precise-jump feature (everything else works without it)
-- Swift toolchain — Xcode **not** required; Command Line Tools are enough
+🗄️ No database. ⌨️ No synthetic keystrokes. 🔓 No Accessibility permission. And it resolves correctly **even when every tab shares one repo** — measured at 6/6 distinct tabs.
 
-## Install
+## 📦 Install
 
 ```bash
-git clone https://github.com/Tiwari1999/agentisland.git
-cd agentisland
+git clone https://github.com/Tiwari1999/Agent-Island.git
+cd Agent-Island
 ./install.sh
 ```
 
-`install.sh` builds a release binary, assembles `~/Applications/AgentIsland.app`, registers the
-hooks in `~/.claude/settings.json`, and launches it. To build only:
+`install.sh` builds a release binary, assembles `~/Applications/AgentIsland.app`, registers the hooks, and launches it.
+
+<details>
+<summary>🔧 Build only, without installing</summary>
 
 ```bash
 swift build -c release
 ```
 
-## Hooks
+Xcode is **not** required — Command Line Tools are enough.
+</details>
 
-The app reads Claude Code's hook events. `install.sh` registers these:
+### Requirements
 
-| Hook | Used for |
+- 🍎 macOS 14+
+- 🤖 Claude Code (`claude` on your `PATH`)
+- 🖥️ Warp — for the precise-jump feature (everything else works without it)
+
+## 🪝 Hooks
+
+Agent Island listens to Claude Code's hook events:
+
+| Hook | Powers |
 |---|---|
 | `PreToolUse` / `PostToolUse` | live activity per session |
-| `Notification` | an agent needs you |
+| `Notification` | an agent genuinely needs you |
 | `Stop` / `SessionEnd` | completion toast |
 | `StopFailure` | died-vs-finished, with `error_type` |
-| `PermissionRequest` | approval cards (and the auto-approve rules) |
+| `PermissionRequest` | approval cards + auto-approve rules |
 | `PreToolUse` (`AskUserQuestion`) | one-click answers |
-| `statusLine` | quota, model, and per-session context window |
+| `statusLine` | quota, model, per-session context window |
 
-Every hook **fails open**: if the app isn't running, or you don't answer in time, or a rules file
-is malformed, the hook exits silently and Claude prompts you normally. A hook that hangs freezes
-the session, so none of them can.
+> [!IMPORTANT]
+> **Every hook fails open.** If the app isn't running, or you don't answer in time, or a rules file is malformed, the hook exits silently and Claude prompts you normally.
+> A hook that hangs would freeze your session — so none of them can.
 
-The `statusLine` wrapper runs your existing statusline unchanged inside it.
+The `statusLine` wrapper runs your **existing** statusline unchanged inside it, and hook registration never clobbers another tool's entries. 🤝
 
-## Auto-approve rules
+## 🤖 Auto-approve rules
 
-`~/.agentisland/rules.json` — checked before you're asked:
+`~/.agentisland/rules.json` — consulted *before* you're ever asked:
 
 ```json
 [
@@ -100,34 +130,35 @@ The `statusLine` wrapper runs your existing statusline unchanged inside it.
 ]
 ```
 
-`tool` and `cwd` are optional; `pattern` is a regex over the command or file path. Anything that
-doesn't match falls through and still asks.
+`tool` and `cwd` are optional; `pattern` is a regex over the command or file path. Anything that doesn't match falls through and still asks. ✋
 
-## Architecture
+## 🏗️ Architecture
 
 ```
-Claude Code ──hooks──> /tmp/agentisland-events.jsonl ──tail──> HookStream
-            ──statusLine──> /tmp/agentisland-status/<session>.json ──> StatusStore
-            ──claude agents --json──────────────────────────────────> AgentStore
-                                                                          │
-                                     approvals/answers <──decision files──┘
+Claude Code ──hooks──────────> /tmp/agentisland-events.jsonl ──tail──> HookStream
+            ──statusLine─────> /tmp/agentisland-status/<id>.json ─────> StatusStore
+            ──agents --json──────────────────────────────────────────> AgentStore
+                                                                            │
+                                       approvals / answers <──decision file─┘
 ```
 
-One `NSPanel` is created at maximum size and **never resized** — the window server cannot
-interpolate content across a live resize, so all motion happens inside SwiftUI. Hover uses an
-`NSTrackingArea` in a separate sensor window rather than polling; a 32pt strip is crossed in under
-40ms, well inside any practical poll interval.
+Two design rules earned the hard way:
 
-## Tests
+- 🪟 **The window is created once at maximum size and never resized.** The window server can't interpolate content across a live resize, so every bit of motion happens inside SwiftUI.
+- 🖱️ **Hover uses an `NSTrackingArea`, never polling.** A 32pt strip is crossed in under 40 ms — faster than any practical poll interval, so polling misses it more often than it catches it.
+
+## 🧪 Tests
 
 ```bash
 python3 tests/selftest.py
 ```
 
-65 checks covering jump resolution against live Warp tabs, the hook contracts (including that
-every failure path exits without blocking), auto-approve rule decisions, panel geometry, and the
-staleness window.
+65 checks: jump resolution against live Warp tabs, every hook contract (including that each failure path exits without blocking), auto-approve decisions, panel geometry, and the staleness window.
 
-## Licence
+## 📄 Licence
 
 MIT
+
+<div align="center">
+<sub>Built for people running more agents than they have eyes. 👀</sub>
+</div>
