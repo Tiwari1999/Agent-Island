@@ -74,6 +74,7 @@ final class HookStream: ObservableObject {
         var approvals: [Approval] = []
         var questions: [Question] = []
         var fails: [String: String] = [:]
+        var revived: Set<String> = []
         for line in text.split(separator: "\n") {
             guard let d = line.data(using: .utf8),
                   var obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any]
@@ -111,6 +112,7 @@ final class HookStream: ObservableObject {
 
             switch event {
             case "PreToolUse", "PostToolUse":
+                revived.insert(session)
                 state.tool = obj["tool_name"] as? String
                 state.detail = Self.describe(tool: state.tool, input: obj["tool_input"])
                 state.waiting = false
@@ -130,7 +132,13 @@ final class HookStream: ObservableObject {
                     attention.append((session, msg, true))
                 }
             case "StopFailure":
-                let why = (obj["error_type"] as? String) ?? "failed"
+                // StopFailure also fires on ordinary non-clean stops (an interrupt, for example)
+                // with no error_type at all. Only a named failure — rate_limit, overloaded,
+                // billing_error — actually means the session died.
+                guard let why = obj["error_type"] as? String, !why.isEmpty else {
+                    state.waiting = false
+                    break
+                }
                 fails[session] = why
                 state.waiting = false
                 state.detail = "died: \(why)"
@@ -142,6 +150,7 @@ final class HookStream: ObservableObject {
                 state.tool = nil
                 state.detail = nil
             case "UserPromptSubmit":
+                revived.insert(session)
                 state.waiting = false
                 state.detail = "thinking"
             default: break
@@ -149,9 +158,10 @@ final class HookStream: ObservableObject {
             updates[session] = state
         }
         guard !updates.isEmpty || !attention.isEmpty || !approvals.isEmpty
-                || !questions.isEmpty || !fails.isEmpty else { return }
+                || !questions.isEmpty || !fails.isEmpty || !revived.isEmpty else { return }
         DispatchQueue.main.async {
             self.live.merge(updates) { _, new in new }
+            for s in revived { self.failures.removeValue(forKey: s) }
             if !fails.isEmpty { self.failures.merge(fails) { _, new in new } }
             for q in questions { self.onQuestion?(q) }
             for a in approvals { self.onApproval?(a) }
