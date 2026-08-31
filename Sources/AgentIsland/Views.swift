@@ -96,7 +96,8 @@ struct PeekView: View {
                     .foregroundColor(needsInput ? Theme.waiting : Theme.working)
             }
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(Theme.label(11.5)).foregroundColor(Theme.text).lineLimit(1)
+                Text(title).font(Theme.label(11.5)).foregroundColor(Theme.text)
+                    .lineLimit(1).truncationMode(.tail)
                 Text(message).font(Theme.mono(9.5)).foregroundColor(Theme.muted).lineLimit(1)
             }
             Spacer(minLength: 4)
@@ -104,7 +105,6 @@ struct PeekView: View {
             Image(systemName: "arrow.up.forward").font(.system(size: 9)).foregroundColor(Theme.faint)
         }
         .padding(.horizontal, 14)
-        .padding(.top, notchWidth > 0 ? 6 : 0)
     }
 }
 

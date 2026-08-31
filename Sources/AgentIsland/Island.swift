@@ -202,21 +202,21 @@ final class Island: NSObject, ObservableObject {
     /// The toast's own rect, so it can be clicked and does not eat the desktop around it.
     private var peekRect: NSRect {
         guard let screen else { return .zero }
-        let w: CGFloat = 380, h = notchHeight + 44
+        let w: CGFloat = 380, h = notchHeight + Self.notchClearance + 46
         return NSRect(x: screen.frame.midX - w / 2, y: screen.frame.maxY - h, width: w, height: h)
     }
 
     /// The approval card is wider than a toast and must be fully clickable.
     private var approvalRect: NSRect {
         guard let screen else { return .zero }
-        let w: CGFloat = 560, h = notchHeight + 54
+        let w: CGFloat = 560, h = notchHeight + Self.notchClearance + 54
         return NSRect(x: screen.frame.midX - w / 2, y: screen.frame.maxY - h, width: w, height: h)
     }
 
     /// Questions need room for the prompt plus a row of options.
     private var questionRect: NSRect {
         guard let screen else { return .zero }
-        let w: CGFloat = 600, h = notchHeight + 108
+        let w: CGFloat = 600, h = notchHeight + Self.notchClearance + 108
         return NSRect(x: screen.frame.midX - w / 2, y: screen.frame.maxY - h, width: w, height: h)
     }
 
@@ -416,9 +416,9 @@ private struct RootView: View {
         // Exactly the notch height. Anything shorter leaves a step where the bar meets the
         // camera housing; anything taller hangs into the window below.
         case .collapsed: return island.notchHeight
-        case .peek:      return island.notchHeight + 44
-        case .approval:  return island.notchHeight + 54
-        case .question:  return island.notchHeight + 108
+        case .peek:      return island.notchHeight + Island.notchClearance + 46
+        case .approval:  return island.notchHeight + Island.notchClearance + 54
+        case .question:  return island.notchHeight + Island.notchClearance + 108
         case .expanded:  return PanelView.height
         }
     }
@@ -449,6 +449,8 @@ private struct RootView: View {
                 case .peek(let p):
                     PeekView(title: p.title, message: p.message,
                              needsInput: p.needsInput, notchWidth: island.notchWidth)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .padding(.bottom, 10)
                         .contentShape(Rectangle())
                         .onTapGesture { island.actOnPeek(p) }
                 case .approval(let a):
@@ -457,13 +459,15 @@ private struct RootView: View {
                         agentName: store.displayName(for: a.session),
                         onAllow: { island.answer(a, allow: true) },
                         onDeny:  { island.answer(a, allow: false) })
-                        .padding(.top, island.notchWidth > 0 ? 8 : 0)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .padding(.bottom, 10)
                 case .question(let q):
                     QuestionCard(
                         question: q,
                         agentName: store.displayName(for: q.session),
                         onChoose: { island.choose(q, option: $0) })
-                        .padding(.top, island.notchWidth > 0 ? 8 : 0)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .padding(.bottom, 10)
                 case .expanded:
                     // Inset past the physical notch so text clears the camera, while the shape
                     // behind it still reaches the screen edge and reads as one piece with it.
