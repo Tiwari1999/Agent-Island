@@ -54,7 +54,6 @@ final class Island: NSObject, ObservableObject {
     /// to the menu bar, which is the top complaint across every shipping notch app.
     private static let hoverDwell: TimeInterval = 0.18
     private var outsideTicks = 0
-    private var hoverTicks = 0
     private let store: AgentStore
     private let status: StatusStore
 
@@ -260,13 +259,11 @@ final class Island: NSObject, ObservableObject {
         case .peek, .approval, .question:
             return   // hold until dwell elapses or the user answers; hover must not steal it
         case .collapsed:
-            let inside = hotRect.contains(mouse)
-            if revealed != inside {
-                withAnimation(.easeOut(duration: 0.16)) { revealed = inside }
-            }
-            guard inside else { hoverTicks = 0; return }
-            hoverTicks += 1
-            if hoverTicks >= 2 { hoverTicks = 0; expand() }
+            // Hover belongs to HoverSensor's tracking area alone. This branch used to duplicate
+            // it — setting `revealed` and calling expand() on its own schedule — so two paths
+            // fought over the same state at different rates and the result depended on which
+            // won. The poll now only keeps the island on the right display.
+            return
         case .expanded:
             if panelRect.union(hotRect).insetBy(dx: -8, dy: -8).contains(mouse) {
                 outsideTicks = 0
@@ -314,7 +311,7 @@ final class Island: NSObject, ObservableObject {
         guard state != .collapsed else { return }
         dwell?.cancel()
         removeClickMonitors()
-        outsideTicks = 0; hoverTicks = 0
+        outsideTicks = 0
         withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) { state = .collapsed }
         store.setPanelVisible(false)
         repoll()
