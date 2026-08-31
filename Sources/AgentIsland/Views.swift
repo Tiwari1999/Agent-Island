@@ -13,12 +13,11 @@ struct CollapsedView: View {
     /// Content is never allowed nearer the notch than this — text sliding under the camera
     /// housing is the one thing that makes the bar look broken.
     static let notchMargin: CGFloat = 14
-    /// Widened only on hover. At 148 the bar hid 162pt of menu bar on each side of the notch,
-    /// which is precisely where the status icons and clock live.
+    /// Live agent activity stays visible at rest — that ambient view is the point of the bar,
+    /// and hiding it behind a hover made the island useless at a glance.
     static let sideWidth: CGFloat = 148
-    static let restingSideWidth: CGFloat = 44
 
-    static func side(revealed: Bool) -> CGFloat { revealed ? sideWidth : restingSideWidth }
+    static func side(revealed: Bool) -> CGFloat { sideWidth }
 
     private var lead: AgentRow? {
         store.rows.first { $0.waiting } ?? store.rows.first { $0.agent.isWorking }
@@ -31,13 +30,11 @@ struct CollapsedView: View {
                 Spacer(minLength: 0)
                 if let row = lead {
                     AgentAvatar(seed: row.agent.sessionId, size: 13, active: true)
-                    if revealed {
-                        Text(row.activity ?? row.displayName)
-                            .font(Theme.mono(9.5))
-                            .foregroundColor(row.waiting ? Theme.waiting : Theme.muted)
-                            .lineLimit(1).truncationMode(.tail)
-                    }
-                } else if revealed {
+                    Text(row.activity ?? row.displayName)
+                        .font(Theme.mono(9.5))
+                        .foregroundColor(row.waiting ? Theme.waiting : Theme.muted)
+                        .lineLimit(1).truncationMode(.tail)
+                } else {
                     Text("idle").font(Theme.mono(9.5)).foregroundColor(Theme.faint)
                 }
             }
@@ -159,7 +156,7 @@ struct AgentRowView: View {
                     Spacer(minLength: 6)
                     chip("Claude", Theme.agentTint)
                     if let m = model { chip(m, Theme.muted) }
-                    chip(row.terminal, row.warpURL != nil ? Theme.muted : Theme.faint)
+                    chip(row.terminal, row.precise ? Theme.muted : Theme.faint)
                     if let t = row.tasks {
                         HStack(spacing: 3) {
                             Image(systemName: t.blocked ? "exclamationmark.circle" : "checklist")
@@ -223,7 +220,9 @@ struct AgentRowView: View {
         .contentShape(Rectangle())
         .onHover { h in withAnimation(.easeOut(duration: 0.12)) { hover = h } }
         .onTapGesture { if row.canJump { onJump() } }
-        .help("\(row.tabHint) — \(row.isBackground ? "opens a tab, attach command copied" : "click to jump")")
+        .help(row.isBackground ? "Background session — opens a tab, attach command copied"
+              : row.precise ? "Jump to this session in \(row.terminal)"
+              : "Raise \(row.terminal) — it exposes no per-tab focus API")
     }
 
     private func chip(_ text: String, _ color: Color) -> some View {

@@ -23,6 +23,7 @@ struct AgentRow: Identifiable {
     let agent: Agent
     var live: LiveState?
     var warpURL: String?
+    var host: HostTerminal = .unknown
     var lastActive: Date?
     var tabTitle: String?
     var tabPosition: Int?
@@ -33,10 +34,11 @@ struct AgentRow: Identifiable {
     var died: String?
     var id: String { agent.sessionId }
 
-    /// Background sessions own no terminal; they are reached by attaching, not jumping.
-    var isBackground: Bool { agent.pid != nil && warpURL == nil }
-    /// Every row is actionable — jump to the tab, or open one and attach.
-    var canJump: Bool { warpURL != nil || agent.pid != nil }
+    /// A session with no reachable host is attached to, not jumped to.
+    var isBackground: Bool { agent.pid != nil && !host.canReach }
+    var canJump: Bool { agent.pid != nil }
+    /// True when we can land on the exact tab rather than merely raising the app.
+    var precise: Bool { host.isPrecise }
 
     /// A tab the user renamed wins (that is what they see), then Claude's own description of the
     /// session, and only then the generated `mono-17` style handle.
@@ -47,8 +49,8 @@ struct AgentRow: Identifiable {
     var contextPct: Int? { status?.contextPct }
     var nearCompaction: Bool { (status?.contextPct ?? 0) >= 90 }
 
-    /// Where this session runs, for the row's context chips.
-    var terminal: String { warpURL != nil ? "Warp" : (isBackground ? "background" : "—") }
+    /// Where this session runs, for the row's context chip.
+    var terminal: String { host.name }
 
     /// Position is only useful as a hover hint, never as the label.
     var tabHint: String {
@@ -144,14 +146,15 @@ final class AgentStore: ObservableObject {
             let pids = agents.compactMap(\.pid)
             ProcEnv.prime(pids: pids)
             ProcEnv.retain(Set(pids))
-            let resolved: [(Agent, String?, Date?, WarpTabs.Tab?)] = agents.map { a in
+            let resolved: [(Agent, String?, Date?, WarpTabs.Tab?, HostTerminal)] = agents.map { a in
                 (a, a.pid.flatMap { WarpJump.focusURL(pid: $0) },
-                 Transcript.lastActive(a), a.pid.flatMap { WarpTabs.tab(pid: $0) })
+                 Transcript.lastActive(a), a.pid.flatMap { WarpTabs.tab(pid: $0) },
+                 a.pid.map { HostTerminal.resolve(pid: $0) } ?? .unknown)
             }
             Task { @MainActor in
                 let now = Date()
                 self.rows = resolved
-                    .filter { agent, _, lastActive, _ in
+                    .filter { agent, _, lastActive, _, _ in
                         if agent.isWorking { return true }
                         // A blocked agent is waiting on a human. Hiding it for being old is how
                         // two real work items sat unanswered for months.
@@ -162,7 +165,7 @@ final class AgentStore: ObservableObject {
                     .map { AgentRow(agent: $0.0,
                                     live: self.hooks.live[$0.0.sessionId].flatMap {
                                         Date().timeIntervalSince($0.at) < Self.liveWindow ? $0 : nil },
-                                    warpURL: $0.1, lastActive: $0.2,
+                                    warpURL: $0.1, host: $0.4, lastActive: $0.2,
                                     tabTitle: $0.3?.title, tabPosition: $0.3?.position,
                                     aiTitle: Titles.title(for: $0.0.sessionId, cwd: $0.0.cwd),
                                     lastPrompt: Titles.lastPrompt(for: $0.0.sessionId, cwd: $0.0.cwd),
@@ -208,8 +211,8 @@ final class AgentStore: ObservableObject {
     }
 
     func jump(_ row: AgentRow) {
-        if let pid = row.agent.pid, WarpJump.jump(pid: pid) { return }
-        // A background session has no tab to focus, so open one and hand over the attach command.
+        // Whatever host it runs in — Warp, iTerm2, Terminal, an IDE — try that first.
+        if row.host.jump() { return }
         guard row.agent.pid != nil else { return }
         let cmd = "\(Shell.claude) attach \(String(row.agent.sessionId.prefix(8)))"
         NSPasteboard.general.clearContents()
