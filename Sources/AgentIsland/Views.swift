@@ -154,7 +154,7 @@ struct AgentRowView: View {
                         .font(Theme.label(12)).foregroundColor(Theme.text)
                         .lineLimit(1).truncationMode(.tail)
                     Spacer(minLength: 6)
-                    chip("Claude", Theme.agentTint)
+                    chip(row.agent.vendor.label, Theme.agentTint)
                     if let m = model { chip(m, Theme.muted) }
                     chip(row.terminal, row.precise ? Theme.muted : Theme.faint)
                     if let t = row.tasks {
@@ -280,7 +280,7 @@ struct PanelView: View {
             if store.rows.isEmpty {
                 VStack(spacing: 5) {
                     Text("No sessions").font(Theme.name(12)).foregroundColor(Theme.muted)
-                    Text("start one with `claude`").font(Theme.mono(9.5)).foregroundColor(Theme.faint)
+                    Text("start one with `claude`, `codex` or `cursor-agent`").font(Theme.mono(9.5)).foregroundColor(Theme.faint)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {

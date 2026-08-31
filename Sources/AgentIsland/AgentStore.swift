@@ -10,6 +10,34 @@ struct Agent: Identifiable, Decodable {
     let status: String?
     let pid: Int?
 
+    /// Which tool is running this session. Absent when decoded from Claude's JSON, which
+    /// predates multi-vendor support and does not report one.
+    var vendor: Vendor = .claude
+    /// Vendors other than Claude carry their own metadata, so they supply these at discovery
+    /// rather than having them dug out of a transcript afterwards.
+    var lastActiveOverride: Date?
+    var titleOverride: String?
+    var promptOverride: String?
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId, name, cwd, state, status, pid
+    }
+
+    init(sessionId: String, name: String?, cwd: String?, state: String?, status: String?,
+         pid: Int?, vendor: Vendor = .claude, lastActiveOverride: Date? = nil,
+         titleOverride: String? = nil, promptOverride: String? = nil) {
+        self.sessionId = sessionId
+        self.name = name
+        self.cwd = cwd
+        self.state = state
+        self.status = status
+        self.pid = pid
+        self.vendor = vendor
+        self.lastActiveOverride = lastActiveOverride
+        self.titleOverride = titleOverride
+        self.promptOverride = promptOverride
+    }
+
     var id: String { sessionId }
     var label: String { name ?? String(sessionId.prefix(8)) }
     var project: String { (cwd as NSString?)?.lastPathComponent ?? "—" }
@@ -131,11 +159,15 @@ final class AgentStore: ObservableObject {
         }
     }
 
+    /// Every vendor present on the machine. Absent tools cost nothing — `isAvailable` is a
+    /// file check — so this list can grow without a settings switch.
+    private let sources: [AgentSource] = [ClaudeSource(), CodexSource(), CursorSource()]
+
     func refresh() {
-        Shell.run(Shell.claude, ["agents", "--json", "--all"]) { [weak self] out, code in
-            guard let self, code == 0, let data = out.data(using: .utf8),
-                  let parsed = try? JSONDecoder().decode([Agent].self, from: data) else { return }
-            self.rebuild(parsed)
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self else { return }
+            let found = self.sources.filter(\.isAvailable).flatMap { $0.discover() }
+            self.rebuild(found)
         }
     }
 
@@ -148,7 +180,8 @@ final class AgentStore: ObservableObject {
             ProcEnv.retain(Set(pids))
             let resolved: [(Agent, String?, Date?, WarpTabs.Tab?, HostTerminal)] = agents.map { a in
                 (a, a.pid.flatMap { WarpJump.focusURL(pid: $0) },
-                 Transcript.lastActive(a), a.pid.flatMap { WarpTabs.tab(pid: $0) },
+                 a.lastActiveOverride ?? Transcript.lastActive(a),
+                 a.pid.flatMap { WarpTabs.tab(pid: $0) },
                  a.pid.map { HostTerminal.resolve(pid: $0) } ?? .unknown)
             }
             Task { @MainActor in
@@ -167,8 +200,10 @@ final class AgentStore: ObservableObject {
                                         Date().timeIntervalSince($0.at) < Self.liveWindow ? $0 : nil },
                                     warpURL: $0.1, host: $0.4, lastActive: $0.2,
                                     tabTitle: $0.3?.title, tabPosition: $0.3?.position,
-                                    aiTitle: Titles.title(for: $0.0.sessionId, cwd: $0.0.cwd),
-                                    lastPrompt: Titles.lastPrompt(for: $0.0.sessionId, cwd: $0.0.cwd),
+                                    aiTitle: $0.0.titleOverride
+                                        ?? Titles.title(for: $0.0.sessionId, cwd: $0.0.cwd),
+                                    lastPrompt: $0.0.promptOverride
+                                        ?? Titles.lastPrompt(for: $0.0.sessionId, cwd: $0.0.cwd),
                                     status: SessionStatuses.get($0.0.sessionId),
                                     tasks: Tasks.progress(for: $0.0.sessionId),
                                     died: self.hooks.failures[$0.0.sessionId]) }
@@ -214,6 +249,7 @@ final class AgentStore: ObservableObject {
         // Whatever host it runs in — Warp, iTerm2, Terminal, an IDE — try that first.
         if row.host.jump() { return }
         guard row.agent.pid != nil else { return }
+        guard row.agent.vendor == .claude else { return }   // only Claude has an attach command
         let cmd = "\(Shell.claude) attach \(String(row.agent.sessionId.prefix(8)))"
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(cmd, forType: .string)
