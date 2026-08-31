@@ -2,9 +2,9 @@
 
 # 🏝️ Agent Island
 
-**Your MacBook notch, turned into mission control for Claude Code.**
+**Your MacBook notch, turned into mission control for every coding agent you run.**
 
-See every agent at a glance · jump to the exact terminal tab · approve and answer without leaving the notch
+Claude Code · Codex · Cursor — one panel, at a glance · jump to the exact terminal tab · approve and answer without leaving the notch
 
 [![Platform](https://img.shields.io/badge/macOS-14%2B-000000?style=flat-square&logo=apple&logoColor=white)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-6.0-F05138?style=flat-square&logo=swift&logoColor=white)](https://swift.org)
@@ -18,19 +18,20 @@ See every agent at a glance · jump to the exact terminal tab · approve and ans
 
 > [!NOTE]
 > Everything runs locally. No server, no telemetry, no API key, no subscription.
-> Agent Island reads only what Claude Code already writes to your own disk.
+> Agent Island reads only what your agents already write to your own disk.
 
 <div align="center">
-  <img src="docs/panel.png" alt="Agent Island expanded panel: quota header and four live Claude Code sessions" width="844">
+  <img src="docs/panel.png" alt="Agent Island expanded panel: quota header and four live agent sessions" width="844">
   <br>
   <sub>Quota and burn rate up top · one row per agent with its model, terminal, context ring, last instruction and live tool call</sub>
 </div>
 
 ## 🤔 Why
 
-Running five to ten Claude Code sessions at once, the bottleneck stops being the agents — it becomes **you**.
+Running five to ten coding agents at once — Claude Code in one Warp tab, Codex in another, a Cursor
+chat on a third project — the bottleneck stops being the agents. It becomes **you**.
 
-Which one is blocked? Which is quietly burning the 5-hour window? Which of nine identical terminal tabs did that notification come from? Claude Code knows all of it. It just never shows you.
+Which one is blocked? Which is quietly burning the 5-hour window? Which of nine identical terminal tabs did that notification come from? Each agent knows its own answer, and none of them shows you.
 
 Agent Island puts the answer where your eyes already are.
 
@@ -39,6 +40,7 @@ Agent Island puts the answer where your eyes already are.
 ### 👀 See
 | | |
 |---|---|
+| 🧩 **Every agent** | Claude Code, Codex and Cursor in one list, each labelled with its own vendor |
 | 📋 **Live sessions** | Title, project, model, terminal and the tool call happening right now |
 | 🎯 **Task progress** | `4/9` with the current step, from Claude's own task list |
 | 🧠 **Context pressure** | A per-session ring — compact *before* the cliff, not after |
@@ -52,7 +54,7 @@ Agent Island puts the answer where your eyes already are.
 | 🎬 **Precise jump** | Click a row → land on that agent's **exact Warp tab**, not just the app |
 | ✅ **Approve from the notch** | Permission cards, answered with `⌘⌥A` / `⌘⌥D` |
 | 💬 **One-click answers** | Multiple-choice prompts answered with `⌘⌥1`–`⌘⌥4` |
-| 🤖 **Auto-approve rules** | A regex allowlist, so routine commands never interrupt you |
+| 🤖 **Auto-approve rules** | A regex allowlist that governs every agent — one rule covers Claude's `Bash` and Cursor's `Shell` alike |
 | 🔔 **Alerts that respect you** | Desktop notifications only when you're *not* already looking |
 
 ## 🧭 The Warp jump
@@ -99,12 +101,31 @@ Xcode is **not** required — Command Line Tools are enough.
 ### Requirements
 
 - 🍎 macOS 14+
-- 🤖 Claude Code (`claude` on your `PATH`)
+- 🤖 At least one of Claude Code, Codex or Cursor — whichever are installed are picked up automatically
 - 🖥️ Warp — for the precise-jump feature (everything else works without it)
+
+### What each agent supports
+
+Measured, not assumed. A capability an agent does not expose is labelled on the row rather than
+left blank, so an unsupported feature never reads as a broken one.
+
+| | Claude Code | Codex | Cursor |
+|---|---|---|---|
+| Session list | ✅ | ✅ | ✅ |
+| Live tool activity | ✅ | ✅ | ✅ |
+| Approve from the notch | ✅ | ✅ | ✅ |
+| One-click answers | ✅ | — | — |
+| Context pressure | ✅ | ✅ | — |
+| Quota and burn rate | ✅ | — | — |
+| Task progress | ✅ | — | — |
+| Precise jump | ✅ | ✅ | ✅ |
+| Resume when stopped | ✅ | ✅ | ✅ |
 
 ## 🪝 Hooks
 
-Agent Island listens to Claude Code's hook events:
+Agent Island listens to each agent's hook events. Claude Code and Codex share a `hooks.json`
+schema; Cursor uses its own event names, which are folded onto one vocabulary internally so a
+`Bash` rule also governs a `Shell` call.
 
 | Hook | Powers |
 |---|---|
@@ -139,9 +160,14 @@ The `statusLine` wrapper runs your **existing** statusline unchanged inside it, 
 ## 🏗️ Architecture
 
 ```
-Claude Code ──hooks──────────> /tmp/agentisland-events.jsonl ──tail──> HookStream
-            ──statusLine─────> /tmp/agentisland-status/<id>.json ─────> StatusStore
-            ──agents --json──────────────────────────────────────────> AgentStore
+Claude Code ─hooks──┐
+Codex       ─hooks──┼───> /tmp/agentisland-events.jsonl ──tail──> HookStream
+Cursor      ─hooks──┘
+
+Claude Code ──statusLine──> /tmp/agentisland-status/<id>.json ───> StatusStore
+Claude ──agents --json──┐
+Codex  ──rollout files──┼──────────────────────────────────────> AgentStore
+Cursor ──chats/meta.json┘
                                                                             │
                                        approvals / answers <──decision file─┘
 ```
