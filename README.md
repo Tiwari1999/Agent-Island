@@ -9,7 +9,7 @@ Claude Code · Codex · Cursor — one panel, at a glance · jump to the exact t
 [![Platform](https://img.shields.io/badge/macOS-14%2B-000000?style=flat-square&logo=apple&logoColor=white)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-6.0-F05138?style=flat-square&logo=swift&logoColor=white)](https://swift.org)
 [![No Xcode](https://img.shields.io/badge/Xcode-not%20required-4BC51D?style=flat-square)](https://www.swift.org/getting-started/)
-[![Tests](https://img.shields.io/badge/self--tests-65-4BC51D?style=flat-square)](tests/selftest.py)
+[![Tests](https://img.shields.io/badge/self--tests-126-4BC51D?style=flat-square)](tests/selftest.py)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue?style=flat-square)](#-licence)
 
 </div>
@@ -61,7 +61,7 @@ Agent Island puts the answer where your eyes already are.
 
 The interesting part. 👇
 
-Other notch apps resolve Warp tabs by reading `warp.sqlite` and driving a **keystroke loop**, because the `warp://action/*` scheme is a closed whitelist that rejects focus intents. That approach can't tell apart tabs that share a working directory — so if all your agents live in one monorepo, it lands on the wrong one.
+Other notch apps resolve Warp tabs by reading `warp.sqlite` and driving a **keystroke loop**, because the `warp://action/*` scheme is a closed whitelist that rejects focus intents. That approach can't tell apart tabs that share a working directory — so if all your agents live in one monorepo, it lands on the wrong one. Agent Island reads nothing from Warp's database: the session handle comes from the agent process's own environment, so there is no permission to grant and nothing to break when the schema changes.
 
 But Warp exports a per-session handle into every shell it spawns:
 
@@ -183,7 +183,7 @@ Two design rules earned the hard way:
 python3 tests/selftest.py
 ```
 
-65 checks: jump resolution against live Warp tabs, every hook contract (including that each failure path exits without blocking), auto-approve decisions, panel geometry, and the staleness window.
+126 checks: jump resolution against live Warp tabs, every hook contract (including that each failure path exits without blocking), auto-approve decisions, panel geometry, the staleness window, and that the panel holds only real sessions — every vendor present on disk reaches it, no row is labelled with a bare session id, and no test data survives.
 
 ## 📄 Licence
 
