@@ -119,7 +119,7 @@ struct PeekView: View {
 }
 
 struct AgentRowView: View {
-    static let height: CGFloat = 74
+    static let height: CGFloat = 64
 
     let row: AgentRow
     let model: String?
@@ -179,7 +179,7 @@ struct AgentRowView: View {
                         .font(.system(size: 10.5)).foregroundColor(hover ? tint : Theme.faint)
                 }
 
-                if let p = row.lastPrompt {
+                if let p = row.lastPrompt, !p.isEmpty {
                     Text("You: \(p)")
                         .font(Theme.mono(9.5)).foregroundColor(Theme.muted)
                         .lineLimit(1).truncationMode(.tail)
@@ -212,7 +212,9 @@ struct AgentRowView: View {
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 9)
-        .frame(height: AgentRowView.height, alignment: .top)
+        // Rows are a fixed height so the panel can size itself exactly; centring splits the
+        // slack of a two-line row instead of pooling it all under the text as a gap.
+        .frame(height: AgentRowView.height, alignment: .center)
         .background(
             RoundedRectangle(cornerRadius: 9)
                 .fill(hover && row.canJump ? Theme.raised : Color.clear)
@@ -240,8 +242,11 @@ struct PanelView: View {
     static let headerHeight: CGFloat = 40
     static let rowGap: CGFloat = 5
     /// Height of the scrolling area: exactly N rows and the gaps between them, nothing partial.
+    static let listPadding: CGFloat = 8
+    /// Must match the stack's padding exactly, or the last row is clipped by the difference and
+    /// the list scrolls by a sliver that reads as a partial row.
     static var listHeight: CGFloat {
-        visibleRows * AgentRowView.height + (visibleRows - 1) * rowGap + 14
+        visibleRows * AgentRowView.height + (visibleRows - 1) * rowGap + 2 * listPadding
     }
     static var height: CGFloat { headerHeight + 1 + listHeight }
     @ObservedObject var store: AgentStore
@@ -296,7 +301,7 @@ struct PanelView: View {
                             AgentRowView(row: row, model: status.quota.model) { store.jump(row) }
                         }
                     }
-                    .padding(.horizontal, 8).padding(.vertical, 8)
+                    .padding(.horizontal, 8).padding(.vertical, PanelView.listPadding)
                 }
                 .frame(height: PanelView.listHeight)
                 .scrollIndicators(.never)

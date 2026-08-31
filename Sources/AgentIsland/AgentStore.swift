@@ -57,8 +57,6 @@ struct AgentRow: Identifiable {
     var warpURL: String?
     var host: HostTerminal = .unknown
     var lastActive: Date?
-    var tabTitle: String?
-    var tabPosition: Int?
     var aiTitle: String?
     var lastPrompt: String?
     var status: SessionStatus?
@@ -74,9 +72,8 @@ struct AgentRow: Identifiable {
     /// True when we can land on the exact tab rather than merely raising the app.
     var precise: Bool { host.isPrecise }
 
-    /// A tab the user renamed wins (that is what they see), then Claude's own description of the
-    /// session, and only then the generated `mono-17` style handle.
-    var displayName: String { tabTitle ?? aiTitle ?? agent.label }
+    /// The agent's own description of the session, and only then the generated `mono-17` handle.
+    var displayName: String { aiTitle ?? agent.label }
     /// Keep the handle visible when a real title replaced it, so rows stay cross-referenceable.
     var subtitle: String { displayName == agent.label ? agent.project : agent.label }
     /// What this row cannot show, because its vendor does not publish it. Shown in place of a
@@ -96,11 +93,7 @@ struct AgentRow: Identifiable {
     /// Where this session runs, for the row's context chip.
     var terminal: String { host.name }
 
-    /// Position is only useful as a hover hint, never as the label.
-    var tabHint: String {
-        if let n = tabPosition { return "Warp tab \(n)" }
-        return isBackground ? "background session" : "no tab"
-    }
+    var tabHint: String { isBackground ? "background session" : host.name }
     /// A blocked agent's own question outranks any stale tool activity.
     var activity: String? { blockedQuestion ?? live?.detail }
     var blockedQuestion: String? {
@@ -187,9 +180,17 @@ final class AgentStore: ObservableObject {
         let sources = self.sources
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let started = Date()
-            let found = sources.filter(\.isAvailable).flatMap { $0.discover() }
+            let perSource = sources.filter(\.isAvailable).map { src -> (Vendor, [Agent], Double) in
+                let t = Date()
+                let found = src.discover()
+                return (src.vendor, found, Date().timeIntervalSince(t))
+            }
+            let found = perSource.flatMap { $0.1 }
             Diagnostics.log("refresh: \(found.count) sessions in "
-                            + String(format: "%.2fs", Date().timeIntervalSince(started)))
+                + String(format: "%.2fs", Date().timeIntervalSince(started))
+                + " [" + perSource.map {
+                    String(format: "%@ %d/%.2fs", $0.0.rawValue, $0.1.count, $0.2)
+                  }.joined(separator: ", ") + "]")
             Task { @MainActor in
                 self?.hasRefreshed = true
                 self?.rebuild(found)
@@ -212,16 +213,15 @@ final class AgentStore: ObservableObject {
             let ids = Set(agents.map(\.sessionId))
             Transcript.retain(ids)
             Titles.retain(ids)
-            let resolved: [(Agent, String?, Date?, WarpTabs.Tab?, HostTerminal)] = agents.map { a in
+            let resolved: [(Agent, String?, Date?, HostTerminal)] = agents.map { a in
                 (a, a.pid.flatMap { WarpJump.focusURL(pid: $0) },
                  a.lastActiveOverride ?? Transcript.lastActive(a),
-                 a.pid.flatMap { WarpTabs.tab(pid: $0) },
                  a.pid.map { HostTerminal.resolve(pid: $0) } ?? .unknown)
             }
             Task { @MainActor in
                 let now = Date()
                 self.rows = resolved
-                    .filter { agent, _, lastActive, _, _ in
+                    .filter { agent, _, lastActive, _ in
                         if agent.isWorking { return true }
                         // A blocked agent is waiting on a human. Hiding it for being old is how
                         // two real work items sat unanswered for months.
@@ -232,8 +232,7 @@ final class AgentStore: ObservableObject {
                     .map { AgentRow(agent: $0.0,
                                     live: self.hooks.live[$0.0.sessionId].flatMap {
                                         Date().timeIntervalSince($0.at) < Self.liveWindow ? $0 : nil },
-                                    warpURL: $0.1, host: $0.4, lastActive: $0.2,
-                                    tabTitle: $0.3?.title, tabPosition: $0.3?.position,
+                                    warpURL: $0.1, host: $0.3, lastActive: $0.2,
                                     aiTitle: $0.0.titleOverride
                                         ?? Titles.title(for: $0.0.sessionId, cwd: $0.0.cwd),
                                     lastPrompt: $0.0.promptOverride
@@ -244,8 +243,24 @@ final class AgentStore: ObservableObject {
                     // Purely by recency: anything working is writing to its transcript now,
                     // so it rises on its own without a state bucket pinning idle rows down.
                     .sorted { ($0.lastActive ?? .distantPast) > ($1.lastActive ?? .distantPast) }
+                Self.publishManifest(self.rows)
             }
         }
+    }
+
+    /// What the panel is currently showing, on disk, so it can be checked without a human
+    /// reading the screen — the only way to assert that no row is placeholder or stale data.
+    private static func publishManifest(_ rows: [AgentRow]) {
+        let items = rows.map { r -> [String: Any] in
+            ["sessionId": r.agent.sessionId, "vendor": r.agent.vendor.rawValue,
+             "title": r.displayName, "cwd": r.agent.cwd ?? "",
+             "lastActive": r.lastActive.map { ISO8601DateFormatter().string(from: $0) } ?? ""]
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: items) else { return }
+        let path = "/tmp/agentisland.rows.json"
+        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        // Row titles are the user's own prompts, and /tmp is world-readable.
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
     }
 
     /// Hook state older than this is history, not "now" — without an expiry a single stale

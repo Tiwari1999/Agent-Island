@@ -5,7 +5,12 @@ A monitor is judged over hours, not seconds. Discovery caches grow, file handles
 and a slow leak looks fine in a 60-second benchmark. This samples memory, handles, CPU and
 discovery latency, then reports the trend rather than a snapshot.
 """
-import argparse, re, subprocess, sys, time
+import argparse, functools, re, subprocess, sys, time
+
+# Unbuffered: a soak is watched while it runs, and a buffered log that only appears at exit is
+# useless for exactly that.
+print = functools.partial(__builtins__.print if hasattr(__builtins__, "print")
+                          else __import__("builtins").print, flush=True)
 
 PROC = "AgentIsland.app/Contents/MacOS/AgentIsland"
 LOG = "/tmp/agentisland.log"

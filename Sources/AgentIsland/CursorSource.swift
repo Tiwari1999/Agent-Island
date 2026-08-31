@@ -48,6 +48,14 @@ struct CursorSource: AgentSource {
                 } ?? mtime
                 let live = cwd.flatMap { running[$0] }
                 let activity = Self.activity(sessionId: session)
+                let prompt = Self.lastPrompt(dir: dir)
+                // Cursor names a chat only once it has summarised it, so fall back to what the
+                // user actually opened with — a bare UUID names nothing.
+                let title = (meta["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                    ?? Self.firstInstruction(sessionId: session)
+                    ?? prompt.map { String($0.prefix(52)) }
+                    ?? cwd.map { ($0 as NSString).lastPathComponent + " chat" }
+                let said = prompt ?? Self.lastInstruction(sessionId: session)
 
                 agents.append(Agent(
                     sessionId: session,
@@ -58,10 +66,12 @@ struct CursorSource: AgentSource {
                     pid: live,
                     vendor: .cursor,
                     lastActiveOverride: updated,
-                    titleOverride: meta["title"] as? String,
-                    promptOverride: Self.lastPrompt(dir: dir)))
+                    titleOverride: title,
+                    // A one-turn chat would otherwise print the same sentence twice.
+                    promptOverride: Self.echoes(said, title) ? nil : said))
             }
         }
+        Self.retainText(Set(agents.map(\.sessionId)))
         return agents
             .sorted { ($0.lastActiveOverride ?? .distantPast) > ($1.lastActiveOverride ?? .distantPast) }
             .prefix(cap)
@@ -120,6 +130,82 @@ struct CursorSource: AgentSource {
 
     private static func shellQuote(_ s: String) -> String {
         "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    /// The first thing the user asked, read from the session transcript.
+    ///
+    /// A chat gets a `title` only once Cursor has summarised it, and `prompt_history.json` is
+    /// not always written — leaving a bare UUID on the row, which names nothing.
+    static func firstInstruction(sessionId: String) -> String? {
+        instruction(sessionId: sessionId, fromEnd: false)
+    }
+
+    /// The most recent thing the user asked — the `You:` line, so a Cursor row carries the same
+    /// three lines a Claude row does instead of a hole where its prompt should be.
+    static func lastInstruction(sessionId: String) -> String? {
+        instruction(sessionId: sessionId, fromEnd: true)
+    }
+
+    /// Both ends of a transcript, parsed once per file version.
+    ///
+    /// A transcript is append-only, so a file whose mtime has not moved cannot have new answers.
+    /// Re-reading twelve of them on every refresh was the single largest cost in discovery.
+    private static var textCache: [String: (mtime: Date, first: String?, last: String?)] = [:]
+
+    static func retainText(_ ids: Set<String>) {
+        textCache = textCache.filter { ids.contains($0.key) }
+    }
+
+    private static func instruction(sessionId: String, fromEnd: Bool) -> String? {
+        guard let path = index[sessionId] else { return nil }
+        let mtime = ((try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate]
+                     as? Date) ?? .distantPast
+        if let hit = textCache[sessionId], hit.mtime == mtime { return fromEnd ? hit.last : hit.first }
+        let first = scan(path: path, fromEnd: false)
+        let last = scan(path: path, fromEnd: true)
+        textCache[sessionId] = (mtime, first, last)
+        return fromEnd ? last : first
+    }
+
+    private static func scan(path: String, fromEnd: Bool) -> String? {
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+        let all = text.split(whereSeparator: \.isNewline)
+        let window = fromEnd ? Array(all.suffix(80).reversed()) : Array(all.prefix(40))
+        for line in window {
+            guard let data = line.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { continue }
+            let role = (obj["role"] as? String) ?? (obj["type"] as? String) ?? ""
+            guard role.contains("user") else { continue }
+            guard let body = Self.plainText(obj), !body.isEmpty else { continue }
+            guard let one = PromptText.humanLine(body) else { continue }
+            return one.count > 52 ? String(one.prefix(52)) + "…" : one
+        }
+        return nil
+    }
+
+    /// Whether two labels say the same thing, allowing for one being the truncated form.
+    static func echoes(_ a: String?, _ b: String?) -> Bool {
+        guard let a, let b else { return false }
+        func key(_ s: String) -> String {
+            String(s.replacingOccurrences(of: "…", with: "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines).prefix(40)).lowercased()
+        }
+        return key(a) == key(b)
+    }
+
+
+    /// Pull readable text out of an entry, whose content may be a string or an array of blocks.
+    private static func plainText(_ obj: [String: Any]) -> String? {
+        if let t = obj["text"] as? String { return t }
+        let message = obj["message"] as? [String: Any] ?? obj
+        if let t = message["content"] as? String { return t }
+        if let blocks = message["content"] as? [[String: Any]] {
+            let text = blocks.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }
+                .joined(separator: " ")
+            return text.isEmpty ? nil : text
+        }
+        return nil
     }
 
     /// prompt_history.json is a plain array of the instructions given, newest last.

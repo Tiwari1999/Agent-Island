@@ -24,15 +24,17 @@ struct CodexSource: AgentSource {
 
         // `find -newermt` is unreliable across BSD/GNU, so verify the age from the file itself.
         var agents: [Agent] = []
+        var skipStale = 0, skipMeta = 0, skipCwd = 0
         let running = Self.runningSessions()
 
         for path in paths {
             guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
-                  let mtime = attrs[.modificationDate] as? Date, mtime > cutoff else { continue }
-            guard let meta = Self.sessionMeta(path: path) else { continue }
+                  let mtime = attrs[.modificationDate] as? Date, mtime > cutoff
+            else { skipStale += 1; continue }
+            guard let meta = Self.sessionMeta(path: path) else { skipMeta += 1; continue }
 
             let cwd = meta.cwd
-            if let c = cwd, !FileManager.default.fileExists(atPath: c) { continue }
+            if let c = cwd, !FileManager.default.fileExists(atPath: c) { skipCwd += 1; continue }
             let live = cwd.flatMap { running[$0] }
             let roll = Self.rollout(path: path, mtime: mtime)
             agents.append(Agent(
@@ -44,11 +46,18 @@ struct CodexSource: AgentSource {
                 pid: live,
                 vendor: .codex,
                 lastActiveOverride: mtime,
-                titleOverride: roll.firstPrompt,
+                titleOverride: roll.firstPrompt
+                    ?? cwd.map { ($0 as NSString).lastPathComponent + " session" },
                 promptOverride: roll.lastPrompt,
                 contextPctOverride: roll.contextPct))
         }
         Self.trimCache(keeping: Set(paths))
+        // Only worth a line when sessions were dropped: a vendor going quiet is the failure
+        // that hides best, and this says which gate ate them.
+        if skipStale + skipMeta + skipCwd > 0 {
+            Diagnostics.log("codex: \(paths.count) paths -> \(agents.count) "
+                + "(\(skipStale) stale, \(skipMeta) unparsable, \(skipCwd) dead cwd)")
+        }
         return agents
     }
 
@@ -78,7 +87,9 @@ struct CodexSource: AgentSource {
         var lastUsage: [String: Any]?
         for line in text.split(whereSeparator: \.isNewline) {
             // Cheap substring gate before paying for JSON on a line we do not want.
-            let wantsPrompt = line.contains("\"user_message\"")
+            // Older rollouts logged a `user_message` event; newer ones record the turn as a
+            // response_item whose content is a block array. Gate on either.
+            let wantsPrompt = line.contains("\"user_message\"") || line.contains("\"input_text\"")
             let wantsUsage = line.contains("total_token_usage")
             guard wantsPrompt || wantsUsage,
                   let data = line.data(using: .utf8),
@@ -102,12 +113,28 @@ struct CodexSource: AgentSource {
     }
 
     /// The first line of a rollout file is the session_meta record.
-    private static func sessionMeta(path: String) -> (id: String, cwd: String?)? {
+    /// The first line, however long it is.
+    ///
+    /// This used to read a fixed 4 KB. Codex now embeds its instructions in `session_meta`, so
+    /// the line is ~22 KB and every file silently failed to parse — the whole vendor vanished
+    /// from the panel. Read to the newline, and cap it so a corrupt file cannot eat memory.
+    private static func firstLine(path: String, cap: Int = 1 << 20) -> String? {
         guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
         defer { try? handle.close() }
-        let head = handle.readData(ofLength: 4096)
-        guard let line = String(data: head, encoding: .utf8)?
-                .split(whereSeparator: \.isNewline).first,
+        var buf = Data()
+        while buf.count < cap {
+            let chunk = handle.readData(ofLength: 64 * 1024)
+            if chunk.isEmpty { break }
+            buf.append(chunk)
+            if let nl = buf.firstIndex(of: 0x0A) {
+                return String(data: buf.prefix(upTo: nl), encoding: .utf8)
+            }
+        }
+        return buf.isEmpty ? nil : String(data: buf, encoding: .utf8)
+    }
+
+    private static func sessionMeta(path: String) -> (id: String, cwd: String?)? {
+        guard let line = firstLine(path: path),
               let data = line.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               obj["type"] as? String == "session_meta",
@@ -116,11 +143,22 @@ struct CodexSource: AgentSource {
         return (id, payload["cwd"] as? String)
     }
 
+    /// The human's own words from one entry, whatever shape Codex wrote it in.
+    ///
+    /// Only `role: user` counts: the same block shape carries Codex's injected `developer`
+    /// preamble, which would otherwise become the row's title.
     private static func promptText(_ payload: [String: Any]) -> String? {
-        guard var t = (payload["message"] as? String) ?? (payload["text"] as? String),
-              !t.isEmpty else { return nil }
-        t = t.split(whereSeparator: \.isNewline).first.map(String.init) ?? t
-        return t
+        if let role = payload["role"] as? String, role != "user" { return nil }
+        var raw = (payload["message"] as? String) ?? (payload["text"] as? String)
+        if raw == nil, let blocks = payload["content"] as? [[String: Any]] {
+            let joined = blocks.compactMap { b -> String? in
+                guard let type = b["type"] as? String, type.contains("text") else { return nil }
+                return b["text"] as? String
+            }.joined(separator: " ")
+            raw = joined.isEmpty ? nil : joined
+        }
+        guard let t = raw, !t.isEmpty else { return nil }
+        return PromptText.humanLine(t)
     }
 
 

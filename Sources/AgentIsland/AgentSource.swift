@@ -36,3 +36,40 @@ extension AgentSource {
     /// questions. Shorter window, same intent: what could you plausibly still be working on.
     static var maxAge: TimeInterval { 10 * 24 * 3600 }
 }
+
+/// Turning a raw transcript entry into the words a human would recognise.
+///
+/// Every vendor injects synthetic context as if the user had typed it — Codex wraps environment
+/// and plugin blurbs in XML-ish tags, Cursor prefixes a `<timestamp>` and a `<user_query>`. Left
+/// alone these become the row's title, which is worse than no title: it is confidently wrong.
+enum PromptText {
+    /// Whole messages that are machinery, not instructions.
+    private static let injected = ["<environment_context", "<recommended_plugins",
+                                   "<skills_instructions", "<user_instructions",
+                                   "<additional_data", "# AGENTS.md instructions"]
+
+    private static let tag = try? NSRegularExpression(pattern: "</?[A-Za-z_][A-Za-z0-9_]*>")
+
+    /// The first line the user actually wrote, or nil if the entry is entirely machinery.
+    static func humanLine(_ raw: String) -> String? {
+        let head = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !injected.contains(where: { head.hasPrefix($0) }) else { return nil }
+
+        var body = head
+        // A `<timestamp>…</timestamp>` preamble describes the turn; it is never its content.
+        if let end = body.range(of: "</timestamp>") { body = String(body[end.upperBound...]) }
+        if let tag {
+            body = tag.stringByReplacingMatches(
+                in: body, range: NSRange(body.startIndex..., in: body), withTemplate: "\n")
+        }
+        return body.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { line in
+                guard !line.isEmpty, !line.hasPrefix("<") else { return false }
+                // A heading or a bare `USER:` label announces the prompt; it is not the prompt.
+                if line.hasPrefix("#") { return false }
+                if line.hasSuffix(":") && line.count <= 14 { return false }
+                return true
+            }
+    }
+}

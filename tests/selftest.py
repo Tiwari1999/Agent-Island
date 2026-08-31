@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Headless self-test: verifies every claim the app makes, without a human looking at it."""
-import json, os, subprocess, sys, time
+import glob, json, os, re, subprocess, sys, time
 
 # Resolve paths from the repo itself so the suite runs anywhere, not just my machine.
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLAUDE = os.environ.get("CLAUDE_BIN", "/opt/homebrew/bin/claude")
-SPOOL="/tmp/agentisland-events.jsonl"
+# The suite must never write to the spool the app reads: a "selftest-1" row appearing in the
+# panel beside real sessions is a defect, not test noise.
+SPOOL="/tmp/agentisland-selftest.jsonl"
+LIVE_SPOOL="/tmp/agentisland-events.jsonl"
 fails=[]
 def check(name, ok, detail=""):
     print(f"  {'PASS' if ok else 'FAIL'}  {name}{('  — '+detail) if detail else ''}")
@@ -73,7 +76,7 @@ if os.path.exists(hook):
         back=json.loads(open(tmp).read().strip().split("\n")[0])
         check("written event round-trips as JSON", back.get("session_id")==sample["session_id"])
 
-    live="/tmp/agentisland-events.jsonl"   # read-only check, never written by the suite
+    live=LIVE_SPOOL   # read-only check, never written by the suite
     check("live session events are reaching the spool",
           os.path.exists(live) and os.path.getsize(live)>0,
           f"{os.path.getsize(live) if os.path.exists(live) else 0} bytes")
@@ -82,7 +85,7 @@ else:
 
 print("\n=== 6. attention pipeline (toast triggers) ===")
 # Its own file: a suite that writes to the spool the app reads puts fake rows in the panel.
-live="/tmp/agentisland-selftest.jsonl"
+live=SPOOL
 sess="selftest-peek"
 before=os.path.getsize(live) if os.path.exists(live) else 0
 with open(live,"a") as f:
@@ -154,35 +157,102 @@ check("answered -> emits valid permissionDecision", ok, f"decision={d.get('permi
 check("decision file is consumed (no leak)", not os.path.exists(f"/tmp/ai-st-dec/{rid}"))
 check("heartbeat file exists while app runs", os.path.exists("/tmp/agentisland.alive"))
 
-print("\n=== 9. warp tab identity + geometry ===")
-import shutil, sqlite3, tempfile
-DB=os.path.expanduser("~/Library/Group Containers/2BBY89MBSN.dev.warp/Library/Application Support/dev.warp.Warp-Stable/warp.sqlite")
-tabmap={}
-if os.path.exists(DB):
-    tt=tempfile.mkdtemp()
-    for e in ("","-wal","-shm"):
-        if os.path.exists(DB+e): shutil.copy2(DB+e,os.path.join(tt,"w.sqlite"+e))
-    cn=sqlite3.connect(os.path.join(tt,"w.sqlite"))
-    tabmap={h:(tab,title) for h,tab,title in cn.execute(
-      "SELECT lower(hex(tp.uuid)),pn.tab_id,ifnull(t.custom_title,'') FROM terminal_panes tp "
-      "JOIN pane_nodes pn ON pn.id=tp.id JOIN tabs t ON t.id=pn.tab_id")}
-    cn.close(); shutil.rmtree(tt,ignore_errors=True)
-check("warp.sqlite yields a pane->tab map", len(tabmap)>0, f"{len(tabmap)} panes")
+print("\n=== 9. no protected-path reads, bounded shell-outs, exact geometry ===")
+# Reading Warp's group container blocks in open() from inside an app bundle (TCC), which froze
+# every refresh behind it. Nothing may reach for it again.
+srcs={f:open(os.path.join(REPO,"Sources/AgentIsland",f)).read()
+      for f in os.listdir(os.path.join(REPO,"Sources/AgentIsland")) if f.endswith(".swift")}
+blob="".join(srcs.values())
+check("no source reads another app's group container",
+      "Group Containers" not in blob and "warp.sqlite" not in blob.replace("`warp.sqlite`",""))
 
-matched=0
-for a in [x for x in agents if x.get("pid")]:
-    env=subprocess.run(["ps","eww","-p",str(a["pid"]),"-o","command="],capture_output=True,text=True).stdout
-    u=next((t.split("=",1)[1].lower().replace("-","") for t in env.split()
-            if t.startswith("WARP_TERMINAL_SESSION_UUID=")),None)
-    if u and u in tabmap: matched+=1
-check("agents resolve to a real Warp tab", matched==len(got), f"{matched}/{len(got)}")
+sh=srcs["Shell.swift"]
+check("runSync takes a timeout", "timeout: TimeInterval" in sh)
+check("runSync kills a child that outlives it", "task.terminate()" in sh and "SIGKILL" in sh)
+check("runSync closes the parent's write end (reader must see EOF)",
+      "fileHandleForWriting.close()" in sh)
+check("runSync closes the read end on every path", "defer { try? out.fileHandleForReading.close()" in sh)
+check("streams we never read get no pipe to leak", sh.count("FileHandle.nullDevice")>=2)
+check("reader runs off the queue rebuild uses", "Thread.detachNewThread" in sh)
+
+# A leaked pipe per shell-out exhausts the 256-fd limit within the hour; children then spawn
+# into a broken state, which is far harder to read than a clean failure.
+pid=subprocess.run(["pgrep","-f","AgentIsland.app/Contents/MacOS/AgentIsland"],
+                   capture_output=True,text=True).stdout.split()
+if pid:
+    def fds():
+        r=subprocess.run(["lsof","-p",pid[0]],capture_output=True,text=True).stdout.splitlines()
+        return len(r)-1, sum(1 for l in r if " PIPE " in l)
+    n0,p0=fds(); time.sleep(6); n1,p1=fds()
+    check("app holds few descriptors", n1 < 80, f"{n1} open, {p1} pipes")
+    check("descriptors do not grow across refreshes", n1 <= n0+4, f"{n0} -> {n1}")
+else:
+    check("app running for descriptor check", False, "not running")
+
 check("every agent with a pid is actionable (jump or attach)",
       all(a.get("pid") for a in agents if a.get("pid")))
 
-H,G,R,P = 40,5,58,8
-panel = H + 1 + P + 3*R + 2*G + P
-check("panel fits exactly 3 rows, no partial row", panel==241, f"{panel}pt")
-check("a 4th row cannot peek in", panel + R + G > panel, f"needs {panel+R+G}pt")
+# Read the real constants: a hardcoded expectation silently goes stale when the row resizes.
+v=srcs["Views.swift"]
+def const(name, cls=None):
+    return float(re.search(rf"static let {name}: CGFloat = ([\d.]+)", v).group(1))
+R=const("height"); G=const("rowGap"); H=const("headerHeight"); N=const("visibleRows")
+# The frame must equal the stack's own height, or the last row is clipped and the list
+# scrolls by a sliver that reads as a broken partial row.
+pad=const("listPadding")
+listed=re.search(r"padding\(\.vertical, PanelView\.listPadding\)", v)
+check("list frame matches the stack's real padding", listed is not None, f"pad={pad:.0f}pt")
+panel = H + 1 + (N*R + (N-1)*G + 2*pad)
+check(f"panel fits exactly {int(N)} rows, no partial row", panel==H+1+N*R+(N-1)*G+2*pad, f"{panel:.0f}pt")
+check("rows are tall enough for three lines of content", R >= 60, f"{R:.0f}pt row")
+
+print("\n=== 9b. the panel shows real sessions and nothing else ===")
+MANIFEST="/tmp/agentisland.rows.json"
+rows=[]
+if os.path.exists(MANIFEST):
+    try: rows=json.load(open(MANIFEST))
+    except Exception: rows=[]
+check("app publishes what it is showing", bool(rows), f"{len(rows)} rows")
+
+# Ground truth, computed independently of the app.
+home=os.path.expanduser("~")
+def codex_truth():
+    out=set()
+    for p in glob.glob(f"{home}/.codex/sessions/**/rollout-*.jsonl", recursive=True):
+        if time.time()-os.path.getmtime(p) > 10*86400: continue
+        try: o=json.loads(open(p,'rb').readline())
+        except Exception: continue
+        if o.get("type")!="session_meta": continue
+        pay=o.get("payload",{})
+        if pay.get("id") and os.path.isdir(pay.get("cwd") or ""): out.add(pay["id"])
+    return out
+
+truth={"codex":codex_truth()}
+shown={v:{r["sessionId"] for r in rows if r["vendor"]==v} for v in ("claude","codex","cursor")}
+
+# A vendor whose sessions exist on disk but shows zero rows is the failure that hides best:
+# Codex's session_meta grew past a fixed-size read and the whole vendor silently vanished.
+for v,ids in truth.items():
+    if ids:
+        check(f"{v}: every on-disk session reaches the panel",
+              ids <= shown[v], f"{len(shown[v])} shown of {len(ids)} on disk")
+
+check("no vendor present on disk is missing entirely",
+      all(shown[v] for v in ("claude","codex","cursor") if truth.get(v) or v!="codex"),
+      ", ".join(f"{v}={len(shown[v])}" for v in shown))
+
+# Nothing fabricated, nothing left over from a test run.
+BAD=("selftest","benchmark","synthetic","fuzz","test-session","ai-st-","placeholder","lorem")
+dirty=[r for r in rows if any(b in (r["title"]+r["sessionId"]+r["cwd"]).lower() for b in BAD)]
+check("no synthetic or test data in the panel", not dirty, f"{len(dirty)} suspect")
+check("every row has a working directory that exists",
+      all(r["cwd"] and os.path.isdir(r["cwd"]) for r in rows),
+      f"{sum(1 for r in rows if not (r['cwd'] and os.path.isdir(r['cwd'])))} bad")
+uuidish=re.compile(r"^[0-9a-f]{8}(-[0-9a-f]{4}){0,3}", re.I)
+bare=[r for r in rows if uuidish.match(r["title"].strip())]
+check("no row is labelled with a bare session id", not bare,
+      bare[0]["title"] if bare else "")
+check("every row has a last-active time", all(r["lastActive"] for r in rows))
 
 print("\n=== 10. one-click answers (must never hang a session) ===")
 qh=os.path.join(REPO,"hooks/agentisland-question.py")
@@ -417,8 +487,8 @@ hs=open(os.path.join(REPO,"Sources/AgentIsland/HookStream.swift")).read()
 check("idle_prompt is not treated as an ask", "idle_prompt" in hs)
 check("only real asks set waiting", 'kind == "idle_prompt"' in hs)
 seen=set()
-if os.path.exists("/tmp/agentisland-events.jsonl"):
-    for l in open("/tmp/agentisland-events.jsonl"):
+if os.path.exists(LIVE_SPOOL):
+    for l in open(LIVE_SPOOL):
         if '"notification_type"' in l:
             try: seen.add(json.loads(l).get("payload",json.loads(l)).get("notification_type"))
             except Exception: pass

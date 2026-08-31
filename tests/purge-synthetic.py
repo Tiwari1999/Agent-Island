@@ -16,13 +16,17 @@ def main():
     if not os.path.exists(SPOOL):
         print("  no spool, nothing to do")
         return
-    kept, dropped = [], 0
+    kept, dropped, malformed = [], 0, 0
     with open(SPOOL) as f:
         for line in f:
             try:
                 obj = json.loads(line)
             except json.JSONDecodeError:
-                dropped += 1          # unparseable lines are not real events either
+                # Keep it. Concurrent hooks appending to one file can interleave a partial
+                # write, and that is real data the reader will simply skip — discarding it
+                # here would quietly delete evidence rather than test residue.
+                malformed += 1
+                kept.append(line)
                 continue
             payload = obj.get("payload", obj)
             sid = str(payload.get("session_id", ""))
@@ -32,7 +36,8 @@ def main():
             kept.append(line)
     with open(SPOOL, "w") as f:
         f.writelines(kept)
-    print(f"  removed {dropped} synthetic events, kept {len(kept)}")
+    print(f"  removed {dropped} synthetic events, kept {len(kept)}"
+          + (f" ({malformed} malformed lines left in place)" if malformed else ""))
 
 
 if __name__ == "__main__":
