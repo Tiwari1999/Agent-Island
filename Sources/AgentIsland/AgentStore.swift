@@ -174,6 +174,14 @@ final class AgentStore: ObservableObject {
         .sorted { ($0.lastActive ?? .distantPast) > ($1.lastActive ?? .distantPast) }
     }
 
+    /// The name a human recognises, resolved the same way everywhere: a renamed Warp tab, then
+    /// Claude's own title for the session, and only then the generated handle.
+    func displayName(for sessionId: String) -> String {
+        if let row = rows.first(where: { $0.agent.sessionId == sessionId }) { return row.displayName }
+        if let t = Titles.title(for: sessionId, cwd: nil), !t.isEmpty { return t }
+        return String(sessionId.prefix(8))
+    }
+
     func jump(_ row: AgentRow) {
         if let pid = row.agent.pid, WarpJump.jump(pid: pid) { return }
         // A background session has no tab to focus, so open one and hand over the attach command.

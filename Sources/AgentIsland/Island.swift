@@ -125,8 +125,7 @@ final class Island: NSObject, ObservableObject {
         store.hooks.onApproval = { [weak self] approval in
             guard let self else { return }
             self.present(approval)
-            let name = self.store.rows.first { $0.agent.sessionId == approval.session }?.displayName
-                ?? "Agent"
+            let name = self.store.displayName(for: approval.session)
             Notifier.notify(title: "\(name) needs permission",
                             body: "\(approval.tool): \(approval.detail)", key: approval.session)
         }
@@ -134,15 +133,13 @@ final class Island: NSObject, ObservableObject {
         store.hooks.onQuestion = { [weak self] question in
             guard let self else { return }
             self.ask(question)
-            let name = self.store.rows.first { $0.agent.sessionId == question.session }?.displayName
-                ?? "Agent"
+            let name = self.store.displayName(for: question.session)
             Notifier.notify(title: name, body: question.text, key: question.session)
         }
 
         store.hooks.onAttention = { [weak self] session, message, needsInput in
             guard let self else { return }
-            let name = self.store.rows.first { $0.agent.sessionId == session }?.agent.label
-                ?? String(session.prefix(8))
+            let name = self.store.displayName(for: session)
             self.peek(PeekPayload(session: session, title: name,
                                   message: needsInput ? message : "finished",
                                   needsInput: needsInput))
@@ -457,16 +454,14 @@ private struct RootView: View {
                 case .approval(let a):
                     ApprovalCard(
                         approval: a,
-                        agentName: store.rows.first { $0.agent.sessionId == a.session }?.agent.label
-                            ?? String(a.session.prefix(8)),
+                        agentName: store.displayName(for: a.session),
                         onAllow: { island.answer(a, allow: true) },
                         onDeny:  { island.answer(a, allow: false) })
                         .padding(.top, island.notchWidth > 0 ? 8 : 0)
                 case .question(let q):
                     QuestionCard(
                         question: q,
-                        agentName: store.rows.first { $0.agent.sessionId == q.session }?.displayName
-                            ?? "agent",
+                        agentName: store.displayName(for: q.session),
                         onChoose: { island.choose(q, option: $0) })
                         .padding(.top, island.notchWidth > 0 ? 8 : 0)
                 case .expanded:
