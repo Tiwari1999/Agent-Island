@@ -364,6 +364,16 @@ if os.path.isdir(cur):
            if time.time()-os.path.getmtime(os.path.dirname(m)) < 2*86400]
     check("cursor sessions are discoverable on disk", len(metas)>0, f"{len(metas)} in 2d window")
 
+check("refresh hops back onto the main actor",
+      "Task { @MainActor in self?.rebuild" in open(f"{src}/AgentStore.swift").read())
+check("sources are snapshotted before leaving the actor",
+      "let sources = self.sources" in open(f"{src}/AgentStore.swift").read())
+live_log="/tmp/agentisland.log"
+if os.path.exists(live_log):
+    hits=[l for l in open(live_log) if "refresh:" in l]
+    check("the running app is actually discovering sessions", len(hits)>0,
+          hits[-1].strip()[-40:] if hits else "no refresh logged")
+
 print("\n=== 18. config citizenship ===")
 inst=open(os.path.join(REPO,"scripts/install-hooks.py")).read()
 un=open(os.path.join(REPO,"scripts/uninstall-hooks.py")).read()

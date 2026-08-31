@@ -166,10 +166,14 @@ final class AgentStore: ObservableObject {
     private let sources: [AgentSource] = [ClaudeSource(), CodexSource(), CursorSource()]
 
     func refresh() {
+        // Snapshot the sources on the main actor; the discovery work itself is off it.
+        let sources = self.sources
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            guard let self else { return }
-            let found = self.sources.filter(\.isAvailable).flatMap { $0.discover() }
-            self.rebuild(found)
+            let started = Date()
+            let found = sources.filter(\.isAvailable).flatMap { $0.discover() }
+            Diagnostics.log("refresh: \(found.count) sessions in "
+                            + String(format: "%.2fs", Date().timeIntervalSince(started)))
+            Task { @MainActor in self?.rebuild(found) }
         }
     }
 
