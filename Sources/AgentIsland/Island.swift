@@ -416,8 +416,9 @@ private struct RootView: View {
     }
     private var shellHeight: CGFloat {
         switch island.state {
-        // 1mm (~3pt) shy of the notch so the rounded bottom stops clipping the window beneath.
-        case .collapsed: return max(20, island.notchHeight - 3)
+        // Exactly the notch height. Anything shorter leaves a step where the bar meets the
+        // camera housing; anything taller hangs into the window below.
+        case .collapsed: return island.notchHeight
         case .peek:      return island.notchHeight + 44
         case .approval:  return island.notchHeight + 54
         case .question:  return island.notchHeight + 108
@@ -426,8 +427,9 @@ private struct RootView: View {
     }
     private var corner: CGFloat {
         switch island.state {
-        // 1mm (~3pt) shy of the notch so the rounded bottom stops clipping the window beneath.
-        case .collapsed: return max(20, island.notchHeight - 3) * 0.55
+        // Exactly the notch height. Anything shorter leaves a step where the bar meets the
+        // camera housing; anything taller hangs into the window below.
+        case .collapsed: return island.notchHeight * 0.55
         case .peek:      return 20
         case .approval:  return 22
         case .question:  return 22
