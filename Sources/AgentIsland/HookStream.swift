@@ -115,10 +115,20 @@ final class HookStream: ObservableObject {
                 state.detail = Self.describe(tool: state.tool, input: obj["tool_input"])
                 state.waiting = false
             case "Notification", "PermissionRequest":
-                state.waiting = true
+                // `idle_prompt` just means the session finished its turn and is sitting at a
+                // prompt — it fires constantly for every session and is not a request for you.
+                // Only a genuine ask should raise a card, a badge, or a desktop alert.
+                let kind = obj["notification_type"] as? String ?? ""
                 let msg = obj["message"] as? String ?? "needs your input"
-                state.detail = msg
-                attention.append((session, msg, true))
+                if kind == "idle_prompt" {
+                    state.waiting = false
+                    state.tool = nil
+                    state.detail = nil
+                } else {
+                    state.waiting = true
+                    state.detail = msg
+                    attention.append((session, msg, true))
+                }
             case "StopFailure":
                 let why = (obj["error_type"] as? String) ?? "failed"
                 fails[session] = why

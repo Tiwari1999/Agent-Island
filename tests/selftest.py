@@ -341,7 +341,19 @@ check("questions bind number keys", "Hotkeys.digits" in isl)
 check("keys are released when a card resolves", isl.count("Hotkeys.shared.unbind()")>=4)
 check("hotkeys are not held globally at rest", "bind(" in isl and "unbind()" in hk)
 
-print("\n=== 17. binary builds & launches ===")
+print("\n=== 17. notification noise ===")
+hs=open(os.path.join(REPO,"Sources/AgentIsland/HookStream.swift")).read()
+check("idle_prompt is not treated as an ask", "idle_prompt" in hs)
+check("only real asks set waiting", 'kind == "idle_prompt"' in hs)
+seen=set()
+if os.path.exists("/tmp/agentisland-events.jsonl"):
+    for l in open("/tmp/agentisland-events.jsonl"):
+        if '"notification_type"' in l:
+            try: seen.add(json.loads(l).get("payload",json.loads(l)).get("notification_type"))
+            except Exception: pass
+check("idle_prompt observed in the wild (the noisy one)", "idle_prompt" in seen, str(sorted(x for x in seen if x)))
+
+print("\n=== 18. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")
 check("binary exists", os.path.exists(b))
 
