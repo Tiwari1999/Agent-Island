@@ -36,10 +36,9 @@ final class Island: NSObject, ObservableObject {
     @Published var notchHeight: CGFloat = 32
 
     static let maxSize = NSSize(width: 860, height: 420)
-    /// Breathing room under the camera housing. Insetting content by exactly `notchHeight` left
-    /// zero margin, so the first row of header text sat right against the bezel and read as
-    /// clipped. safeAreaInsets is the logical inset, not the physical glass.
-    static let notchClearance: CGFloat = 8
+    /// Breathing room under the camera housing — enough that text never touches the bezel,
+    /// small enough that the card still reads as hanging off the notch rather than floating.
+    static let notchClearance: CGFloat = 3
 
     private var window: Panel?
     private var poll: Timer?
@@ -202,21 +201,21 @@ final class Island: NSObject, ObservableObject {
     /// The toast's own rect, so it can be clicked and does not eat the desktop around it.
     private var peekRect: NSRect {
         guard let screen else { return .zero }
-        let w: CGFloat = 380, h = notchHeight + Self.notchClearance + 46
+        let w: CGFloat = 380, h = notchHeight + Self.notchClearance + 38
         return NSRect(x: screen.frame.midX - w / 2, y: screen.frame.maxY - h, width: w, height: h)
     }
 
     /// The approval card is wider than a toast and must be fully clickable.
     private var approvalRect: NSRect {
         guard let screen else { return .zero }
-        let w: CGFloat = 560, h = notchHeight + Self.notchClearance + 54
+        let w: CGFloat = 560, h = notchHeight + Self.notchClearance + 46
         return NSRect(x: screen.frame.midX - w / 2, y: screen.frame.maxY - h, width: w, height: h)
     }
 
     /// Questions need room for the prompt plus a row of options.
     private var questionRect: NSRect {
         guard let screen else { return .zero }
-        let w: CGFloat = 600, h = notchHeight + Self.notchClearance + 108
+        let w: CGFloat = 600, h = notchHeight + Self.notchClearance + 98
         return NSRect(x: screen.frame.midX - w / 2, y: screen.frame.maxY - h, width: w, height: h)
     }
 
@@ -416,9 +415,9 @@ private struct RootView: View {
         // Exactly the notch height. Anything shorter leaves a step where the bar meets the
         // camera housing; anything taller hangs into the window below.
         case .collapsed: return island.notchHeight
-        case .peek:      return island.notchHeight + Island.notchClearance + 46
-        case .approval:  return island.notchHeight + Island.notchClearance + 54
-        case .question:  return island.notchHeight + Island.notchClearance + 108
+        case .peek:      return island.notchHeight + Island.notchClearance + 38
+        case .approval:  return island.notchHeight + Island.notchClearance + 46
+        case .question:  return island.notchHeight + Island.notchClearance + 98
         case .expanded:  return PanelView.height
         }
     }
@@ -450,7 +449,7 @@ private struct RootView: View {
                     PeekView(title: p.title, message: p.message,
                              needsInput: p.needsInput, notchWidth: island.notchWidth)
                         .frame(maxHeight: .infinity, alignment: .bottom)
-                        .padding(.bottom, 10)
+                        .padding(.bottom, 6)
                         .contentShape(Rectangle())
                         .onTapGesture { island.actOnPeek(p) }
                 case .approval(let a):
@@ -460,14 +459,14 @@ private struct RootView: View {
                         onAllow: { island.answer(a, allow: true) },
                         onDeny:  { island.answer(a, allow: false) })
                         .frame(maxHeight: .infinity, alignment: .bottom)
-                        .padding(.bottom, 10)
+                        .padding(.bottom, 6)
                 case .question(let q):
                     QuestionCard(
                         question: q,
                         agentName: store.displayName(for: q.session),
                         onChoose: { island.choose(q, option: $0) })
                         .frame(maxHeight: .infinity, alignment: .bottom)
-                        .padding(.bottom, 10)
+                        .padding(.bottom, 6)
                 case .expanded:
                     // Inset past the physical notch so text clears the camera, while the shape
                     // behind it still reaches the screen edge and reads as one piece with it.
