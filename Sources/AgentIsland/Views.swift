@@ -6,11 +6,19 @@ struct CollapsedView: View {
     @ObservedObject var store: AgentStore
     @ObservedObject var status: StatusStore
     let notchWidth: CGFloat
+    /// True while the pointer is on the notch. At rest the bar stays narrow so the menu bar
+    /// beside the notch keeps working; pointing at it widens the bar to show what is running.
+    var revealed: Bool = false
 
     /// Content is never allowed nearer the notch than this — text sliding under the camera
     /// housing is the one thing that makes the bar look broken.
     static let notchMargin: CGFloat = 14
+    /// Widened only on hover. At 148 the bar hid 162pt of menu bar on each side of the notch,
+    /// which is precisely where the status icons and clock live.
     static let sideWidth: CGFloat = 148
+    static let restingSideWidth: CGFloat = 44
+
+    static func side(revealed: Bool) -> CGFloat { revealed ? sideWidth : restingSideWidth }
 
     private var lead: AgentRow? {
         store.rows.first { $0.waiting } ?? store.rows.first { $0.agent.isWorking }
@@ -23,15 +31,17 @@ struct CollapsedView: View {
                 Spacer(minLength: 0)
                 if let row = lead {
                     AgentAvatar(seed: row.agent.sessionId, size: 13, active: true)
-                    Text(row.activity ?? row.displayName)
-                        .font(Theme.mono(9.5))
-                        .foregroundColor(row.waiting ? Theme.waiting : Theme.muted)
-                        .lineLimit(1).truncationMode(.tail)
-                } else {
+                    if revealed {
+                        Text(row.activity ?? row.displayName)
+                            .font(Theme.mono(9.5))
+                            .foregroundColor(row.waiting ? Theme.waiting : Theme.muted)
+                            .lineLimit(1).truncationMode(.tail)
+                    }
+                } else if revealed {
                     Text("idle").font(Theme.mono(9.5)).foregroundColor(Theme.faint)
                 }
             }
-            .frame(width: Self.sideWidth, alignment: .trailing)
+            .frame(width: Self.side(revealed: revealed), alignment: .trailing)
             .padding(.trailing, Self.notchMargin)
             .clipped()
 
@@ -74,7 +84,7 @@ struct CollapsedView: View {
                 }
                 Spacer(minLength: 0)
             }
-            .frame(width: Self.sideWidth, alignment: .leading)
+            .frame(width: Self.side(revealed: revealed), alignment: .leading)
             .padding(.leading, Self.notchMargin)
             .clipped()
         }
