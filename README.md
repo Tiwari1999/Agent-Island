@@ -23,7 +23,7 @@ See every agent at a glance · jump to the exact terminal tab · approve and ans
 <div align="center">
   <img src="docs/panel.png" alt="Agent Island expanded panel showing three Claude Code sessions" width="720">
   <br>
-  <sub>Quota and burn rate up top · one row per agent with its task, context ring and live prompt</sub>
+  <sub>Quota and burn rate up top · one row per agent with its model, terminal, context ring, last instruction and live tool call</sub>
 </div>
 
 ## 🤔 Why
