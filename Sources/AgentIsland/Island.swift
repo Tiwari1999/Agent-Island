@@ -221,6 +221,15 @@ final class Island: NSObject, ObservableObject {
     /// poll, because waiting for the next tick left a window where clicks fell through the panel.
     private func refreshHitRegion() {
         guard let window else { return }
+        // While collapsed the bar has nothing clickable, so the panel should never compete for
+        // the pointer. Both windows sit at .statusBar, and a window that accepts events hides
+        // everything beneath it from hit-testing — so if this one accepted them over the notch,
+        // the hover sensor underneath would simply never fire. Ordering alone is not a fix:
+        // orderFrontRegardless only holds until something else reorders.
+        if state == .collapsed {
+            window.ignoresMouseEvents = true
+            return
+        }
         let mouse = NSEvent.mouseLocation
         var live = hotRect
         if state == .expanded { live = panelRect.union(hotRect) }
@@ -245,12 +254,7 @@ final class Island: NSObject, ObservableObject {
         // Only re-home while collapsed; moving a visible panel would yank it mid-interaction.
         if state == .collapsed { followActiveScreen() }
         let mouse = NSEvent.mouseLocation
-        var live = hotRect
-        if state == .expanded { live = panelRect.union(hotRect) }
-        if case .peek = state { live = peekRect.union(hotRect) }
-        if case .approval = state { live = approvalRect.union(hotRect) }
-        if case .question = state { live = questionRect.union(hotRect) }
-        window.ignoresMouseEvents = !live.insetBy(dx: -4, dy: -4).contains(mouse)
+        refreshHitRegion()
 
         switch state {
         case .peek, .approval, .question:
@@ -264,7 +268,10 @@ final class Island: NSObject, ObservableObject {
             hoverTicks += 1
             if hoverTicks >= 2 { hoverTicks = 0; expand() }
         case .expanded:
-            if live.insetBy(dx: -8, dy: -8).contains(mouse) { outsideTicks = 0; return }
+            if panelRect.union(hotRect).insetBy(dx: -8, dy: -8).contains(mouse) {
+                outsideTicks = 0
+                return
+            }
             outsideTicks += 1
             if outsideTicks >= 3 { outsideTicks = 0; collapse() }
         }
@@ -311,6 +318,11 @@ final class Island: NSObject, ObservableObject {
         withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) { state = .collapsed }
         store.setPanelVisible(false)
         repoll()
+        // Every other transition refreshes this; collapse did not. The panel therefore kept
+        // accepting events across its whole frame until the next poll — up to 750ms — and
+        // swallowed the pointer before the hover sensor beneath it could see it. That is
+        // exactly why the first move to the notch did nothing and the second worked.
+        refreshHitRegion()
         if !hotRect.contains(NSEvent.mouseLocation) {
             withAnimation(.easeOut(duration: 0.16)) { revealed = false }
         }

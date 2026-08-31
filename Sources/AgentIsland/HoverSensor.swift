@@ -28,6 +28,9 @@ final class HoverSensor {
                           width: width, height: notchHeight)
         if let window {
             window.setFrame(rect, display: false)
+            // Both panels sit at .statusBar; the sensor must stay on top or the main panel can
+            // intercept the pointer first.
+            window.orderFrontRegardless()
             return
         }
         let panel = NSPanel(contentRect: rect,
