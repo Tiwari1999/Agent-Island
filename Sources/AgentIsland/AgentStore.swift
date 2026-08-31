@@ -64,7 +64,9 @@ struct AgentRow: Identifiable {
 
     /// A session with no reachable host is attached to, not jumped to.
     var isBackground: Bool { agent.pid != nil && !host.canReach }
-    var canJump: Bool { agent.pid != nil }
+    /// Every row does something: focus a live tab, open a workspace, or offer the resume
+    /// command. Only a session whose vendor has no resume path is truly inert.
+    var canJump: Bool { agent.pid != nil || Reopen.command(for: agent) != nil }
     /// True when we can land on the exact tab rather than merely raising the app.
     var precise: Bool { host.isPrecise }
 
@@ -248,6 +250,13 @@ final class AgentStore: ObservableObject {
     func jump(_ row: AgentRow) {
         // Whatever host it runs in — Warp, iTerm2, Terminal, an IDE — try that first.
         if row.host.jump() { return }
+        // Could not land precisely: hand over the working directory rather than guessing.
+        if case .degraded = row.host, let cwd = row.agent.cwd {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(cwd, forType: .string)
+            onBackgroundAttach?("\(row.displayName) — path copied, session not resolvable")
+            return
+        }
         guard row.agent.pid != nil else { return }
         guard row.agent.vendor == .claude else { return }   // only Claude has an attach command
         let cmd = "\(Shell.claude) attach \(String(row.agent.sessionId.prefix(8)))"

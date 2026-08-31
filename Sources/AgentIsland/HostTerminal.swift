@@ -12,6 +12,11 @@ enum HostTerminal: Equatable {
     case kitty(window: String)
     case wezterm(pane: String)
     case app(bundleID: String, name: String)   // best effort: raise the app
+    /// The host is known to have per-session focus, but this session's handle is missing —
+    /// a restored session, a re-parented shell, an ssh or tmux layer. Raising the app would
+    /// land on whichever tab was last focused, which is worse than declining: the user
+    /// believes they were taken somewhere and acts on the wrong session.
+    case degraded(bundleID: String, name: String, reason: String)
     case unknown
 
     /// Friendly label for the row's chip.
@@ -23,6 +28,7 @@ enum HostTerminal: Equatable {
         case .kitty: return "kitty"
         case .wezterm: return "WezTerm"
         case .app(_, let n): return n
+        case .degraded(_, let n, _): return n
         case .unknown: return "background"
         }
     }
@@ -31,7 +37,17 @@ enum HostTerminal: Equatable {
     var isPrecise: Bool {
         switch self {
         case .warp, .iterm, .appleTerminal, .kitty, .wezterm: return true
-        case .app, .unknown: return false
+        case .app, .degraded, .unknown: return false
+        }
+    }
+
+    /// Why a jump will not be precise, for the row's tooltip.
+    var caveat: String? {
+        switch self {
+        case .app(_, let n): return "\(n) exposes no per-tab focus API"
+        case .degraded(_, _, let r): return r
+        case .unknown: return "not running under a known terminal"
+        default: return nil
         }
     }
 
@@ -48,7 +64,15 @@ enum HostTerminal: Equatable {
         if let p = i.weztermPane { return .wezterm(pane: p) }
         // Terminal.app also sets TERM_SESSION_ID, so only claim it when it really is Terminal.
         if let s = i.appleSession, i.termProgram == "Apple_Terminal" { return .appleTerminal(session: s) }
-        if let b = i.bundleID { return .app(bundleID: b, name: friendly(b, i)) }
+        if let b = i.bundleID {
+            // Warp does publish a per-session handle, so its absence means this session cannot
+            // be resolved — not that Warp lacks the capability. Say so instead of guessing.
+            if b.hasPrefix("dev.warp.Warp") {
+                return .degraded(bundleID: b, name: "Warp",
+                                 reason: "session handle missing — restored session, or a tmux/ssh layer")
+            }
+            return .app(bundleID: b, name: friendly(b, i))
+        }
         if i.jetbrains { return .app(bundleID: "com.jetbrains", name: "JetBrains") }
         return .unknown
     }
@@ -135,6 +159,11 @@ enum HostTerminal: Equatable {
         case .app(let bundle, _):
             // No tab-level API — raising the app is the honest ceiling here.
             return activate(bundleID: bundle)
+
+        case .degraded:
+            // Deliberately does nothing. The caller offers the working directory instead, so the
+            // user can find the session themselves rather than trusting a wrong landing.
+            return false
 
         case .unknown:
             return false

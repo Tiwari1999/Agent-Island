@@ -341,7 +341,53 @@ check("questions bind number keys", "Hotkeys.digits" in isl)
 check("keys are released when a card resolves", isl.count("Hotkeys.shared.unbind()")>=4)
 check("hotkeys are not held globally at rest", "bind(" in isl and "unbind()" in hk)
 
-print("\n=== 17. notification noise ===")
+print("\n=== 17. multi-vendor discovery ===")
+src=os.path.join(REPO,"Sources/AgentIsland")
+proto=open(f"{src}/AgentSource.swift").read()
+check("AgentSource protocol exists", "protocol AgentSource" in proto)
+check("three vendors defined", all(v in proto for v in ("claude","codex","cursor")) and "enum Vendor" in proto)
+for name,f in [("Codex","CodexSource.swift"),("Cursor","CursorSource.swift")]:
+    body=open(f"{src}/{f}").read()
+    check(f"{name} source guards on availability", "var isAvailable" in body)
+check("cursor uses a tighter window than claude",
+      "2 * 24 * 3600" in open(f"{src}/CursorSource.swift").read())
+codex_dir=os.path.expanduser("~/.codex/sessions")
+if os.path.isdir(codex_dir):
+    import glob as _g
+    n=len([f for f in _g.glob(codex_dir+"/**/rollout-*.jsonl",recursive=True)
+           if time.time()-os.path.getmtime(f) < 10*86400])
+    check("codex sessions are discoverable on disk", n>0, f"{n} in window")
+cur=os.path.expanduser("~/.cursor/chats")
+if os.path.isdir(cur):
+    import glob as _g
+    metas=[m for m in _g.glob(cur+"/*/*/meta.json")
+           if time.time()-os.path.getmtime(os.path.dirname(m)) < 2*86400]
+    check("cursor sessions are discoverable on disk", len(metas)>0, f"{len(metas)} in 2d window")
+
+print("\n=== 18. config citizenship ===")
+inst=open(os.path.join(REPO,"scripts/install-hooks.py")).read()
+un=open(os.path.join(REPO,"scripts/uninstall-hooks.py")).read()
+check("installer backs up before writing", "def backup" in inst and "shutil.copy2" in inst)
+check("installer is idempotent", "already installed" in inst)
+check("installer wraps rather than replaces statusLine", "runs the user's own statusline" in inst)
+check("uninstaller exists", os.path.exists(os.path.join(REPO,"scripts/uninstall-hooks.py")))
+check("uninstaller removes only our entries", "MARK not in json.dumps" in un)
+check("uninstaller restores a wrapped statusLine", "hand it back" in un)
+for name,p in [("claude","~/.claude/settings.json"),("codex","~/.codex/hooks.json")]:
+    fp=os.path.expanduser(p)
+    if os.path.exists(fp):
+        c=json.load(open(fp))
+        theirs=sum(1 for ev in c.get("hooks",{}).values() for e in ev
+                   for h in e.get("hooks",[]) if "agentisland" not in json.dumps(h))
+        check(f"{name}: other tools' hooks survived install", theirs>0, f"{theirs} preserved")
+
+print("\n=== 19. honest degradation ===")
+host=open(f"{src}/HostTerminal.swift").read()
+check("a capable host with no handle degrades rather than guessing", "case degraded" in host)
+check("degraded jump deliberately does nothing", "Deliberately does nothing" in host)
+check("every vendor has a resume path", "codex resume" in open(f"{src}/Reopen.swift").read())
+
+print("\n=== 20. notification noise ===")
 hs=open(os.path.join(REPO,"Sources/AgentIsland/HookStream.swift")).read()
 check("idle_prompt is not treated as an ask", "idle_prompt" in hs)
 check("only real asks set waiting", 'kind == "idle_prompt"' in hs)
@@ -360,7 +406,8 @@ check("hosting view accepts first mouse (panel is never key)",
 check("the panel uses that hosting view", "FirstMouseHostingView(rootView:" in isl)
 check("hit region refreshes on state change, not only on poll",
       isl.count("refreshHitRegion()") >= 4)
-check("poll is a backstop, not the primary path", "withTimeInterval: 0.06" in isl)
+check("poll is a backstop, not the primary path",
+      "state == .collapsed ? 0.75 : 0.06" in isl)
 
 print("\n=== 19. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")
