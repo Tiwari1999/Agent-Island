@@ -35,7 +35,11 @@ final class Island: NSObject, ObservableObject {
     @Published var notchWidth: CGFloat = 0
     @Published var notchHeight: CGFloat = 32
 
-    static let maxSize = NSSize(width: 860, height: 400)
+    static let maxSize = NSSize(width: 860, height: 420)
+    /// Breathing room under the camera housing. Insetting content by exactly `notchHeight` left
+    /// zero margin, so the first row of header text sat right against the bezel and read as
+    /// clipped. safeAreaInsets is the logical inset, not the physical glass.
+    static let notchClearance: CGFloat = 8
 
     private var window: Panel?
     private var poll: Timer?
@@ -193,8 +197,9 @@ final class Island: NSObject, ObservableObject {
     private var panelRect: NSRect {
         guard let screen else { return .zero }
         return NSRect(x: screen.frame.midX - PanelView.width / 2,
-                      y: screen.frame.maxY - notchHeight - PanelView.height,
-                      width: PanelView.width, height: notchHeight + PanelView.height)
+                      y: screen.frame.maxY - notchHeight - Self.notchClearance - PanelView.height,
+                      width: PanelView.width,
+                      height: notchHeight + Self.notchClearance + PanelView.height)
     }
 
     /// The toast's own rect, so it can be clicked and does not eat the desktop around it.
@@ -466,7 +471,7 @@ private struct RootView: View {
                     // Inset past the physical notch so text clears the camera, while the shape
                     // behind it still reaches the screen edge and reads as one piece with it.
                     PanelView(store: store, status: status)
-                        .padding(.top, island.notchHeight)
+                        .padding(.top, island.notchHeight + Island.notchClearance)
                 }
             }
             .frame(width: shellWidth, height: shellHeight)

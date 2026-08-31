@@ -20,7 +20,11 @@ See every agent at a glance · jump to the exact terminal tab · approve and ans
 > Everything runs locally. No server, no telemetry, no API key, no subscription.
 > Agent Island reads only what Claude Code already writes to your own disk.
 
-<!-- Add a screenshot or short GIF of the expanded panel here. -->
+<div align="center">
+  <img src="docs/panel.png" alt="Agent Island expanded panel showing three Claude Code sessions" width="720">
+  <br>
+  <sub>Quota and burn rate up top · one row per agent with its task, context ring and live prompt</sub>
+</div>
 
 ## 🤔 Why
 
