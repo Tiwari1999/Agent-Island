@@ -353,7 +353,16 @@ if os.path.exists("/tmp/agentisland-events.jsonl"):
             except Exception: pass
 check("idle_prompt observed in the wild (the noisy one)", "idle_prompt" in seen, str(sorted(x for x in seen if x)))
 
-print("\n=== 18. binary builds & launches ===")
+print("\n=== 18. first-click reliability ===")
+isl=open(os.path.join(REPO,"Sources/AgentIsland/Island.swift")).read()
+check("hosting view accepts first mouse (panel is never key)",
+      "acceptsFirstMouse" in isl and "FirstMouseHostingView" in isl)
+check("the panel uses that hosting view", "FirstMouseHostingView(rootView:" in isl)
+check("hit region refreshes on state change, not only on poll",
+      isl.count("refreshHitRegion()") >= 4)
+check("poll is a backstop, not the primary path", "withTimeInterval: 0.06" in isl)
+
+print("\n=== 19. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")
 check("binary exists", os.path.exists(b))
 

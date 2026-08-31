@@ -6,6 +6,15 @@ private final class Panel: NSPanel {
     override var canBecomeKey: Bool { true }
 }
 
+/// A nonactivating panel is never the key window, so AppKit spends the first click activating it
+/// instead of delivering it to the control underneath — the classic "I had to click twice".
+private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    @MainActor required init(rootView: Content) { super.init(rootView: rootView) }
+    @MainActor required dynamic init?(coder: NSCoder) { fatalError("not used") }
+}
+
 struct PeekPayload: Equatable {
     let session: String
     let title: String
@@ -97,7 +106,7 @@ final class Island: NSObject, ObservableObject {
         panel.hidesOnDeactivate = false
         panel.isExcludedFromWindowsMenu = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        panel.contentView = NSHostingView(rootView: RootView(island: self, store: store, status: status))
+        panel.contentView = FirstMouseHostingView(rootView: RootView(island: self, store: store, status: status))
         panel.orderFrontRegardless()
         window = panel
 
@@ -156,7 +165,7 @@ final class Island: NSObject, ObservableObject {
             withAnimation(.easeOut(duration: 0.16)) { self.revealed = false }
         }
 
-        poll = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak self] _ in
+        poll = Timer.scheduledTimer(withTimeInterval: 0.06, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.track() }
         }
     }
@@ -209,6 +218,19 @@ final class Island: NSObject, ObservableObject {
         return NSRect(x: screen.frame.midX - w / 2, y: screen.frame.maxY - h, width: w, height: h)
     }
 
+    /// Recompute which region accepts clicks. Called on every state change as well as on the
+    /// poll, because waiting for the next tick left a window where clicks fell through the panel.
+    private func refreshHitRegion() {
+        guard let window else { return }
+        let mouse = NSEvent.mouseLocation
+        var live = hotRect
+        if state == .expanded { live = panelRect.union(hotRect) }
+        if case .peek = state { live = peekRect.union(hotRect) }
+        if case .approval = state { live = approvalRect.union(hotRect) }
+        if case .question = state { live = questionRect.union(hotRect) }
+        window.ignoresMouseEvents = !live.insetBy(dx: -4, dy: -4).contains(mouse)
+    }
+
     private func track() {
         guard let window else { return }
         // Only re-home while collapsed; moving a visible panel would yank it mid-interaction.
@@ -243,6 +265,7 @@ final class Island: NSObject, ObservableObject {
         guard state != .expanded else { return }
         withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) { state = .expanded }
         installClickMonitors()
+        refreshHitRegion()
     }
 
     /// A global monitor only sees clicks delivered to other apps; a click landing on our own
@@ -288,6 +311,7 @@ final class Island: NSObject, ObservableObject {
         guard state != .expanded else { return }
         peekWork?.cancel()
         withAnimation(.spring(response: 0.34, dampingFraction: 0.80)) { state = .peek(payload) }
+        refreshHitRegion()
         let work = DispatchWorkItem { [weak self] in
             guard let self, case .peek = self.state else { return }
             withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) { self.state = .collapsed }
@@ -305,6 +329,7 @@ final class Island: NSObject, ObservableObject {
             (kVK_ANSI_D, Hotkeys.cmdOpt, { [weak self] in self?.answer(approval, allow: false) }),
         ])
         withAnimation(.spring(response: 0.34, dampingFraction: 0.80)) { state = .approval(approval) }
+        refreshHitRegion()
         // Drop the card when the hook stops waiting, so a dead prompt can't linger.
         let work = DispatchWorkItem { [weak self] in
             guard let self, case .approval(let a) = self.state, a.id == approval.id else { return }
@@ -324,6 +349,7 @@ final class Island: NSObject, ObservableObject {
             (Hotkeys.digits[i], Hotkeys.cmdOpt, { [weak self] in self?.choose(question, option: opt) })
         })
         withAnimation(.spring(response: 0.34, dampingFraction: 0.80)) { state = .question(question) }
+        refreshHitRegion()
         let work = DispatchWorkItem { [weak self] in
             guard let self, case .question(let q) = self.state, q.id == question.id else { return }
             Hotkeys.shared.unbind()
