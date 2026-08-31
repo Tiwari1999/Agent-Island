@@ -21,7 +21,7 @@ See every agent at a glance · jump to the exact terminal tab · approve and ans
 > Agent Island reads only what Claude Code already writes to your own disk.
 
 <div align="center">
-  <img src="docs/panel.png" alt="Agent Island expanded panel showing three Claude Code sessions" width="720">
+  <img src="docs/panel.png" alt="Agent Island expanded panel showing three Claude Code sessions" width="844">
   <br>
   <sub>Quota and burn rate up top · one row per agent with its model, terminal, context ring, last instruction and live tool call</sub>
 </div>
