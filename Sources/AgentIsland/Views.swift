@@ -41,7 +41,10 @@ struct CollapsedView: View {
             HStack(spacing: 7) {
                 if store.workingCount > 0 {
                     HStack(spacing: 4) {
-                        ActivityBars(color: Theme.working, height: 9, active: true)
+                        // Static on purpose: this bar is visible all day, and a permanently
+                        // animating element is both a battery cost and, per the motion budget,
+                        // noise rather than signal. Motion is reserved for "needs you".
+                        Circle().fill(Theme.working).frame(width: 6, height: 6)
                         Text("\(store.workingCount)")
                             .font(Theme.label(9.5)).foregroundColor(Theme.working)
                             .contentTransition(.numericText(value: Double(store.workingCount)))

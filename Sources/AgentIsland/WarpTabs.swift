@@ -52,12 +52,8 @@ enum WarpTabs {
 
     /// The session UUID Warp exported into the agent's environment.
     static func sessionUUID(pid: Int) -> String? {
-        let env = Shell.runSync("/bin/ps", ["eww", "-p", "\(pid)", "-o", "command="])
-        for t in env.split(whereSeparator: { $0 == " " || $0 == "\n" })
-        where t.hasPrefix("WARP_TERMINAL_SESSION_UUID=") {
-            return String(t.dropFirst("WARP_TERMINAL_SESSION_UUID=".count)).lowercased()
-        }
-        return nil
+        ProcEnv.prime(pids: [pid])
+        return ProcEnv.warp(pid: pid).sessionUUID?.lowercased()
     }
 
     static func tab(pid: Int) -> Tab? {

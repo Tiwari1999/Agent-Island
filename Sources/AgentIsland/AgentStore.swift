@@ -103,7 +103,28 @@ final class AgentStore: ObservableObject {
             .sink { [weak self] _ in self?.applyLive() }
             .store(in: &bag)
         refresh()
-        timer = Timer.scheduledTimer(withTimeInterval: 4, repeats: true) { [weak self] _ in
+        reschedule()
+    }
+
+    /// `claude agents --json` costs ~256ms of CPU per call — a Node process start. Polling it
+    /// every 4s burned 6.4% of a core continuously just to keep a list nobody was looking at.
+    /// Hooks already push state changes, so the poll only needs to be brisk while the panel is
+    /// open; otherwise it is a slow backstop.
+    private static let activeInterval: TimeInterval = 4
+    private static let idleInterval: TimeInterval = 20
+    private var panelVisible = false
+
+    func setPanelVisible(_ visible: Bool) {
+        guard visible != panelVisible else { return }
+        panelVisible = visible
+        if visible { refresh() }        // opening the panel should show current state at once
+        reschedule()
+    }
+
+    private func reschedule() {
+        timer?.invalidate()
+        let interval = panelVisible ? Self.activeInterval : Self.idleInterval
+        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
     }
@@ -119,6 +140,10 @@ final class AgentStore: ObservableObject {
     /// Resolving Warp URLs shells out per agent, so it happens off the main actor.
     private func rebuild(_ agents: [Agent]) {
         DispatchQueue.global(qos: .utility).async {
+            // One ps call for every pid we have not seen, instead of two per agent per cycle.
+            let pids = agents.compactMap(\.pid)
+            ProcEnv.prime(pids: pids)
+            ProcEnv.retain(Set(pids))
             let resolved: [(Agent, String?, Date?, WarpTabs.Tab?)] = agents.map { a in
                 (a, a.pid.flatMap { WarpJump.focusURL(pid: $0) },
                  Transcript.lastActive(a), a.pid.flatMap { WarpTabs.tab(pid: $0) })
@@ -204,8 +229,15 @@ enum Transcript {
     /// mtime is the wrong signal: a long-dead session whose `claude` process is still alive gets
     /// its transcript touched without any new content, so a 25-day-old conversation reported
     /// minutes. The last entry's own timestamp cannot be faked that way.
+    private static var activeCache: [String: (mtime: Date, value: Date?)] = [:]
+
     static func lastActive(_ a: Agent) -> Date? {
         guard let path = path(for: a) else { return nil }
+        // The expensive part is tail+grep. If the file has not changed since we last looked,
+        // neither has the answer — this was three process spawns per agent per refresh.
+        let mtime = (try? FileManager.default.attributesOfItem(atPath: path)[.modificationDate]
+                     as? Date) ?? .distantPast
+        if let hit = activeCache[a.sessionId], hit.mtime == mtime { return hit.value }
         let tail = Shell.runSync("/bin/sh", ["-c",
             "tail -c 32768 '\(path)' 2>/dev/null | grep -o '\"timestamp\":\"[^\"]*\"' | tail -1"])
         let stamp = tail.replacingOccurrences(of: "\"timestamp\":\"", with: "")
@@ -214,12 +246,13 @@ enum Transcript {
         if !stamp.isEmpty {
             let iso = ISO8601DateFormatter()
             iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let d = iso.date(from: stamp) { return d }
+            if let d = iso.date(from: stamp) { activeCache[a.sessionId] = (mtime, d); return d }
             iso.formatOptions = [.withInternetDateTime]
-            if let d = iso.date(from: stamp) { return d }
+            if let d = iso.date(from: stamp) { activeCache[a.sessionId] = (mtime, d); return d }
         }
         // Only fall back to mtime when the transcript carries no timestamps at all.
-        return try? FileManager.default.attributesOfItem(atPath: path)[.modificationDate] as? Date
+        activeCache[a.sessionId] = (mtime, mtime)
+        return mtime
     }
 
     static func path(for a: Agent) -> String? {

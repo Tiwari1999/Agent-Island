@@ -165,9 +165,7 @@ final class Island: NSObject, ObservableObject {
             withAnimation(.easeOut(duration: 0.16)) { self.revealed = false }
         }
 
-        poll = Timer.scheduledTimer(withTimeInterval: 0.06, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.track() }
-        }
+        repoll()
     }
 
     private func measureNotch(_ screen: NSScreen) {
@@ -232,6 +230,16 @@ final class Island: NSObject, ObservableObject {
         window.ignoresMouseEvents = !live.insetBy(dx: -4, dy: -4).contains(mouse)
     }
 
+    /// Hover is handled by the tracking area, so while collapsed this timer only needs to keep
+    /// the island on the right display — 16 wakeups a second for that is pure battery burn.
+    private func repoll() {
+        poll?.invalidate()
+        let interval: TimeInterval = state == .collapsed ? 0.75 : 0.06
+        poll = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.track() }
+        }
+    }
+
     private func track() {
         guard let window else { return }
         // Only re-home while collapsed; moving a visible panel would yank it mid-interaction.
@@ -265,6 +273,8 @@ final class Island: NSObject, ObservableObject {
     func expand() {
         guard state != .expanded else { return }
         withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) { state = .expanded }
+        store.setPanelVisible(true)
+        repoll()
         installClickMonitors()
         refreshHitRegion()
     }
@@ -299,6 +309,8 @@ final class Island: NSObject, ObservableObject {
         removeClickMonitors()
         outsideTicks = 0; hoverTicks = 0
         withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) { state = .collapsed }
+        store.setPanelVisible(false)
+        repoll()
         if !hotRect.contains(NSEvent.mouseLocation) {
             withAnimation(.easeOut(duration: 0.16)) { revealed = false }
         }

@@ -7,14 +7,10 @@ import AppKit
 /// the `warp.sqlite` route, which cannot disambiguate tabs that share a working directory.
 enum WarpJump {
     /// The focus URL of the Warp tab hosting `pid`, if that process runs under Warp.
+    /// Served from ProcEnv's cache — a process's environment is fixed at exec time.
     static func focusURL(pid: Int) -> String? {
-        let env = Shell.runSync("/bin/ps", ["eww", "-p", "\(pid)", "-o", "command="])
-        for token in env.split(whereSeparator: { $0 == " " || $0 == "\n" }) {
-            if token.hasPrefix("WARP_FOCUS_URL=") {
-                return String(token.dropFirst("WARP_FOCUS_URL=".count))
-            }
-        }
-        return nil
+        ProcEnv.prime(pids: [pid])
+        return ProcEnv.warp(pid: pid).focusURL
     }
 
     @discardableResult
