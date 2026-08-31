@@ -175,7 +175,14 @@ final class AgentStore: ObservableObject {
     /// file check — so this list can grow without a settings switch.
     private let sources: [AgentSource] = [ClaudeSource(), CodexSource(), CursorSource()]
 
+    /// Discovery mutates each vendor's static caches, so exactly one may be in flight. This also
+    /// stops polls from stacking up behind a slow one — the shape that made a single wedged
+    /// syscall freeze every later refresh.
+    private var refreshing = false
+
     func refresh() {
+        guard !refreshing else { return }
+        refreshing = true
         // Snapshot the sources on the main actor; the discovery work itself is off it.
         let sources = self.sources
         DispatchQueue.global(qos: .utility).async { [weak self] in
@@ -192,6 +199,7 @@ final class AgentStore: ObservableObject {
                     String(format: "%@ %d/%.2fs", $0.0.rawValue, $0.1.count, $0.2)
                   }.joined(separator: ", ") + "]")
             Task { @MainActor in
+                self?.refreshing = false
                 self?.hasRefreshed = true
                 self?.rebuild(found)
             }

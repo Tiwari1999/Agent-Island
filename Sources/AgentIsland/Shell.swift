@@ -49,7 +49,10 @@ enum Shell {
         }
         // The parent's own write end must go, or the reader never sees EOF.
         try? out.fileHandleForWriting.close()
-        defer { try? out.fileHandleForReading.close() }
+        // Closing a handle a reader is still blocked inside is a crash, not a cleanup: on the
+        // abandoned path the reader keeps the handle and the fd goes with the pipe's deinit.
+        var abandoned = false
+        defer { if !abandoned { try? out.fileHandleForReading.close() } }
 
         // A dedicated thread, not a global queue: rebuild already runs on the utility queue, and
         // blocking one of its threads on a semaphore signalled from the same queue can starve.
@@ -63,7 +66,7 @@ enum Shell {
             task.terminate()
             // Let the child die so the reader hits EOF and the thread unwinds.
             if done.wait(timeout: .now() + 2) == .timedOut { kill(task.processIdentifier, SIGKILL) }
-            _ = done.wait(timeout: .now() + 1)
+            abandoned = done.wait(timeout: .now() + 1) == .timedOut
             Diagnostics.log("timeout after \(Int(timeout))s: \(path) \(args.first ?? "")")
             return ""
         }

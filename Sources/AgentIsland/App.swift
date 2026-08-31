@@ -30,6 +30,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @MainActor
 struct AgentIslandApp {
     static func main() {
+        // Pure text logic is worth checking without a window; the suite drives this.
+        if CommandLine.arguments.contains("--check-prompts") { exit(PromptCheck.run()) }
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate

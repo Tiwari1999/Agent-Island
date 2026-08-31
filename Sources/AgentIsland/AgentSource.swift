@@ -53,23 +53,76 @@ enum PromptText {
     /// The first line the user actually wrote, or nil if the entry is entirely machinery.
     static func humanLine(_ raw: String) -> String? {
         let head = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // An explicit `<user_query>` says exactly where the human's words are. Prefer it over
+        // any heuristic — the surrounding entry may open with injected context.
+        if let open = head.range(of: "<user_query>") {
+            let rest = head[open.upperBound...]
+            let inner = rest.range(of: "</user_query>").map { String(rest[..<$0.lowerBound]) }
+                ?? String(rest)
+            if let line = usableLine(inner) { return line }
+        }
         guard !injected.contains(where: { head.hasPrefix($0) }) else { return nil }
+        return usableLine(head)
+    }
 
-        var body = head
+    private static func usableLine(_ raw: String) -> String? {
+        var body = raw
         // A `<timestamp>…</timestamp>` preamble describes the turn; it is never its content.
         if let end = body.range(of: "</timestamp>") { body = String(body[end.upperBound...]) }
         if let tag {
             body = tag.stringByReplacingMatches(
                 in: body, range: NSRange(body.startIndex..., in: body), withTemplate: "\n")
         }
-        return body.split(whereSeparator: \.isNewline)
+        let lines = body.split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
-            .first { line in
-                guard !line.isEmpty, !line.hasPrefix("<") else { return false }
-                // A heading or a bare `USER:` label announces the prompt; it is not the prompt.
-                if line.hasPrefix("#") { return false }
-                if line.hasSuffix(":") && line.count <= 14 { return false }
-                return true
+            .filter { !$0.isEmpty && !$0.hasPrefix("<") }
+        // A heading or a bare `USER:` label announces the prompt rather than being it — but if
+        // that is all there is, it still names the session better than a bare id does.
+        if let best = lines.first(where: { !$0.hasPrefix("#") && !isLabel($0) }) { return best }
+        return lines.first.map {
+            $0.drop(while: { $0 == "#" }).trimmingCharacters(in: .whitespaces)
+        }.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    private static func isLabel(_ line: String) -> Bool {
+        line.hasSuffix(":") && line.count <= 14
+    }
+}
+
+/// Cases that have actually gone wrong: every one of these once produced a row titled with
+/// machinery, a bare id, or nothing at all.
+enum PromptCheck {
+    static func run() -> Int32 {
+        let cases: [(String, String?, String)] = [
+            ("<timestamp>Mon</timestamp>\n<user_query>\nfix the leak\n</user_query>",
+             "fix the leak", "cursor wraps the prompt in timestamp + user_query"),
+            ("<additional_data><rules/></additional_data>\n<user_query>\nfix the leak\n</user_query>",
+             "fix the leak", "an explicit user_query outranks a leading injected block"),
+            ("<user_info>OS Version: darwin</user_info><user_query>fix the leak</user_query>",
+             "fix the leak", "an unlisted wrapper must not donate its body"),
+            ("<recommended_plugins>\nHere is a list of plugins that are available\n</recommended_plugins>",
+             nil, "codex plugin blurb is machinery, not a prompt"),
+            ("<environment_context>\ncwd: /tmp\n</environment_context>", nil, "environment blurb"),
+            ("# AGENTS.md instructions for /Users/x", nil, "injected AGENTS.md preamble"),
+            ("# Fix the login bug", "Fix the login bug", "a prompt that is only a heading"),
+            ("USER:\nwhy is the pod crashlooping", "why is the pod crashlooping",
+             "a bare USER: label announces the prompt"),
+            ("<task> Act as a strict code reviewer", "Act as a strict code reviewer",
+             "inline tag then real content"),
+            ("Read these three runbooks in full:", "Read these three runbooks in full:",
+             "a long line ending in a colon is content, not a label"),
+        ]
+        var failed = 0
+        for (input, want, why) in cases {
+            let got = PromptText.humanLine(input)
+            if got != want {
+                failed += 1
+                FileHandle.standardError.write(
+                    "FAIL \(why)\n  want: \(want ?? "nil")\n  got:  \(got ?? "nil")\n"
+                        .data(using: .utf8)!)
             }
+        }
+        print("prompt extraction: \(cases.count - failed)/\(cases.count) cases")
+        return failed == 0 ? 0 : 1
     }
 }

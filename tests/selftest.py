@@ -171,7 +171,8 @@ check("runSync takes a timeout", "timeout: TimeInterval" in sh)
 check("runSync kills a child that outlives it", "task.terminate()" in sh and "SIGKILL" in sh)
 check("runSync closes the parent's write end (reader must see EOF)",
       "fileHandleForWriting.close()" in sh)
-check("runSync closes the read end on every path", "defer { try? out.fileHandleForReading.close()" in sh)
+check("runSync closes the read end, except under a reader it would crash",
+      "if !abandoned { try? out.fileHandleForReading.close() }" in sh and "var abandoned" in sh)
 check("streams we never read get no pipe to leak", sh.count("FileHandle.nullDevice")>=2)
 check("reader runs off the queue rebuild uses", "Thread.detachNewThread" in sh)
 
@@ -262,6 +263,13 @@ for jp in glob.glob(f"{home}/.claude/jobs/*/state.json"):
     except Exception: continue
     if jo.get("state")=="blocked" and (jo.get("needs") or jo.get("detail")): disk_blocked+=1
 shown_blocked=sum(1 for r in rows if r.get("blocked"))
+# Pure text logic, checked directly in the binary: every case here once produced a row titled
+# with machinery, a bare id, or nothing.
+pc=subprocess.run([os.path.join(REPO,".build/release/AgentIsland"),"--check-prompts"],
+                  capture_output=True,text=True)
+check("prompt extraction handles every shape that has broken it",
+      pc.returncode==0, (pc.stdout+pc.stderr).strip().splitlines()[-1] if (pc.stdout or pc.stderr) else "")
+
 check("blocked badge matches the jobs actually blocked on disk",
       shown_blocked<=disk_blocked, f"{shown_blocked} shown, {disk_blocked} on disk")
 
