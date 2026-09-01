@@ -247,17 +247,105 @@ struct CursorSource: AgentSource {
     }
 }
 
-/// Claude Code sessions. Wraps the CLI it already shipped with, so the behaviour is unchanged.
+/// Claude Code sessions, read from what Claude itself writes — transcripts, jobs, and the
+/// process table. This replaced `claude agents --json`, which spawned a 373 MB Node process on
+/// every refresh and reported fewer sessions than the transcripts hold.
 struct ClaudeSource: AgentSource {
     let vendor: Vendor = .claude
 
-    var isAvailable: Bool { FileManager.default.isExecutableFile(atPath: Shell.claude) }
+    private var projects: String { Home.path + "/.claude/projects" }
+
+    var isAvailable: Bool { FileManager.default.fileExists(atPath: projects) }
+
+    /// cwd per session, keyed on transcript mtime — an unchanged file cannot move directories.
+    private static var cwdCache: [String: (mtime: Date, cwd: String?)] = [:]
 
     func discover() -> [Agent] {
-        guard isAvailable else { return [] }
-        let out = Shell.runSync(Shell.claude, ["agents", "--json", "--all"])
-        guard let data = out.data(using: .utf8),
-              let parsed = try? JSONDecoder().decode([Agent].self, from: data) else { return [] }
-        return parsed
+        let fm = FileManager.default
+        let cutoff = Date().addingTimeInterval(-10 * 24 * 3600)
+
+        // Background jobs are authoritative for name and blocked/failed state.
+        struct Job { var name: String?; var state: String?; var cwd: String?; var at: Date? }
+        var jobs: [String: Job] = [:]
+        let jobsDir = Home.path + "/.claude/jobs"
+        for dir in (try? fm.contentsOfDirectory(atPath: jobsDir)) ?? [] {
+            guard let data = fm.contents(atPath: "\(jobsDir)/\(dir)/state.json"),
+                  let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let sid = o["sessionId"] as? String else { continue }
+            jobs[sid] = Job(name: o["name"] as? String,
+                            state: o["state"] as? String,
+                            cwd: o["cwd"] as? String,
+                            at: (o["updatedAt"] as? String).flatMap {
+                                ISO8601DateFormatter().date(from: $0) })
+        }
+
+        // Sessions are transcript files; recency is the file's own mtime.
+        var found: [String: (path: String, mtime: Date)] = [:]
+        for dir in (try? fm.contentsOfDirectory(atPath: projects)) ?? [] {
+            for f in (try? fm.contentsOfDirectory(atPath: "\(projects)/\(dir)")) ?? []
+            where f.hasSuffix(".jsonl") {
+                let path = "\(projects)/\(dir)/\(f)"
+                guard let mtime = (try? fm.attributesOfItem(atPath: path))?[.modificationDate]
+                        as? Date, mtime > cutoff else { continue }
+                // Queue files share the directory and the .jsonl suffix but hold no
+                // conversation; as rows they render as bare UUIDs.
+                if Tail.head(path: path, bytes: 256).contains("\"type\":\"queue-operation\"") {
+                    continue
+                }
+                found[String(f.dropLast(6))] = (path, mtime)
+            }
+        }
+
+        // Who is running what: argv carries `--resume <id>`; a fresh session has no argv mark
+        // and is bound only when its directory identifies it uniquely — never guessed.
+        // -a includes pgrep's own ancestors: without it a claude that launched the launcher
+        // that launched us would be invisible, which is exactly the kind of miss nobody debugs.
+        let pids = Shell.runSync("/usr/bin/pgrep", ["-a", "-x", "claude"])
+            .split(whereSeparator: \.isNewline).compactMap { Int($0) }
+        ProcEnv.prime(pids: pids)
+        var bySession: [String: Int] = [:]
+        var unbound: [Int] = []
+        for pid in pids {
+            if let sid = ProcEnv.info(pid: pid).resumeSession { bySession[sid] = pid }
+            else { unbound.append(pid) }
+        }
+        let cwdOf = Cwd.map(pids: unbound)   // cwd -> pid, only where unique
+
+        var agents: [Agent] = []
+        var emitted = Set<String>()
+        for (sid, t) in found {
+            let job = jobs[sid]
+            var cwd = job?.cwd
+            if cwd == nil {
+                if let hit = Self.cwdCache[sid], hit.mtime == t.mtime { cwd = hit.cwd }
+                else {
+                    cwd = Tail.lastValue(of: "cwd", in: Tail.read(path: t.path, bytes: 32768))
+                    Self.cwdCache[sid] = (t.mtime, cwd)
+                }
+            }
+            var pid = bySession[sid]
+            if pid == nil, let c = cwd, let p = cwdOf[c],
+               !found.contains(where: { $0.key != sid && Self.cwdCache[$0.key]?.cwd == c
+                                        && bySession[$0.key] == nil }) {
+                pid = p
+            }
+            let state: String?
+            if let js = job?.state, js == "blocked" || js == "failed" { state = js }
+            else if pid != nil {
+                state = Date().timeIntervalSince(t.mtime) < 120 ? "busy" : "idle"
+            } else { state = nil }
+            agents.append(Agent(sessionId: sid, name: job?.name, cwd: cwd,
+                                state: state, status: nil, pid: pid))
+            emitted.insert(sid)
+        }
+        // Blocked jobs are waiting on a human and must never vanish for being old.
+        for (sid, job) in jobs where !emitted.contains(sid) {
+            guard job.state == "blocked" || job.state == "failed" else { continue }
+            agents.append(Agent(sessionId: sid, name: job.name, cwd: job.cwd,
+                                state: job.state, status: nil, pid: nil,
+                                lastActiveOverride: job.at))
+        }
+        Self.cwdCache = Self.cwdCache.filter { found[$0.key] != nil }
+        return agents
     }
 }

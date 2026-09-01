@@ -19,6 +19,8 @@ enum ProcEnv {
         var jetbrains: Bool = false
         /// Set by macOS on every process an app launches — the most reliable host id there is.
         var bundleID: String?
+        /// From argv (`claude --resume <id>`): the exact session this process is running.
+        var resumeSession: String?
     }
     typealias Warp = Info
 
@@ -40,7 +42,10 @@ enum ProcEnv {
             let fields = line.split(separator: " ", omittingEmptySubsequences: true)
             guard let first = fields.first, let pid = Int(first) else { continue }
             var i = Info()
+            var wantsResume = false
             for f in fields {
+                if wantsResume { i.resumeSession = String(f); wantsResume = false }
+                if f == "--resume" || f == "-r" { wantsResume = true }
                 func val(_ key: String) -> String? {
                     f.hasPrefix(key) ? String(f.dropFirst(key.count)) : nil
                 }
