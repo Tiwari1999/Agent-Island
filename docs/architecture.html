@@ -1,0 +1,541 @@
+<title>How the Island Watches</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground: #F6F7F9;
+    --surface: #FFFFFF;
+    --sunken: #EEF1F4;
+    --ink: #12171C;
+    --muted: #5A6572;
+    --faint: #8A94A0;
+    --rule: #DFE4E9;
+    --pine: #1D6B58;
+    --amber: #9A6A0E;
+    --clay: #9E3B2B;
+    --display: "Fraunces", Georgia, "Times New Roman", serif;
+    --body: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --measure: 68ch;
+    --wide: 1120px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0E1216;
+      --surface: #151A20;
+      --sunken: #1A2027;
+      --ink: #E4E9EE;
+      --muted: #96A1AD;
+      --faint: #6E7A87;
+      --rule: #262E37;
+      --pine: #55BFA1;
+      --amber: #D6A441;
+      --clay: #D97A66;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0E1216;
+    --surface: #151A20;
+    --sunken: #1A2027;
+    --ink: #E4E9EE;
+    --muted: #96A1AD;
+    --faint: #6E7A87;
+    --rule: #262E37;
+    --pine: #55BFA1;
+    --amber: #D6A441;
+    --clay: #D97A66;
+  }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 16.5px;
+    line-height: 1.62;
+    margin: 0;
+    padding: 0 24px 120px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: var(--wide); margin: 0 auto; }
+  .measure { max-width: var(--measure); }
+
+  header.masthead {
+    padding: 92px 0 40px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 56px;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--pine);
+    margin: 0 0 18px;
+  }
+  h1 {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: clamp(2.6rem, 6vw, 4.1rem);
+    line-height: 1.02;
+    letter-spacing: -0.02em;
+    margin: 0 0 22px;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-size: 1.16rem;
+    color: var(--muted);
+    max-width: 62ch;
+    margin: 0;
+  }
+
+  h2 {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 1.86rem;
+    letter-spacing: -0.015em;
+    line-height: 1.18;
+    margin: 76px 0 6px;
+    text-wrap: balance;
+  }
+  h2 + .kicker {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--faint);
+    margin: 0 0 26px;
+  }
+  h3 {
+    font-family: var(--body);
+    font-weight: 600;
+    font-size: 1.02rem;
+    letter-spacing: 0.01em;
+    margin: 34px 0 8px;
+  }
+  p { margin: 0 0 18px; }
+  a { color: var(--pine); }
+  code {
+    font-family: var(--mono);
+    font-size: 0.87em;
+    background: var(--sunken);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  strong { font-weight: 600; }
+
+  .lede::first-letter {
+    font-family: var(--display);
+    font-size: 3.1em;
+    float: left;
+    line-height: 0.82;
+    padding: 6px 10px 0 0;
+    color: var(--pine);
+  }
+
+  /* Two genuine lanes: the app has exactly two ways of learning anything. */
+  .lanes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+    margin: 30px 0 10px;
+  }
+  .lane {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 22px 24px 6px;
+  }
+  .lane h3 { margin-top: 0; }
+  .lane .tag {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    display: block;
+    margin-bottom: 6px;
+  }
+  .lane.pull { border-top: 3px solid var(--pine); }
+  .lane.push { border-top: 3px solid var(--amber); }
+
+  .scroll {
+    overflow-x: auto;
+    margin: 26px 0;
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    background: var(--surface);
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 660px;
+    font-size: 14.5px;
+  }
+  th, td {
+    text-align: left;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  th {
+    font-family: var(--mono);
+    font-weight: 500;
+    font-size: 11.5px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--faint);
+    background: var(--sunken);
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.mono, td .path {
+    font-family: var(--mono);
+    font-size: 12.6px;
+    color: var(--muted);
+  }
+  .num { font-variant-numeric: tabular-nums; }
+
+  .diagram {
+    overflow-x: auto;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 26px 20px;
+    margin: 30px 0;
+  }
+  .diagram pre.mermaid { margin: 0; background: none; }
+  figcaption {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--faint);
+    margin-top: 14px;
+    padding: 0 6px;
+  }
+
+  .note {
+    border-left: 2px solid var(--amber);
+    padding: 2px 0 2px 20px;
+    margin: 26px 0;
+    color: var(--muted);
+    font-size: 15.4px;
+  }
+  .note strong { color: var(--ink); }
+
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 30px 0;
+  }
+  .metric { background: var(--surface); padding: 20px 22px; }
+  .metric .v {
+    font-family: var(--display);
+    font-size: 1.72rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+    display: block;
+  }
+  .metric .k {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--faint);
+    display: block;
+    margin-top: 7px;
+  }
+  .metric .was { font-size: 12.5px; color: var(--muted); display: block; margin-top: 3px; }
+
+  ul.tight { margin: 0 0 18px; padding-left: 20px; }
+  ul.tight li { margin-bottom: 9px; }
+
+  footer {
+    margin-top: 88px;
+    padding-top: 26px;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--faint);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="wrap">
+
+<header class="masthead">
+  <p class="eyebrow">Agent Island · internals</p>
+  <h1>How the Island Watches</h1>
+  <p class="standfirst">Agent Island monitors Claude Code, Codex and Cursor sessions from a
+  macOS notch panel. It never talks to an agent. Everything it shows is read from what those
+  agents already write to disk, plus events they push through hooks — two independent paths that
+  meet in one store.</p>
+</header>
+
+<section class="measure">
+  <p class="lede">The design question behind every decision here is: <em>how do you know what an
+  agent is doing without asking it?</em> There is no API to call. An agent is a process that
+  appends to a transcript, and sometimes runs a hook. So the app has exactly two ways of learning
+  anything, and it is worth being precise about which one supplies what.</p>
+</section>
+
+<div class="lanes">
+  <div class="lane pull">
+    <span class="tag">Pull · discovery</span>
+    <h3>What exists</h3>
+    <p>Reads the files each vendor writes. Answers <em>which sessions are there, in what
+    directory, how recently touched, what were they asked</em>. Runs when the filesystem says
+    something changed.</p>
+  </div>
+  <div class="lane push">
+    <span class="tag">Push · hooks</span>
+    <h3>What just happened</h3>
+    <p>Agents run our hook scripts on their own events. Answers <em>which tool is running right
+    now, who is blocked, who needs an answer</em>. Arrives within milliseconds; expires after
+    180&nbsp;s so a stale event cannot pin a dormant row.</p>
+  </div>
+</div>
+
+<p class="measure">Discovery alone would be slow to react. Hooks alone would miss every session
+started before the app, and every vendor whose hooks do not fire. Together they cover each
+other's blind spot, and the panel prefers whichever is fresher.</p>
+
+<figure class="diagram">
+<pre class="mermaid">
+flowchart LR
+  subgraph V["agent vendors"]
+    C["Claude Code"]
+    X["Codex"]
+    U["Cursor"]
+  end
+
+  subgraph P["pull · discovery"]
+    CS["ClaudeSource<br/>claude agents --json"]
+    XS["CodexSource<br/>rollout-*.jsonl"]
+    US["CursorSource<br/>chats + transcripts"]
+  end
+
+  subgraph H["push · hooks"]
+    SP["spool<br/>agentisland-events.jsonl"]
+    HS["HookStream<br/>one vocabulary"]
+  end
+
+  W["SourceWatcher<br/>FSEvents"]
+  ST["AgentStore<br/>merge + rank"]
+  R["resolution<br/>pid to host"]
+  PN["notch panel"]
+
+  C --> CS
+  X --> XS
+  U --> US
+  C -.hook.-> SP
+  X -.hook.-> SP
+  U -.hook.-> SP
+  SP --> HS
+  C -.writes.-> W
+  X -.writes.-> W
+  U -.writes.-> W
+  W ==>|"triggers"| ST
+  CS --> ST
+  XS --> ST
+  US --> ST
+  HS ==>|"live state"| ST
+  ST --> R
+  R --> PN
+</pre>
+<figcaption>The watcher triggers discovery; hooks arrive independently. Nothing polls an agent.</figcaption>
+</figure>
+
+<h2>Where each vendor's data comes from</h2>
+<p class="kicker">three vendors, three storage shapes, one Agent struct</p>
+
+<p class="measure">Only discovery is vendor-specific. Everything downstream — ranking, resolution,
+jumping, the row itself — operates on a single <code>Agent</code> value, so adding a vendor means
+writing one <code>AgentSource</code> and nothing else.</p>
+
+<div class="scroll">
+<table>
+  <thead>
+    <tr><th>Vendor</th><th>Sessions come from</th><th>Liveness</th><th>Context %</th><th>Cost</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Claude Code</strong></td>
+      <td class="mono">claude agents --json --all</td>
+      <td>reported by the CLI, plus hooks</td>
+      <td>status line → <span class="path">/tmp/agentisland-status.json</span></td>
+      <td class="num">0.29 s</td>
+    </tr>
+    <tr>
+      <td><strong>Codex</strong></td>
+      <td class="mono">~/.codex/sessions/**/rollout-*.jsonl<br>first line <span class="path">session_meta</span></td>
+      <td><span class="path">pgrep -x codex</span> → cwd match</td>
+      <td><span class="path">last_token_usage.input_tokens</span> over the published <span class="path">model_context_window</span></td>
+      <td class="num">0.18 s</td>
+    </tr>
+    <tr>
+      <td><strong>Cursor</strong></td>
+      <td class="mono">~/.cursor/chats/&lt;md5 cwd&gt;/&lt;uuid&gt;/meta.json</td>
+      <td>append recency in <span class="path">agent-transcripts</span>, trailing <span class="path">turn_ended</span> means stopped</td>
+      <td>not published — the row says so</td>
+      <td class="num">0.22 s</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note measure">
+<strong>Cursor shows only sessions you started.</strong> Claude drives Cursor headlessly for its own
+subagent work — 193 of the 198 sessions on this machine in a fortnight were agent-spawned. Those
+would bury your own chats in a panel that exists to show them. The IDE writes
+<code>prompt_history.json</code> when a person types; a <code>cursor-agent -p</code> run leaves
+none. That file is the filter. A title is <em>not</em> enough: Cursor summarises headless runs too.
+</div>
+
+<h2>Turning a session into somewhere you can go</h2>
+<p class="kicker">the part every competing app gets wrong</p>
+
+<p class="measure">A row is only useful if clicking it lands on the right terminal tab. The trick
+is that the answer is already in the agent process's own environment, put there by the terminal
+that launched it:</p>
+
+<ul class="tight measure">
+  <li><code>WARP_FOCUS_URL</code> — a per-session handle Warp exports into every shell it opens.
+  Focusing it is exact, even when eight tabs share one repository.</li>
+  <li><code>__CFBundleIdentifier</code> — macOS stamps this into every process an app launches, so
+  it identifies the host terminal reliably. <code>TERM_PROGRAM</code> does not: VS Code and Cursor
+  both report <code>vscode</code>.</li>
+</ul>
+
+<p class="measure">Both are read once per pid with a single batched <code>ps</code>, then cached for
+that process's life — a process cannot change the terminal that launched it. Rival apps resolve
+tabs by reading Warp's SQLite database instead, which cannot tell apart tabs sharing a working
+directory. Agent Island reads nothing from it, so there is no permission to grant and nothing to
+break when that schema changes.</p>
+
+<div class="note measure">
+<strong>When the handle is missing</strong> — a re-parented shell, a restored session, tmux over
+ssh — the row degrades visibly and deliberately does nothing on click, rather than raising the app
+and landing on an arbitrary tab. A jump that silently goes to the wrong place is worse than one
+that admits it cannot.
+</div>
+
+<h2>The blocking round trip</h2>
+<p class="kicker">an agent waits; the notch answers</p>
+
+<p class="measure">Approvals and questions run the other direction. The hook <em>blocks its agent</em>
+while polling for an answer, so every failure path has to be a fallthrough, never a hang.</p>
+
+<figure class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant A as agent
+  participant K as hook script
+  participant I as island
+  participant Y as you
+
+  A->>K: PreToolUse (needs permission)
+  K->>K: is /tmp/agentisland.alive fresh (&lt;15s)?
+  alt no island
+    K-->>A: exit 0, fall through to the terminal prompt
+  else island is up
+    K->>I: append request to spool
+    I->>Y: card in the notch
+    Y->>I: allow / deny (or ⌘⌥A / ⌘⌥D)
+    I->>K: write decision file (dir is 0700)
+    K-->>A: permissionDecision
+  end
+  Note over K,A: no answer in 20 s → exit 0, terminal prompt
+</pre>
+<figcaption>Questions use the same shape with a 45 s budget. The island never holds an agent hostage.</figcaption>
+</figure>
+
+<p class="measure">Ten agents can block in the same second, so asks are queued rather than shown
+one-at-a-time-destructively. Questions outrank approvals — a question blocks its agent outright,
+while an approval can still fall back to the terminal — and an approval that gets preempted returns
+to the front of the queue instead of being discarded.</p>
+
+<h2>Why it does almost nothing most of the time</h2>
+<p class="kicker">a panel that lives in the notch all day cannot poll</p>
+
+<p class="measure">Polling costs the same whether or not anything happened, which is the wrong shape
+for this app. Agents are file-backed, so the filesystem already knows when there is something worth
+looking at. FSEvents reports a change and a refresh follows; the timer survives only as a backstop
+for what no file records, such as a process exiting without firing a hook.</p>
+
+<div class="metrics">
+  <div class="metric"><span class="v">0.19%</span><span class="k">idle CPU</span><span class="was">from 0.57%, and 5.66% at the start</span></div>
+  <div class="metric"><span class="v">6</span><span class="k">spawns / refresh</span><span class="was">from 22, and now constant</span></div>
+  <div class="metric"><span class="v">0.5 s</span><span class="k">discovery, 3 vendors</span><span class="was">18 sessions, warm</span></div>
+  <div class="metric"><span class="v">180 s</span><span class="k">idle backstop</span><span class="was">events do the real work</span></div>
+</div>
+
+<h3>Three rules keep it flat as agents multiply</h3>
+<ul class="tight measure">
+  <li><strong>No per-agent subprocesses.</strong> Reading one transcript's tail used to be
+  <code>tail | grep | tail</code> — four processes per session, per cycle. At a hundred agents that
+  is four hundred process creations every refresh. All of it is in-process file reading now, which
+  also removed two places a file path was interpolated into a shell.</li>
+  <li><strong>Nothing is re-read unless its bytes changed.</strong> Every cache is keyed on the
+  file's mtime, because an append-only transcript that has not moved cannot hold a newer answer.
+  A ten-second cache against a twenty-second refresh — which is what the title reader had — misses
+  every single time.</li>
+  <li><strong>A burst is one refresh.</strong> A floor sits under the watcher, so a hundred agents
+  writing at once cannot mean a hundred refreshes. Nothing is dropped: an event arriving inside the
+  window schedules the refresh at its far edge. Measured: 60 writes in two seconds produce one
+  refresh.</li>
+</ul>
+
+<h2>State that is held, and what bounds it</h2>
+<p class="kicker">every cache is scoped to what is currently on screen</p>
+
+<div class="scroll">
+<table>
+  <thead>
+    <tr><th>Cache</th><th>Holds</th><th>Invalidated by</th><th>Bounded by</th></tr>
+  </thead>
+  <tbody>
+    <tr><td class="mono">ProcEnv / Cwd</td><td>environment and cwd per pid</td><td>never — a process cannot change either</td><td>pruned to live pids each refresh</td></tr>
+    <tr><td class="mono">Transcript</td><td>last-activity time, resolved path</td><td>file mtime</td><td>pruned to listed sessions</td></tr>
+    <tr><td class="mono">Titles</td><td>ai-title, last prompt</td><td>file mtime</td><td>pruned to listed sessions</td></tr>
+    <tr><td class="mono">Codex rollout</td><td>first prompt, last prompt, token usage</td><td>file mtime</td><td>pruned to the discovery window</td></tr>
+    <tr><td class="mono">Cursor text</td><td>first and last instruction</td><td>file mtime</td><td>pruned to listed sessions</td></tr>
+    <tr><td class="mono">HookStream live</td><td>current tool and activity</td><td>180 s expiry</td><td>drain-queue copy pruned hourly</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p class="measure">Unbounded caches were a real defect here, not a hypothetical one: one grew with
+every pid the app had ever seen. A 20-minute soak now shows zero file-descriptor drift and flat
+memory.</p>
+
+<h2>Deliberate limits</h2>
+<p class="kicker">things that look like gaps and are not</p>
+
+<ul class="tight measure">
+  <li><strong>Sessions whose working directory no longer exists are hidden.</strong> They can be
+  neither jumped to nor resumed, so the row would be a dead end. 36 of 562 Cursor sessions on this
+  machine are in this state, mostly cleaned scratch directories.</li>
+  <li><strong>A live Cursor process is not attributed to a specific session.</strong> Agents in a
+  shared repository report the same working directory and none holds its transcript open, so
+  liveness is inferred from append recency instead of claimed precisely.</li>
+  <li><strong>Warp's database is never read.</strong> Beyond the correctness argument, opening it
+  from inside an app bundle blocks in the kernel awaiting a consent decision that never resolves —
+  it froze every refresh behind it until the dependency was removed.</li>
+  <li><strong>Sessions older than 10 days drop off</strong>, except while blocked. A blocked agent
+  is waiting on a human and is never hidden for being old; that is how two real work items once sat
+  unanswered for months.</li>
+</ul>
+
+<footer>
+  Agent Island · MIT · measured on this machine, 18 sessions across three vendors ·
+  136 self-checks
+</footer>
+
+</div>
