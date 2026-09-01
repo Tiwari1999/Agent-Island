@@ -163,6 +163,27 @@ enum PromptCheck {
             failed += 1
             FileHandle.standardError.write("FAIL unclosed fence must still render\n".data(using: .utf8)!)
         }
+        // Risk flags are a highlight, never a verdict — but a missed destructive pattern is a
+        // real failure, so the canonical ones are pinned.
+        let riskCases: [(String, [String])] = [
+            ("sudo rm -rf /tmp/x && git push --force", ["recursive delete", "runs as root", "forced", "publishes commits"]),
+            ("echo hello", []),
+            ("kubectl delete ns prod", ["deletes k8s resources"]),
+        ]
+        for (cmd, want) in riskCases {
+            let got = ApprovalContext.riskFlags(in: cmd)
+            if got != want {
+                failed += 1
+                FileHandle.standardError.write("FAIL risk \(cmd): \(got)\n".data(using: .utf8)!)
+            }
+        }
+        if HookStream.fullText(tool: "Bash", input: ["command": "a\nb"]) != "a\nb"
+            || HookStream.fullText(tool: "Edit",
+                                   input: ["file_path": "/x.swift", "new_string": "let a=1"]) != "/x.swift\n\nlet a=1"
+            || HookStream.fullText(tool: "X", input: "notdict") != nil {
+            failed += 1
+            FileHandle.standardError.write("FAIL fullText shapes\n".data(using: .utf8)!)
+        }
         for (input, want, why) in cases {
             let got = PromptText.humanLine(input)
             if got != want {
@@ -172,8 +193,8 @@ enum PromptCheck {
                         .data(using: .utf8)!)
             }
         }
-        print("pure-logic checks: \(cases.count + hooks.count + 3 - failed)/"
-              + "\(cases.count + hooks.count + 3) cases")
+        print("pure-logic checks: \(cases.count + hooks.count + 7 - failed)/"
+              + "\(cases.count + hooks.count + 7) cases")
         return failed == 0 ? 0 : 1
     }
 }

@@ -371,6 +371,48 @@ check("probe never claims one pid for two sessions", "del pids[pid]" in probe)
 ro=open(os.path.join(REPO,"Sources/AgentIsland/Reopen.swift")).read()
 check("remote resume goes through ssh -t", "ssh -t" in ro)
 
+print("\n=== 9f. approval expand: the hold keeps the hook waiting ===")
+# The mechanism that can fail, exercised against the real hook loop with tiny budgets.
+hw=tempfile.mkdtemp(prefix="ai-hold-")
+os.makedirs(f"{hw}/dec")
+open(f"{hw}/alive","w").close()
+henv=dict(os.environ, AGENTISLAND_SPOOL=f"{hw}/spool.jsonl", AGENTISLAND_DECISIONS=f"{hw}/dec",
+          AGENTISLAND_ALIVE=f"{hw}/alive", AGENTISLAND_TIMEOUT_TENTHS="15",
+          AGENTISLAND_HOLD_HARD_TENTHS="45")
+PERMH=os.path.join(REPO,"hooks/agentisland-permission.sh")
+REQ='{"session_id":"holdtest","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"echo"}}'
+def fire(scenario):
+    open(f"{hw}/spool.jsonl","w").close()
+    t0=time.time()
+    pr=subprocess.Popen(["bash",PERMH],stdin=subprocess.PIPE,stdout=subprocess.PIPE,env=henv,text=True)
+    import threading
+    outbox={}
+    th=threading.Thread(target=lambda: outbox.setdefault("out",pr.communicate(REQ)[0]))
+    th.start(); time.sleep(0.5)
+    rid=""
+    for l in open(f"{hw}/spool.jsonl"):
+        if "ap_request_id" in l: rid=json.loads(l)["ap_request_id"]
+    if scenario in ("hold","holdans"): open(f"{hw}/dec/{rid}.hold","w").close()
+    if scenario=="holdans":
+        time.sleep(2.5); open(f"{hw}/dec/{rid}","w").write("allow")
+    th.join(timeout=10)
+    return time.time()-t0, outbox.get("out",""), os.path.exists(f"{hw}/dec/{rid}.hold")
+d1,o1,h1=fire("baseline")
+d2,o2,h2=fire("hold")
+d3,o3,h3=fire("holdans")
+_sh.rmtree(hw,ignore_errors=True)
+check("without a hold the hook exits at its base timeout", 1.0<d1<3.0, f"{d1:.1f}s")
+check("a hold extends the wait to the hard ceiling", 3.5<d2<6.5, f"{d2:.1f}s")
+check("an answer past the base timeout is honored under hold",
+      '"permissionDecision":"allow"' in o3 and d3<5.5, f"{d3:.1f}s")
+check("the hold file is cleaned on every path", not (h1 or h2 or h3))
+isl3=open(os.path.join(REPO,"Sources/AgentIsland/Island.swift")).read()
+check("expanding arms the hold and re-arms the drop to the ceiling",
+      "hold.begin(id:" in isl3 and "+ 290" in isl3)
+check("every card exit ends the hold", isl3.count("hold.end()") >= 4)
+check("context assembly is off-main (a 44MB transcript must not jank the card)",
+      "qos: .userInitiated).async" in isl3)
+
 check("blocked badge matches the jobs actually blocked on disk",
       shown_blocked<=disk_blocked, f"{shown_blocked} shown, {disk_blocked} on disk")
 

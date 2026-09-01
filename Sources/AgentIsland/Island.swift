@@ -31,6 +31,10 @@ enum IslandState: Equatable {
 @MainActor
 final class Island: NSObject, ObservableObject {
     @Published var state: IslandState = .collapsed
+    /// Expanded context on the current approval card. One-way per card: reading is a commitment
+    /// the hook is told about (via the hold file), so collapsing back would lie to it.
+    @Published var approvalContext: ApprovalContext?
+    private let hold = ApprovalHold()
     @Published var revealed = false
     @Published var notchWidth: CGFloat = 0
     @Published var notchHeight: CGFloat = 32
@@ -206,7 +210,9 @@ final class Island: NSObject, ObservableObject {
     private var approvalRect: NSRect {
         guard let screen else { return .zero }
         var w: CGFloat = 560, extra: CGFloat = 46
-        if case .approval(let a) = state, a.plan != nil { w = 640; extra = 300 }
+        if case .approval(let a) = state, a.plan != nil || approvalContext != nil {
+            w = 640; extra = 300
+        }
         let h = notchHeight + Self.notchClearance + extra
         return NSRect(x: screen.frame.midX - w / 2, y: screen.frame.maxY - h, width: w, height: h)
     }
@@ -367,6 +373,33 @@ final class Island: NSObject, ObservableObject {
         withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) { state = .collapsed }
     }
 
+    /// Expand the visible approval: assemble context off-main, hold the hook open, re-arm the
+    /// drop to the hook's hard ceiling instead of its base timeout.
+    func expandApproval() {
+        guard case .approval(let a) = state, approvalContext == nil else { return }
+        hold.begin(id: a.id)
+        approvalWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, case .approval(let cur) = self.state, cur.id == a.id else { return }
+            self.hold.end(); self.approvalContext = nil
+            Hotkeys.shared.unbind()
+            self.presentNext()
+        }
+        approvalWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 290, execute: work)
+        let trail = store.hooks.live[a.session]?.trail ?? []
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let ctx = ApprovalContext.gather(for: a, trail: trail)
+            Task { @MainActor in
+                guard let self, case .approval(let cur) = self.state, cur.id == a.id else { return }
+                withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+                    self.approvalContext = ctx
+                }
+                self.refreshHitRegion()
+            }
+        }
+    }
+
     /// An approval outranks a toast: a blocked tool is the most urgent thing on screen.
     func present(_ approval: Approval) {
         guard !showingCard else {
@@ -377,15 +410,18 @@ final class Island: NSObject, ObservableObject {
         }
         followActiveScreen()
         peekWork?.cancel(); approvalWork?.cancel()
+        hold.end(); approvalContext = nil
         Hotkeys.shared.bind([
             (kVK_ANSI_A, Hotkeys.cmdOpt, { [weak self] in self?.answer(approval, allow: true) }),
             (kVK_ANSI_D, Hotkeys.cmdOpt, { [weak self] in self?.answer(approval, allow: false) }),
+            (kVK_ANSI_E, Hotkeys.cmdOpt, { [weak self] in self?.expandApproval() }),
         ])
         withAnimation(.spring(response: 0.34, dampingFraction: 0.80)) { state = .approval(approval) }
         refreshHitRegion()
         // Drop the card when the hook stops waiting, so a dead prompt can't linger.
         let work = DispatchWorkItem { [weak self] in
             guard let self, case .approval(let a) = self.state, a.id == approval.id else { return }
+            self.hold.end(); self.approvalContext = nil
             Hotkeys.shared.unbind()
             self.presentNext()
         }
@@ -433,6 +469,7 @@ final class Island: NSObject, ObservableObject {
 
     func answer(_ approval: Approval, allow: Bool) {
         approvalWork?.cancel()
+        hold.end(); approvalContext = nil
         Hotkeys.shared.unbind()
         Approvals.decide(approval, allow: allow)
         presentNext()
@@ -469,7 +506,7 @@ private struct RootView: View {
             return island.notchWidth
                 + 2 * (CollapsedView.side(revealed: island.revealed) + CollapsedView.notchMargin)
         case .peek:      return 380
-        case .approval(let a):  return a.plan != nil ? 640 : 560
+        case .approval(let a):  return (a.plan != nil || island.approvalContext != nil) ? 640 : 560
         case .question:  return 600
         case .expanded:  return PanelView.width
         }
@@ -481,7 +518,8 @@ private struct RootView: View {
         case .collapsed: return island.notchHeight
         case .peek:      return island.notchHeight + Island.notchClearance + 38
         case .approval(let a):
-            return island.notchHeight + Island.notchClearance + (a.plan != nil ? 300 : 46)
+            return island.notchHeight + Island.notchClearance
+                + ((a.plan != nil || island.approvalContext != nil) ? 300 : 46)
         case .question:  return island.notchHeight + Island.notchClearance + 98
         case .expanded:  return PanelView.height
         }
@@ -522,6 +560,8 @@ private struct RootView: View {
                     ApprovalCard(
                         approval: a,
                         agentName: store.displayName(for: a.session),
+                        context: island.approvalContext,
+                        onExpand: { island.expandApproval() },
                         onAllow: { island.answer(a, allow: true) },
                         onDeny:  { island.answer(a, allow: false) })
                         .frame(maxHeight: .infinity, alignment: .bottom)

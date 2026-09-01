@@ -14,6 +14,8 @@ struct Approval: Identifiable, Equatable {
     let detail: String
     let deadline: Date        // hook gives up at this point; drop the card with it
     var plan: String?         // full Markdown when the ask is ExitPlanMode
+    var cwd: String?          // where the session runs, for reading its transcript
+    var fullInput: String?    // the complete ask, untruncated — a heredoc is unreviewable at one line
 }
 
 /// A multiple-choice question waiting on one click.
@@ -32,6 +34,8 @@ struct LiveState {
     var detail: String?
     var waiting = false
     var at = Date()
+    /// The last few tool calls, newest last — an approval reads differently on a third retry.
+    var trail: [String] = []
 }
 
 /// Tails the hook spool. Hooks append one JSON line per event; the file is the whole IPC.
@@ -119,7 +123,9 @@ final class HookStream: ObservableObject {
                         : Self.describe(tool: tool, input: payload["tool_input"]) ?? tool,
                     // A plan takes longer to read than a shell command does.
                     deadline: Date().addingTimeInterval(plan != nil ? 50 : 19),
-                    plan: plan)
+                    plan: plan,
+                    cwd: payload["cwd"] as? String,
+                    fullInput: Self.fullText(tool: tool, input: payload["tool_input"]))
                 approvals.append(approval)
                 obj = payload
             }
@@ -139,7 +145,14 @@ final class HookStream: ObservableObject {
                 // Cursor's shell hooks name no tool and put the command at the top level, so
                 // reading the fields literally blanked the row for the whole run. An event we
                 // cannot read leaves the last known activity alone rather than erasing it.
-                if let a = Self.activity(from: obj) { state.tool = a.tool; state.detail = a.detail }
+                if let a = Self.activity(from: obj) {
+                    state.tool = a.tool
+                    state.detail = a.detail
+                    if event == "PreToolUse", let d = a.detail {
+                        state.trail.append("\(a.tool ?? "tool"): \(d)")
+                        if state.trail.count > 6 { state.trail.removeFirst() }
+                    }
+                }
                 state.waiting = false
             case "Notification", "PermissionRequest":
                 // `idle_prompt` just means the session finished its turn and is sitting at a
@@ -220,6 +233,23 @@ final class HookStream: ObservableObject {
             return ("Shell", describe(tool: "Shell", input: ["command": command]))
         }
         return nil
+    }
+
+    /// The whole ask, not the one-line summary the row shows.
+    static func fullText(tool: String, input: Any?) -> String? {
+        guard let d = input as? [String: Any] else { return nil }
+        if let c = (d["command"] as? String) ?? (d["cmd"] as? String) { return c }
+        if let p = d["file_path"] as? String {
+            var out = p
+            if let new = (d["new_string"] as? String) ?? (d["content"] as? String) {
+                out += "\n\n" + new
+            }
+            return out
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: d,
+                                                     options: [.prettyPrinted, .sortedKeys])
+        else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     static func canonical(_ raw: String) -> String {

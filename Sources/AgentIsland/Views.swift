@@ -389,6 +389,8 @@ struct PanelView: View {
 struct ApprovalCard: View {
     let approval: Approval
     let agentName: String
+    var context: ApprovalContext? = nil
+    var onExpand: (() -> Void)? = nil
     let onAllow: () -> Void
     let onDeny: () -> Void
     @State private var hoverAllow = false
@@ -406,7 +408,57 @@ struct ApprovalCard: View {
                         .padding(.horizontal, 16).padding(.vertical, 10)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
+            } else if let ctx = context {
+                Rectangle().fill(Theme.hairline).frame(height: 0.7).padding(.top, 8)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        if !ctx.risks.isEmpty {
+                            HStack(spacing: 5) {
+                                ForEach(ctx.risks, id: \.self) { r in
+                                    Text(r).font(Theme.mono(8.5))
+                                        .padding(.horizontal, 6).padding(.vertical, 2)
+                                        .background(Capsule().fill(Theme.failed.opacity(0.14)))
+                                        .foregroundColor(Theme.failed)
+                                }
+                            }
+                        }
+                        if let why = ctx.why {
+                            section("WHY — the agent's last words") {
+                                MarkdownLite(text: String(why.suffix(900)))
+                            }
+                        }
+                        if let full = approval.fullInput {
+                            section("THE FULL ASK") {
+                                Text(full).font(Theme.mono(9.5)).foregroundColor(Theme.muted)
+                                    .textSelection(.enabled)
+                                    .padding(8)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(RoundedRectangle(cornerRadius: 6).fill(Theme.raised))
+                            }
+                        }
+                        if !ctx.trail.isEmpty {
+                            section("RECENT ACTIVITY") {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    ForEach(Array(ctx.trail.enumerated()), id: \.offset) { _, t in
+                                        Text(t).font(Theme.mono(9)).foregroundColor(Theme.faint)
+                                            .lineLimit(1).truncationMode(.middle)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
+        }
+    }
+
+    @ViewBuilder private func section(_ title: String,
+                                      @ViewBuilder _ body: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(Theme.mono(8.5)).foregroundColor(Theme.faint).kerning(0.8)
+            body()
         }
     }
 
@@ -431,6 +483,14 @@ struct ApprovalCard: View {
                     .lineLimit(1).truncationMode(.middle)
             }
             Spacer(minLength: 8)
+            if approval.plan == nil, context == nil, let onExpand {
+                Text("context ⌘⌥E")
+                    .font(Theme.label(10.5)).foregroundColor(Theme.muted)
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 7).fill(Theme.raised))
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: onExpand)
+            }
             button("Deny ⌘⌥D", Theme.failed, hoverDeny, onDeny) { hoverDeny = $0 }
             button(approval.plan != nil ? "Approve plan ⌘⌥A" : "Allow ⌘⌥A",
                    Theme.working, hoverAllow, onAllow) { hoverAllow = $0 }
