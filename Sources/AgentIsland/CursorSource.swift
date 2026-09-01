@@ -8,7 +8,7 @@ import Foundation
 struct CursorSource: AgentSource {
     let vendor: Vendor = .cursor
 
-    private var root: String { NSHomeDirectory() + "/.cursor/chats" }
+    private var root: String { Home.path + "/.cursor/chats" }
 
     var isAvailable: Bool { FileManager.default.fileExists(atPath: root) }
 
@@ -94,7 +94,7 @@ struct CursorSource: AgentSource {
     private static func refreshIndex() {
         guard Date().timeIntervalSince(indexedAt) > 30 else { return }
         indexedAt = Date()
-        let root = NSHomeDirectory() + "/.cursor/projects"
+        let root = Home.path + "/.cursor/projects"
         let listing = Shell.runSync("/usr/bin/find", [
             // Wider than the two-day session window on purpose: a chat directory can be touched
             // long after its transcript was last written, and matching the windows left those

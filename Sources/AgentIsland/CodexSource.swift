@@ -9,7 +9,7 @@ import Foundation
 struct CodexSource: AgentSource {
     let vendor: Vendor = .codex
 
-    private var root: String { NSHomeDirectory() + "/.codex/sessions" }
+    private var root: String { Home.path + "/.codex/sessions" }
 
     var isAvailable: Bool { FileManager.default.fileExists(atPath: root) }
 

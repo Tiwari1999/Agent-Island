@@ -197,3 +197,15 @@ enum Tail {
         return value.isEmpty ? nil : value
     }
 }
+
+/// Where the vendors keep their data.
+///
+/// `NSHomeDirectory()` reads the password database and ignores `$HOME`, so without this seam a
+/// load test cannot point discovery at a synthetic fleet — it would silently measure the real
+/// machine instead, which is exactly what happened the first time. Production is unchanged: the
+/// override is only set by the harness.
+enum Home {
+    static var path: String {
+        ProcessInfo.processInfo.environment["AGENTISLAND_HOME"] ?? NSHomeDirectory()
+    }
+}

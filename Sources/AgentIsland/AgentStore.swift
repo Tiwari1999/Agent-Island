@@ -162,7 +162,7 @@ final class AgentStore: ObservableObject {
     /// Watch what every vendor writes to. Directories that do not exist are skipped, so a machine
     /// without Codex or Cursor installed simply watches fewer trees.
     func startWatching() {
-        let home = NSHomeDirectory()
+        let home = Home.path
         watcher = SourceWatcher(paths: [
             home + "/.claude/projects", home + "/.claude/jobs",
             home + "/.codex/sessions", home + "/.cursor/chats",
@@ -415,7 +415,7 @@ enum Transcript {
     static func path(sessionId: String, cwd: String?) -> String? {
         if let hit = pathCache[sessionId] { return hit.isEmpty ? nil : hit }
         let fm = FileManager.default
-        let projects = NSHomeDirectory() + "/.claude/projects"
+        let projects = Home.path + "/.claude/projects"
         if let cwd {
             let slug = cwd.map { $0.isLetter || $0.isNumber ? $0 : "-" }.reduce(into: "") { $0.append($1) }
             let p = "\(projects)/\(slug)/\(sessionId).jsonl"

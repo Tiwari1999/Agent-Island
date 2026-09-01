@@ -34,6 +34,15 @@ enum HostTerminal: Equatable {
     }
 
     /// True when we can reach the exact tab/pane, not merely the application.
+    /// The exact handle this jump will use, for harnesses that need to check where it aims.
+    var target: String? {
+        switch self {
+        case .warp(let url):        return url
+        case .iterm(let session):   return session
+        default:                    return nil
+        }
+    }
+
     var isPrecise: Bool {
         switch self {
         case .warp, .iterm, .appleTerminal, .kitty, .wezterm: return true

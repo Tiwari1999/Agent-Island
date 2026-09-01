@@ -32,6 +32,35 @@ struct AgentIslandApp {
     static func main() {
         // Pure text logic is worth checking without a window; the suite drives this.
         if CommandLine.arguments.contains("--check-prompts") { exit(PromptCheck.run()) }
+        // Discovery only, against whatever HOME points at, so a synthetic fleet can be measured
+        // without a window and without touching the real panel.
+        if let i = CommandLine.arguments.firstIndex(of: "--benchmark-discovery") {
+            let runs = CommandLine.arguments.dropFirst(i + 1).first.flatMap(Int.init) ?? 3
+            let sources: [AgentSource] = [ClaudeSource(), CodexSource(), CursorSource()]
+            for run in 1...runs {
+                var line = "run \(run):"
+                var total = 0.0
+                for src in sources where src.isAvailable {
+                    let t = Date()
+                    let n = src.discover().count
+                    let dt = Date().timeIntervalSince(t)
+                    total += dt
+                    line += String(format: " %@ %d/%.3fs", src.vendor.rawValue, n, dt)
+                }
+                print(line + String(format: "  total %.3fs  %@", total, Shell.spawnsSinceLastCheck()))
+            }
+            exit(0)
+        }
+
+        // The routing harness drives the real row-click path for one process, so the hit rate it
+        // measures is the app's own resolution and not a reimplementation of it.
+        if let i = CommandLine.arguments.firstIndex(of: "--jump-pid"),
+           let pid = CommandLine.arguments.dropFirst(i + 1).first.flatMap(Int.init) {
+            ProcEnv.prime(pids: [pid])   // resolve() reads a cache the refresh normally fills
+            let host = HostTerminal.resolve(pid: pid)
+            print("host=\(host.name) precise=\(host.isPrecise) target=\(host.target ?? "-")")
+            exit(host.jump() ? 0 : 1)
+        }
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate

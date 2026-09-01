@@ -17,7 +17,7 @@ enum Blocked {
     private static func refreshIfStale() {
         guard Date().timeIntervalSince(checkedAt) > 20 else { return }
         checkedAt = Date()
-        let dir = NSHomeDirectory() + "/.claude/jobs"
+        let dir = Home.path + "/.claude/jobs"
         guard let jobs = try? FileManager.default.contentsOfDirectory(atPath: dir) else { return }
         var found: [String: String] = [:]
         for job in jobs {

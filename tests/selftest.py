@@ -295,6 +295,13 @@ hs=open(os.path.join(REPO,"Sources/AgentIsland/HookStream.swift")).read()
 check("drain never reads the published live map off the main thread",
       "carried[session]" in hs and "live[session] ?? LiveState()" not in hs)
 
+# The load test points discovery at a fixture; production must be unaffected when it is unset.
+proto=open(os.path.join(REPO,"Sources/AgentIsland/AgentSource.swift")).read()
+check("home seam falls back to the real home",
+      'environment["AGENTISLAND_HOME"] ?? NSHomeDirectory()' in proto)
+check("no vendor path bypasses the seam",
+      not re.search(r'NSHomeDirectory\(\) \+ "/\.(claude|codex|cursor)', blob))
+
 check("blocked badge matches the jobs actually blocked on disk",
       shown_blocked<=disk_blocked, f"{shown_blocked} shown, {disk_blocked} on disk")
 

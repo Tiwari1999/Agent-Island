@@ -25,7 +25,7 @@ enum Tasks {
     private static func refresh() {
         guard Date().timeIntervalSince(readAt) > 5 else { return }
         readAt = Date()
-        let root = NSHomeDirectory() + "/.claude/tasks"
+        let root = Home.path + "/.claude/tasks"
         guard let sessions = try? FileManager.default.contentsOfDirectory(atPath: root) else { return }
         var out: [String: TaskProgress] = [:]
         for sid in sessions {
