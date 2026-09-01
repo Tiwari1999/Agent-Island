@@ -8,6 +8,15 @@ import AppKit
 enum Reopen {
     /// The command that continues this session, or nil if the vendor has no resume path.
     static func command(for agent: Agent) -> String? {
+        // A remote session resumes on its own machine; the host: prefix is ours, not the tool's.
+        if let host = agent.remoteHost {
+            let sid = String(agent.sessionId.dropFirst(host.count + 1))
+            switch agent.vendor {
+            case .claude: return "ssh -t \(host) claude --resume \(sid)"
+            case .codex:  return "ssh -t \(host) codex resume \(sid)"
+            case .cursor: return "ssh -t \(host) cursor-agent --resume \(sid)"
+            }
+        }
         switch agent.vendor {
         case .claude:
             // Only a session with a transcript can be attached; one stopped before its first
@@ -30,7 +39,10 @@ enum Reopen {
 
         // Warp opens a tab in the right directory; the command is one paste away. Launching it
         // directly would mean choosing a shell and a profile on the user's behalf.
-        if let dir = cwd, !dir.isEmpty {
+        // A remote path means nothing to the local Warp, so it gets a plain tab.
+        if agent.remoteHost != nil {
+            if let u = URL(string: "warp://action/new_tab") { NSWorkspace.shared.open(u) }
+        } else if let dir = cwd, !dir.isEmpty {
             _ = Shell.runSync("/usr/bin/open", ["-a", "Warp", dir])
         } else if let u = URL(string: "warp://action/new_tab") {
             NSWorkspace.shared.open(u)

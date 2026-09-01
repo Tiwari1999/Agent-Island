@@ -155,6 +155,11 @@ struct AgentRowView: View {
                         .font(Theme.label(12)).foregroundColor(Theme.text)
                         .lineLimit(1).truncationMode(.tail)
                     Spacer(minLength: 6)
+                    if let host = row.agent.remoteHost {
+                        // The short name is what a human calls the box; the full alias is noise.
+                        chip("⇅ " + (host.split(separator: ".").first.map(String.init) ?? host),
+                             Theme.amber)
+                    }
                     chip(row.agent.vendor.label, Theme.agentTint)
                     if let m = model { chip(m, Theme.muted) }
                     chip(row.terminal, row.precise ? Theme.muted : Theme.faint)

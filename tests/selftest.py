@@ -246,9 +246,11 @@ check("no vendor present on disk is missing entirely",
 BAD=("selftest","benchmark","synthetic","fuzz","test-session","ai-st-","placeholder","lorem")
 dirty=[r for r in rows if any(b in (r["title"]+r["sessionId"]+r["cwd"]).lower() for b in BAD)]
 check("no synthetic or test data in the panel", not dirty, f"{len(dirty)} suspect")
-check("every row has a working directory that exists",
-      all(r["cwd"] and os.path.isdir(r["cwd"]) for r in rows),
-      f"{sum(1 for r in rows if not (r['cwd'] and os.path.isdir(r['cwd'])))} bad")
+# A remote row's directory lives on the remote machine; only local rows can be checked here.
+local_rows=[r for r in rows if not r.get("remote")]
+check("every local row has a working directory that exists",
+      all(r["cwd"] and os.path.isdir(r["cwd"]) for r in local_rows),
+      f"{sum(1 for r in local_rows if not (r['cwd'] and os.path.isdir(r['cwd'])))} bad")
 uuidish=re.compile(r"^[0-9a-f]{8}(-[0-9a-f]{4}){0,3}", re.I)
 bare=[r for r in rows if uuidish.match(r["title"].strip())]
 check("no row is labelled with a bare session id", not bare,
@@ -339,6 +341,35 @@ vw=open(os.path.join(REPO,"Sources/AgentIsland/Views.swift")).read()
 check("cost chip and plan chip exist", "costChip" in vw and 'Text("plan")' in vw)
 check("costs scan never runs on the refresh path",
       "refreshCosts" in open(os.path.join(REPO,"Sources/AgentIsland/AgentStore.swift")).read())
+
+print("\n=== 9e. ssh remote monitoring ===")
+# Full pipeline through a stubbed ssh: probe travels on stdin, JSON comes back, rows form.
+rfx=tempfile.mkdtemp(prefix="ai-remotefx-")
+os.makedirs(f"{rfx}/rh/.claude/projects/-home-dev-mono", exist_ok=True)
+open(f"{rfx}/rh/.claude/projects/-home-dev-mono/deadbeef-0000-0000-0000-000000000000.jsonl","w").write(
+    json.dumps({"type":"x","aiTitle":"remote fixture session","lastPrompt":"fix the deploy",
+                "timestamp":datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "cwd":"/home/dev/mono"}, separators=(",",":"))+"\n")   # real transcripts are compact
+stub=f"{rfx}/ssh-stub"
+open(stub,"w").write(f'#!/bin/bash\nAGENTISLAND_PROBE_ROOT="{rfx}/rh" exec python3 -\n')
+os.chmod(stub,0o755)
+pr=subprocess.run([os.path.join(REPO,".build/release/AgentIsland"),"--probe-remote","dev-vm"],
+                  capture_output=True,text=True,env=dict(os.environ,AGENTISLAND_SSH=stub))
+_sh.rmtree(rfx,ignore_errors=True)
+check("remote sessions arrive through the ssh pipeline", pr.returncode==0
+      and "dev-vm:deadbeef" in pr.stdout and "remote fixture session" in pr.stdout,
+      pr.stdout.strip()[:70])
+check("remote ids are namespaced by host (no local collision)", "dev-vm:" in pr.stdout)
+rsrc=open(os.path.join(REPO,"Sources/AgentIsland/RemoteSource.swift")).read()
+check("ssh runs BatchMode with a connect timeout", "BatchMode=yes" in rsrc and "ConnectTimeout" in rsrc)
+check("probe has a deadline (a dead tunnel cannot wedge polling)", "timedOut" in rsrc)
+check("remote polling is async off the refresh path", "pollIfDue" in rsrc and "qos: .utility" in rsrc)
+probe=open(os.path.join(REPO,"hooks/remote-probe.py")).read()
+check("probe is stdlib-only (nothing installed remotely)",
+      not re.search(r"^import (?!glob|json|os|re|subprocess|sys|time)", probe, re.M))
+check("probe never claims one pid for two sessions", "del pids[pid]" in probe)
+ro=open(os.path.join(REPO,"Sources/AgentIsland/Reopen.swift")).read()
+check("remote resume goes through ssh -t", "ssh -t" in ro)
 
 check("blocked badge matches the jobs actually blocked on disk",
       shown_blocked<=disk_blocked, f"{shown_blocked} shown, {disk_blocked} on disk")

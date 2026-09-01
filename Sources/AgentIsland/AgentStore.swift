@@ -20,6 +20,8 @@ struct Agent: Identifiable, Decodable {
     var promptOverride: String?
     /// Vendors without a statusLine report context pressure at discovery instead.
     var contextPctOverride: Int?
+    /// Set when this session lives on a machine reached over ssh.
+    var remoteHost: String?
 
     enum CodingKeys: String, CodingKey {
         case sessionId, name, cwd, state, status, pid
@@ -28,7 +30,7 @@ struct Agent: Identifiable, Decodable {
     init(sessionId: String, name: String?, cwd: String?, state: String?, status: String?,
          pid: Int?, vendor: Vendor = .claude, lastActiveOverride: Date? = nil,
          titleOverride: String? = nil, promptOverride: String? = nil,
-         contextPctOverride: Int? = nil) {
+         contextPctOverride: Int? = nil, remoteHost: String? = nil) {
         self.sessionId = sessionId
         self.name = name
         self.cwd = cwd
@@ -40,6 +42,7 @@ struct Agent: Identifiable, Decodable {
         self.titleOverride = titleOverride
         self.promptOverride = promptOverride
         self.contextPctOverride = contextPctOverride
+        self.remoteHost = remoteHost
     }
 
     var id: String { sessionId }
@@ -204,7 +207,7 @@ final class AgentStore: ObservableObject {
 
     /// Every vendor present on the machine. Absent tools cost nothing — `isAvailable` is a
     /// file check — so this list can grow without a settings switch.
-    private let sources: [AgentSource] = [ClaudeSource(), CodexSource(), CursorSource()]
+    private let sources: [AgentSource] = [ClaudeSource(), CodexSource(), CursorSource(), RemoteSource()]
 
     /// Discovery mutates each vendor's static caches, so exactly one may be in flight. This also
     /// stops polls from stacking up behind a slow one — the shape that made a single wedged
@@ -317,7 +320,7 @@ final class AgentStore: ObservableObject {
              "title": r.displayName, "cwd": r.agent.cwd ?? "",
              "lastActive": r.lastActive.map { ISO8601DateFormatter().string(from: $0) } ?? "",
              "blocked": r.dormantBlocked, "working": r.agent.isWorking,
-             "context": r.contextPct ?? -1]
+             "context": r.contextPct ?? -1, "remote": r.agent.remoteHost ?? ""]
         }
         guard let data = try? JSONSerialization.data(withJSONObject: items) else { return }
         // Row titles are the user's own prompts and /tmp is world-readable, so the file is

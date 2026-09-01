@@ -33,11 +33,22 @@ struct AgentIslandApp {
         // Pure text logic is worth checking without a window; the suite drives this.
         if CommandLine.arguments.contains("--check-prompts") { exit(PromptCheck.run()) }
         if CommandLine.arguments.contains("--costs-json") { print(Costs.json()); exit(0) }
+        // Synchronous probe of one remote, for the suite: async polling can't be asserted on.
+        if let i = CommandLine.arguments.firstIndex(of: "--probe-remote"),
+           let host = CommandLine.arguments.dropFirst(i + 1).first {
+            let agents = RemoteSource.probe(host: host)
+            for a in agents {
+                print("\(a.vendor.rawValue) \(a.sessionId) state=\(a.state ?? "-") "
+                      + "title=\(a.titleOverride ?? "-")")
+            }
+            exit(agents.isEmpty ? 1 : 0)
+        }
         // Discovery only, against whatever HOME points at, so a synthetic fleet can be measured
         // without a window and without touching the real panel.
         if let i = CommandLine.arguments.firstIndex(of: "--benchmark-discovery") {
             let runs = CommandLine.arguments.dropFirst(i + 1).first.flatMap(Int.init) ?? 3
-            let sources: [AgentSource] = [ClaudeSource(), CodexSource(), CursorSource()]
+            let sources: [AgentSource] = [ClaudeSource(), CodexSource(), CursorSource(),
+                                          RemoteSource()]
             for run in 1...runs {
                 var line = "run \(run):"
                 var total = 0.0
