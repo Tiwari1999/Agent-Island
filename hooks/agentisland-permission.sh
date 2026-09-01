@@ -19,6 +19,8 @@ beat=$(stat -f %m "$ALIVE" 2>/dev/null || echo 0)
 
 id="ap-$$-${now}"
 mkdir -p "$DECISIONS" 2>/dev/null
+# A file here approves a shell command and /tmp is world-writable, so keep it owner-only.
+chmod 700 "$DECISIONS" 2>/dev/null
 printf '{"ap_request_id":"%s","payload":%s}\n' "$id" "${INPUT//$'\n'/}" >> "$SPOOL" 2>/dev/null
 
 i=0

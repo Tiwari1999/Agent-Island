@@ -278,6 +278,23 @@ check("codex rows carry a context reading", any(c>=0 for c in cx),
 check("no codex row is pinned at the compaction cliff", not [c for c in cx if c>=99],
       f"max {max(cx) if cx else 0}%")
 
+# Ten agents can block in the same second. Replacing the visible card abandoned the earlier
+# ask: its hook waited out the timeout and fell through to the terminal, reading as a miss.
+isl=open(os.path.join(REPO,"Sources/AgentIsland/Island.swift")).read()
+check("a second ask queues instead of replacing the visible card",
+      "queuedApprovals" in isl and "queuedQuestions" in isl and "guard !showingCard" in isl)
+check("answering or expiring a card shows the next one",
+      isl.count("presentNext()") >= 5, f"{isl.count('presentNext()')} call sites")
+check("a question preempts an approval without dropping it",
+      "queuedApprovals.insert(a, at: 0)" in isl)
+ap=open(os.path.join(REPO,"Sources/AgentIsland/Approvals.swift")).read()
+check("decision directory is owner-only (it approves shell commands)",
+      "0o700" in ap)
+check("hook tightens it too", "chmod 700" in open(os.path.join(REPO,"hooks/agentisland-permission.sh")).read())
+hs=open(os.path.join(REPO,"Sources/AgentIsland/HookStream.swift")).read()
+check("drain never reads the published live map off the main thread",
+      "carried[session]" in hs and "live[session] ?? LiveState()" not in hs)
+
 check("blocked badge matches the jobs actually blocked on disk",
       shown_blocked<=disk_blocked, f"{shown_blocked} shown, {disk_blocked} on disk")
 

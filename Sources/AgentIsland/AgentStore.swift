@@ -306,10 +306,14 @@ final class AgentStore: ObservableObject {
              "context": r.contextPct ?? -1]
         }
         guard let data = try? JSONSerialization.data(withJSONObject: items) else { return }
+        // Row titles are the user's own prompts and /tmp is world-readable, so the file is
+        // created private and then moved into place: writing first and tightening after left a
+        // window in which anyone could read it.
         let path = "/tmp/agentisland.rows.json"
-        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
-        // Row titles are the user's own prompts, and /tmp is world-readable.
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
+        let tmp = path + ".new"
+        let fm = FileManager.default
+        fm.createFile(atPath: tmp, contents: data, attributes: [.posixPermissions: 0o600])
+        _ = try? fm.replaceItemAt(URL(fileURLWithPath: path), withItemAt: URL(fileURLWithPath: tmp))
     }
 
     /// Hook state older than this is history, not "now" — without an expiry a single stale

@@ -43,6 +43,8 @@ final class HookStream: ObservableObject {
     /// An agent asked a multiple-choice question and is blocked on the answer.
     var onQuestion: ((Question) -> Void)?
     private var source: DispatchSourceFileSystemObject?
+    /// Owned by the drain queue alone; never touched from the main thread.
+    private var carried: [String: LiveState] = [:]
     private var handle: FileHandle?
     private var offset: UInt64 = 0
 
@@ -107,7 +109,7 @@ final class HookStream: ObservableObject {
             }
             guard let session = obj["session_id"] as? String else { continue }
             let event = Self.canonical(obj["hook_event_name"] as? String ?? "")
-            var state = updates[session] ?? live[session] ?? LiveState()
+            var state = updates[session] ?? carried[session] ?? LiveState()
             state.at = Date()
 
             switch event {
@@ -161,6 +163,11 @@ final class HookStream: ObservableObject {
         }
         guard !updates.isEmpty || !attention.isEmpty || !approvals.isEmpty
                 || !questions.isEmpty || !fails.isEmpty || !revived.isEmpty else { return }
+        // Carry state forward on the drain queue. Reading the published `live` from here raced
+        // the main thread's merge of the same dictionary, which is a crash, not a stale read.
+        carried.merge(updates) { _, new in new }
+        let cutoff = Date().addingTimeInterval(-3600)
+        carried = carried.filter { $0.value.at > cutoff }
         DispatchQueue.main.async {
             self.live.merge(updates) { _, new in new }
             for s in revived { self.failures.removeValue(forKey: s) }

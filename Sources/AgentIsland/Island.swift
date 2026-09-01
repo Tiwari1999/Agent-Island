@@ -342,8 +342,37 @@ final class Island: NSObject, ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 4.0, execute: work)
     }
 
+    /// Asks that arrived while another card was up. Ten agents can block on the same second, and
+    /// replacing the visible card silently abandoned the earlier one: its hook waited out the
+    /// full timeout and then fell through to the terminal, which reads as a missed approval.
+    private var queuedApprovals: [Approval] = []
+    private var queuedQuestions: [Question] = []
+
+    private var showingCard: Bool {
+        if case .approval = state { return true }
+        if case .question = state { return true }
+        return false
+    }
+
+    /// Show the next thing still worth answering. Questions outrank approvals: an agent asking a
+    /// question is blocked outright, while a tool approval can still fall back to the terminal.
+    private func presentNext() {
+        let now = Date()
+        queuedQuestions.removeAll { $0.deadline <= now }
+        queuedApprovals.removeAll { $0.deadline <= now }
+        if !queuedQuestions.isEmpty { ask(queuedQuestions.removeFirst()); return }
+        if !queuedApprovals.isEmpty { present(queuedApprovals.removeFirst()); return }
+        withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) { state = .collapsed }
+    }
+
     /// An approval outranks a toast: a blocked tool is the most urgent thing on screen.
     func present(_ approval: Approval) {
+        guard !showingCard else {
+            if !queuedApprovals.contains(where: { $0.id == approval.id }) {
+                queuedApprovals.append(approval)
+            }
+            return
+        }
         followActiveScreen()
         peekWork?.cancel(); approvalWork?.cancel()
         Hotkeys.shared.bind([
@@ -356,7 +385,7 @@ final class Island: NSObject, ObservableObject {
         let work = DispatchWorkItem { [weak self] in
             guard let self, case .approval(let a) = self.state, a.id == approval.id else { return }
             Hotkeys.shared.unbind()
-            withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) { self.state = .collapsed }
+            self.presentNext()
         }
         approvalWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + approval.deadline.timeIntervalSinceNow,
@@ -365,6 +394,17 @@ final class Island: NSObject, ObservableObject {
 
     /// A question outranks everything: an agent is blocked until it is answered.
     func ask(_ question: Question) {
+        // A question may take over from an approval, which returns to the queue rather than
+        // being dropped; another question waits its turn.
+        if case .approval(let a) = state, a.deadline > Date() {
+            approvalWork?.cancel()
+            if !queuedApprovals.contains(where: { $0.id == a.id }) { queuedApprovals.insert(a, at: 0) }
+        } else if case .question(let q) = state, q.id != question.id {
+            if !queuedQuestions.contains(where: { $0.id == question.id }) {
+                queuedQuestions.append(question)
+            }
+            return
+        }
         followActiveScreen()
         peekWork?.cancel(); questionWork?.cancel()
         Hotkeys.shared.bind(question.options.prefix(4).enumerated().map { i, opt in
@@ -375,7 +415,7 @@ final class Island: NSObject, ObservableObject {
         let work = DispatchWorkItem { [weak self] in
             guard let self, case .question(let q) = self.state, q.id == question.id else { return }
             Hotkeys.shared.unbind()
-            withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) { self.state = .collapsed }
+            self.presentNext()
         }
         questionWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + question.deadline.timeIntervalSinceNow,
@@ -386,14 +426,14 @@ final class Island: NSObject, ObservableObject {
         questionWork?.cancel()
         Hotkeys.shared.unbind()
         Approvals.answer(question, choice: option)
-        withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) { state = .collapsed }
+        presentNext()
     }
 
     func answer(_ approval: Approval, allow: Bool) {
         approvalWork?.cancel()
         Hotkeys.shared.unbind()
         Approvals.decide(approval, allow: allow)
-        withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) { state = .collapsed }
+        presentNext()
     }
 
     /// Clicking a toast jumps straight to the agent that raised it.
