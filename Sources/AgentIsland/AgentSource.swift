@@ -138,6 +138,31 @@ enum PromptCheck {
             FileHandle.standardError.write(
                 "FAIL an unreadable event must not erase the current activity\n".data(using: .utf8)!)
         }
+        // Markdown block structure: a plan card that mis-parses renders one grey paragraph.
+        let md = """
+        # Title
+        ## Steps
+        - one
+        - two
+        ```
+        code line
+        ```
+        ---
+        tail **bold**
+        """
+        let blocks = MarkdownLite.blocks(md)
+        let wantBlocks: [MarkdownLite.Block] = [
+            .heading(1, "Title"), .heading(2, "Steps"), .bullet("one"), .bullet("two"),
+            .code("code line"), .rule, .plain("tail **bold**"),
+        ]
+        if blocks != wantBlocks {
+            failed += 1
+            FileHandle.standardError.write("FAIL markdown blocks: \(blocks)\n".data(using: .utf8)!)
+        }
+        if MarkdownLite.blocks("```\nunclosed fence") != [.code("unclosed fence")] {
+            failed += 1
+            FileHandle.standardError.write("FAIL unclosed fence must still render\n".data(using: .utf8)!)
+        }
         for (input, want, why) in cases {
             let got = PromptText.humanLine(input)
             if got != want {
@@ -147,8 +172,8 @@ enum PromptCheck {
                         .data(using: .utf8)!)
             }
         }
-        print("pure-logic checks: \(cases.count + hooks.count + 1 - failed)/"
-              + "\(cases.count + hooks.count + 1) cases")
+        print("pure-logic checks: \(cases.count + hooks.count + 3 - failed)/"
+              + "\(cases.count + hooks.count + 3) cases")
         return failed == 0 ? 0 : 1
     }
 }

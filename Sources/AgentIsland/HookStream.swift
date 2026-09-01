@@ -2,12 +2,18 @@ import Combine
 import Foundation
 
 /// A permission request waiting on the user. The hook is blocked until this is answered.
+struct Plan: Equatable {
+    let markdown: String
+    let at: Date
+}
+
 struct Approval: Identifiable, Equatable {
     let id: String            // ap_request_id the hook is polling for
     let session: String
     let tool: String
     let detail: String
     let deadline: Date        // hook gives up at this point; drop the card with it
+    var plan: String?         // full Markdown when the ask is ExitPlanMode
 }
 
 /// A multiple-choice question waiting on one click.
@@ -36,6 +42,8 @@ final class HookStream: ObservableObject {
     /// Sessions that DIED rather than finished — a rate-limited run currently looks identical
     /// to a completed one, which is how a stalled fleet goes unnoticed.
     @Published private(set) var failures: [String: String] = [:]
+    /// The last plan each session proposed, kept after approval so it can be re-read.
+    @Published private(set) var plans: [String: Plan] = [:]
     /// (sessionId, message, needsInput) — fires once per attention-worthy transition.
     var onAttention: ((String, String, Bool) -> Void)?
     /// A tool is blocked waiting for the user to allow or deny it.
@@ -72,6 +80,7 @@ final class HookStream: ObservableObject {
         guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
 
         var updates: [String: LiveState] = [:]
+        var planUpdates: [String: Plan] = [:]
         var attention: [(String, String, Bool)] = []
         var approvals: [Approval] = []
         var questions: [Question] = []
@@ -98,17 +107,29 @@ final class HookStream: ObservableObject {
             if let reqID = obj["ap_request_id"] as? String,
                let payload = obj["payload"] as? [String: Any] {
                 let tool = payload["tool_name"] as? String ?? "tool"
+                var plan: String?
+                if tool == "ExitPlanMode",
+                   let input = payload["tool_input"] as? [String: Any],
+                   let p = input["plan"] as? String, !p.isEmpty { plan = p }
                 let approval = Approval(
                     id: reqID,
                     session: payload["session_id"] as? String ?? "",
                     tool: tool,
-                    detail: Self.describe(tool: tool, input: payload["tool_input"]) ?? tool,
-                    deadline: Date().addingTimeInterval(19))
+                    detail: plan != nil ? "proposed a plan — review it here"
+                        : Self.describe(tool: tool, input: payload["tool_input"]) ?? tool,
+                    // A plan takes longer to read than a shell command does.
+                    deadline: Date().addingTimeInterval(plan != nil ? 50 : 19),
+                    plan: plan)
                 approvals.append(approval)
                 obj = payload
             }
             guard let session = obj["session_id"] as? String else { continue }
             let event = Self.canonical(obj["hook_event_name"] as? String ?? "")
+            if obj["tool_name"] as? String == "ExitPlanMode",
+               let input = obj["tool_input"] as? [String: Any],
+               let p = input["plan"] as? String, !p.isEmpty {
+                planUpdates[session] = Plan(markdown: p, at: Date())
+            }
             var state = updates[session] ?? carried[session] ?? LiveState()
             state.at = Date()
 
@@ -162,7 +183,8 @@ final class HookStream: ObservableObject {
             updates[session] = state
         }
         guard !updates.isEmpty || !attention.isEmpty || !approvals.isEmpty
-                || !questions.isEmpty || !fails.isEmpty || !revived.isEmpty else { return }
+                || !questions.isEmpty || !fails.isEmpty || !revived.isEmpty
+                || !planUpdates.isEmpty else { return }
         // Carry state forward on the drain queue. Reading the published `live` from here raced
         // the main thread's merge of the same dictionary, which is a crash, not a stale read.
         carried.merge(updates) { _, new in new }
@@ -170,6 +192,7 @@ final class HookStream: ObservableObject {
         carried = carried.filter { $0.value.at > cutoff }
         DispatchQueue.main.async {
             self.live.merge(updates) { _, new in new }
+            self.plans.merge(planUpdates) { _, new in new }
             for s in revived { self.failures.removeValue(forKey: s) }
             if !fails.isEmpty { self.failures.merge(fails) { _, new in new } }
             for q in questions { self.onQuestion?(q) }

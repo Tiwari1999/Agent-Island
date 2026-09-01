@@ -10,6 +10,10 @@ TIMEOUT_TENTHS="${AGENTISLAND_TIMEOUT_TENTHS:-200}"   # 20s
 
 IFS= read -r -d '' INPUT
 [ -z "$INPUT" ] && exit 0
+# A plan takes longer to read than a shell command; give the reviewer a real window.
+case "$INPUT" in *'"tool_name":"ExitPlanMode"'*)
+    [ -z "$AGENTISLAND_TIMEOUT_TENTHS" ] && TIMEOUT_TENTHS=550 ;;   # a test's override still wins
+esac
 
 # No island, or a stale heartbeat, means nobody can answer — don't intercept.
 [ -f "$ALIVE" ] || exit 0

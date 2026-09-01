@@ -176,8 +176,22 @@ final class AgentStore: ObservableObject {
     func setPanelVisible(_ visible: Bool) {
         guard visible != panelVisible else { return }
         panelVisible = visible
-        if visible { refresh() }        // opening the panel should show current state at once
+        if visible { refresh(); refreshCosts() }   // current state at once, money lazily
         reschedule()
+    }
+
+    /// The month's cost table. The first scan reads every transcript touched this month (~4s of
+    /// CPU), so it runs off-main, at most once a minute, and only while someone is looking.
+    @Published var costTable: Costs.Table = [:]
+    private var costsAt = Date.distantPast
+
+    func refreshCosts() {
+        guard Date().timeIntervalSince(costsAt) > 60 else { return }
+        costsAt = Date()
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let t = Costs.scan()
+            Task { @MainActor in self?.costTable = t }
+        }
     }
 
     private func reschedule() {

@@ -32,6 +32,7 @@ struct AgentIslandApp {
     static func main() {
         // Pure text logic is worth checking without a window; the suite drives this.
         if CommandLine.arguments.contains("--check-prompts") { exit(PromptCheck.run()) }
+        if CommandLine.arguments.contains("--costs-json") { print(Costs.json()); exit(0) }
         // Discovery only, against whatever HOME points at, so a synthetic fleet can be measured
         // without a window and without touching the real panel.
         if let i = CommandLine.arguments.firstIndex(of: "--benchmark-discovery") {

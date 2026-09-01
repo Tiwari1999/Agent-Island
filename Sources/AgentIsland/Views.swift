@@ -123,6 +123,7 @@ struct AgentRowView: View {
 
     let row: AgentRow
     let model: String?
+    var onPlan: (() -> Void)? = nil
     let onJump: () -> Void
     @State private var hover = false
 
@@ -157,6 +158,17 @@ struct AgentRowView: View {
                     chip(row.agent.vendor.label, Theme.agentTint)
                     if let m = model { chip(m, Theme.muted) }
                     chip(row.terminal, row.precise ? Theme.muted : Theme.faint)
+                    if let onPlan {
+                        HStack(spacing: 3) {
+                            Image(systemName: "doc.plaintext").font(.system(size: 8))
+                            Text("plan").font(Theme.mono(8.5))
+                        }
+                        .foregroundColor(Theme.working)
+                        .padding(.horizontal, 5).padding(.vertical, 1.5)
+                        .background(Capsule().fill(Theme.working.opacity(0.12)))
+                        .contentShape(Capsule())
+                        .onTapGesture(perform: onPlan)
+                    }
                     if let t = row.tasks {
                         HStack(spacing: 3) {
                             Image(systemName: t.blocked ? "exclamationmark.circle" : "checklist")
@@ -251,6 +263,7 @@ struct PanelView: View {
     static var height: CGFloat { headerHeight + 1 + listHeight }
     @ObservedObject var store: AgentStore
     @ObservedObject var status: StatusStore
+    @State private var mode: PanelMode = .sessions
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -272,6 +285,7 @@ struct PanelView: View {
                 Text("|").font(Theme.mono(9)).foregroundColor(Theme.hairline)
                 window("7d", status.quota.sevenDayPct, status.quota.sevenDayResets)
                 Spacer()
+                costChip
                 if store.workingCount > 0 { pill("\(store.workingCount) working", Theme.working) }
                 if store.waitingCount > 0 { pill("\(store.waitingCount) waiting", Theme.waiting) }
                 if store.blockedCount > 0 { pill("\(store.blockedCount) blocked", Theme.faint) }
@@ -282,7 +296,16 @@ struct PanelView: View {
 
             Rectangle().fill(Theme.hairline).frame(height: 0.7)
 
-            if store.rows.isEmpty {
+            if case .costs = mode {
+                CostsView(table: store.costTable) { mode = .sessions }
+                    .frame(height: PanelView.listHeight)
+            } else if case .plan(let session, let title) = mode {
+                PlanReader(title: title,
+                           markdown: store.hooks.plans[session]?.markdown ?? "plan no longer available") {
+                    mode = .sessions
+                }
+                .frame(height: PanelView.listHeight)
+            } else if store.rows.isEmpty {
                 VStack(spacing: 5) {
                     // An app that has never refreshed and one with nothing to show used to look
                     // identical, which is how a silent failure reads as an empty desk.
@@ -298,7 +321,11 @@ struct PanelView: View {
                 ScrollView {
                     LazyVStack(spacing: PanelView.rowGap) {
                         ForEach(store.rows) { row in
-                            AgentRowView(row: row, model: status.quota.model) { store.jump(row) }
+                            AgentRowView(row: row, model: status.quota.model,
+                                         onPlan: store.hooks.plans[row.agent.sessionId].map { _ in
+                                             { mode = .plan(session: row.agent.sessionId,
+                                                            title: row.displayName) }
+                                         }) { store.jump(row) }
                         }
                     }
                     .padding(.horizontal, 8).padding(.vertical, PanelView.listPadding)
@@ -328,6 +355,22 @@ struct PanelView: View {
         }
     }
 
+    private var costChip: some View {
+        let today = Costs.today(store.costTable).values.reduce(0) { $0 + $1.cost }
+        return HStack(spacing: 3) {
+            Image(systemName: "dollarsign.circle").font(.system(size: 8.5))
+            Text(store.costTable.isEmpty ? "cost" : Costs.dollars(today))
+                .font(Theme.mono(9.5))
+        }
+        .foregroundColor(Theme.muted)
+        .padding(.horizontal, 6).padding(.vertical, 2)
+        .background(Capsule().fill(Theme.raised))
+        .contentShape(Capsule())
+        .onTapGesture {
+            if case .costs = mode { mode = .sessions } else { mode = .costs; store.refreshCosts() }
+        }
+    }
+
     private func pill(_ text: String, _ color: Color) -> some View {
         Text(text)
             .font(Theme.label(9)).foregroundColor(color)
@@ -347,10 +390,26 @@ struct ApprovalCard: View {
     @State private var hoverDeny = false
 
     var body: some View {
+        VStack(spacing: 0) {
+            header
+            // A plan is reviewed where it is approved — switching to the terminal to read it
+            // defeats the point of answering from the notch.
+            if let plan = approval.plan {
+                Rectangle().fill(Theme.hairline).frame(height: 0.7).padding(.top, 8)
+                ScrollView {
+                    MarkdownLite(text: plan)
+                        .padding(.horizontal, 16).padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+
+    private var header: some View {
         HStack(spacing: 12) {
             ZStack {
                 Circle().fill(Theme.waiting.opacity(0.16)).frame(width: 30, height: 30)
-                Image(systemName: "hand.raised.fill")
+                Image(systemName: approval.plan != nil ? "doc.plaintext.fill" : "hand.raised.fill")
                     .font(.system(size: 12, weight: .bold)).foregroundColor(Theme.waiting)
                     .symbolEffect(.pulse, options: .repeating)
             }
@@ -368,7 +427,8 @@ struct ApprovalCard: View {
             }
             Spacer(minLength: 8)
             button("Deny ⌘⌥D", Theme.failed, hoverDeny, onDeny) { hoverDeny = $0 }
-            button("Allow ⌘⌥A", Theme.working, hoverAllow, onAllow) { hoverAllow = $0 }
+            button(approval.plan != nil ? "Approve plan ⌘⌥A" : "Allow ⌘⌥A",
+                   Theme.working, hoverAllow, onAllow) { hoverAllow = $0 }
         }
         .padding(.horizontal, 14)
     }

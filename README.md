@@ -9,7 +9,7 @@ Claude Code · Codex · Cursor — one panel, at a glance · jump to the exact t
 [![Platform](https://img.shields.io/badge/macOS-14%2B-000000?style=flat-square&logo=apple&logoColor=white)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-6.0-F05138?style=flat-square&logo=swift&logoColor=white)](https://swift.org)
 [![No Xcode](https://img.shields.io/badge/Xcode-not%20required-4BC51D?style=flat-square)](https://www.swift.org/getting-started/)
-[![Tests](https://img.shields.io/badge/self--tests-130-4BC51D?style=flat-square)](tests/selftest.py)
+[![Tests](https://img.shields.io/badge/self--tests-147-4BC51D?style=flat-square)](tests/selftest.py)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue?style=flat-square)](#-licence)
 
 </div>
@@ -52,6 +52,8 @@ Agent Island puts the answer where your eyes already are.
 | | |
 |---|---|
 | 🎬 **Precise jump** | Click a row → land on that agent's **exact Warp tab**, not just the app |
+| 💠 **Cost breakdown** | API-equivalent spend per model, today and this month — from the vendors' own token accounting |
+| 📋 **Plan review** | Read the full Markdown plan and approve it from the notch, with a 55s window instead of 20 |
 | ✅ **Approve from the notch** | Permission cards, answered with `⌘⌥A` / `⌘⌥D` |
 | 💬 **One-click answers** | Multiple-choice prompts answered with `⌘⌥1`–`⌘⌥4` |
 | 🤖 **Auto-approve rules** | A regex allowlist that governs every agent — one rule covers Claude's `Bash` and Cursor's `Shell` alike |
@@ -183,7 +185,7 @@ Two design rules earned the hard way:
 python3 tests/selftest.py
 ```
 
-130 checks: jump resolution against live Warp tabs, every hook contract (including that each failure path exits without blocking), auto-approve decisions, panel geometry, the staleness window, and that the panel holds only real sessions — every vendor present on disk reaches it, no row is labelled with a bare session id, and no test data survives.
+147 checks: jump resolution against live Warp tabs, every hook contract (including that each failure path exits without blocking), auto-approve decisions, panel geometry, the staleness window, and that the panel holds only real sessions — every vendor present on disk reaches it, no row is labelled with a bare session id, and no test data survives.
 
 ## 📄 Licence
 

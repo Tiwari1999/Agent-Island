@@ -205,7 +205,9 @@ final class Island: NSObject, ObservableObject {
     /// The approval card is wider than a toast and must be fully clickable.
     private var approvalRect: NSRect {
         guard let screen else { return .zero }
-        let w: CGFloat = 560, h = notchHeight + Self.notchClearance + 46
+        var w: CGFloat = 560, extra: CGFloat = 46
+        if case .approval(let a) = state, a.plan != nil { w = 640; extra = 300 }
+        let h = notchHeight + Self.notchClearance + extra
         return NSRect(x: screen.frame.midX - w / 2, y: screen.frame.maxY - h, width: w, height: h)
     }
 
@@ -467,7 +469,7 @@ private struct RootView: View {
             return island.notchWidth
                 + 2 * (CollapsedView.side(revealed: island.revealed) + CollapsedView.notchMargin)
         case .peek:      return 380
-        case .approval:  return 560
+        case .approval(let a):  return a.plan != nil ? 640 : 560
         case .question:  return 600
         case .expanded:  return PanelView.width
         }
@@ -478,7 +480,8 @@ private struct RootView: View {
         // camera housing; anything taller hangs into the window below.
         case .collapsed: return island.notchHeight
         case .peek:      return island.notchHeight + Island.notchClearance + 38
-        case .approval:  return island.notchHeight + Island.notchClearance + 46
+        case .approval(let a):
+            return island.notchHeight + Island.notchClearance + (a.plan != nil ? 300 : 46)
         case .question:  return island.notchHeight + Island.notchClearance + 98
         case .expanded:  return PanelView.height
         }

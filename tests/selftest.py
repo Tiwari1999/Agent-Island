@@ -302,6 +302,44 @@ check("home seam falls back to the real home",
 check("no vendor path bypasses the seam",
       not re.search(r'NSHomeDirectory\(\) \+ "/\.(claude|codex|cursor)', blob))
 
+print("\n=== 9d. cost breakdown & plan review ===")
+# Cost arithmetic against a fixture with hand-computed totals; the binary does the scanning.
+import tempfile, shutil as _sh
+fx=tempfile.mkdtemp(prefix="ai-costfx-")
+os.makedirs(f"{fx}/.claude/projects/-t", exist_ok=True)
+from datetime import datetime, timezone
+now_iso=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+open(f"{fx}/.claude/projects/-t/a.jsonl","w").write(json.dumps(
+ {"type":"assistant","timestamp":now_iso,"message":{"model":"claude-opus-5",
+  "usage":{"input_tokens":1000,"output_tokens":2000,
+           "cache_read_input_tokens":100000,"cache_creation_input_tokens":10000}}})+"\n"
+ +json.dumps({"type":"assistant","timestamp":now_iso,"message":{"model":"<synthetic>",
+  "usage":{"input_tokens":999999,"output_tokens":999999}}})+"\n")
+cj=subprocess.run([os.path.join(REPO,".build/release/AgentIsland"),"--costs-json"],
+                  capture_output=True,text=True,env=dict(os.environ,AGENTISLAND_HOME=fx))
+_sh.rmtree(fx,ignore_errors=True)
+try: table=json.loads(cj.stdout)
+except Exception: table={}
+models=[m for day in table.values() for m in day]
+line=next((l for day in table.values() for m,l in day.items() if "opus" in m), {})
+# (1000*15 + 2000*75 + 100000*1.5 + 10000*18.75)/1e6 = 0.5025
+check("cost math matches hand computation", abs(line.get("cost",0)-0.5025)<1e-9,
+      f"got {line.get('cost')}")
+check("synthetic model entries are excluded", not any("synthetic" in m for m in models))
+
+hs=open(os.path.join(REPO,"Sources/AgentIsland/HookStream.swift")).read()
+check("plan captured from ExitPlanMode events", 'input["plan"]' in hs and "planUpdates" in hs)
+check("plan approvals get a reading-length deadline", "50 : 19" in hs)
+perm=open(os.path.join(REPO,"hooks/agentisland-permission.sh")).read()
+check("hook holds a plan approval open longer", "ExitPlanMode" in perm and "550" in perm)
+check("a test's timeout override still wins", 'AGENTISLAND_TIMEOUT_TENTHS" ] && TIMEOUT_TENTHS=550' in perm)
+isl2=open(os.path.join(REPO,"Sources/AgentIsland/Island.swift")).read()
+check("plan card gets plan-sized geometry", isl2.count("a.plan != nil") >= 2)
+vw=open(os.path.join(REPO,"Sources/AgentIsland/Views.swift")).read()
+check("cost chip and plan chip exist", "costChip" in vw and 'Text("plan")' in vw)
+check("costs scan never runs on the refresh path",
+      "refreshCosts" in open(os.path.join(REPO,"Sources/AgentIsland/AgentStore.swift")).read())
+
 check("blocked badge matches the jobs actually blocked on disk",
       shown_blocked<=disk_blocked, f"{shown_blocked} shown, {disk_blocked} on disk")
 
