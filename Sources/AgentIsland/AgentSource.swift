@@ -163,9 +163,28 @@ enum Tail {
         guard let h = FileHandle(forReadingAtPath: path) else { return "" }
         defer { try? h.close() }
         let size = (try? h.seekToEnd()) ?? 0
-        try? h.seek(toOffset: size > bytes ? size - bytes : 0)
+        let truncated = size > bytes
+        try? h.seek(toOffset: truncated ? size - bytes : 0)
         let data = (try? h.readToEnd()) ?? Data()
-        return String(data: data, encoding: .utf8) ?? ""
+        var text = String(data: data, encoding: .utf8) ?? ""
+        // Starting mid-file means the first line is a fragment, not JSON.
+        if truncated, let first = text.firstIndex(where: \.isNewline) {
+            text = String(text[text.index(after: first)...])
+        }
+        return text
+    }
+
+    /// The start of a file, for the entries a session opened with.
+    static func head(path: String, bytes: Int) -> String {
+        guard let h = FileHandle(forReadingAtPath: path) else { return "" }
+        defer { try? h.close() }
+        let data = h.readData(ofLength: bytes)
+        var text = String(data: data, encoding: .utf8) ?? ""
+        // The final line is probably cut in half; a half line is not parseable JSON.
+        if data.count == bytes, let last = text.lastIndex(where: \.isNewline) {
+            text = String(text[..<last])
+        }
+        return text
     }
 
     /// The last value of a `"key":"value"` pair, searching from the end.

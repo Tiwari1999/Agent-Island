@@ -17,10 +17,19 @@ struct CodexSource: AgentSource {
         guard isAvailable else { return [] }
         let cutoff = Date().addingTimeInterval(-Self.maxAge)
 
-        // Only stat files inside the window; a year of rollouts is thousands of files.
+        // Only stat files inside the window; a year of rollouts is thousands of files. The cap
+        // takes the newest, not an arbitrary 200 — unsorted, a busy machine could drop the very
+        // session the user is watching.
         let listing = Shell.runSync("/bin/sh", ["-c",
-            "find \(root) -name 'rollout-*.jsonl' -newermt '-10 days' 2>/dev/null | head -200"])
-        let paths = listing.split(whereSeparator: \.isNewline).map(String.init)
+            "find \(root) -name 'rollout-*.jsonl' -newermt '-10 days' 2>/dev/null"])
+        let all = listing.split(whereSeparator: \.isNewline).map(String.init)
+        let paths = all.count <= 200 ? all : all
+            .compactMap { p -> (String, Date)? in
+                guard let m = (try? FileManager.default.attributesOfItem(atPath: p))?[.modificationDate]
+                        as? Date else { return nil }
+                return (p, m)
+            }
+            .sorted { $0.1 > $1.1 }.prefix(200).map(\.0)
 
         // `find -newermt` is unreliable across BSD/GNU, so verify the age from the file itself.
         var agents: [Agent] = []
@@ -41,7 +50,9 @@ struct CodexSource: AgentSource {
                 sessionId: meta.id,
                 name: nil,                       // Codex writes no title; the prompt becomes the label
                 cwd: cwd,
-                state: live != nil ? "idle" : nil,
+                // A live process is working. Reporting it idle meant a running Codex session
+                // never counted toward the header's working total.
+                state: live != nil ? "busy" : nil,
                 status: nil,
                 pid: live,
                 vendor: .codex,
@@ -81,40 +92,51 @@ struct CodexSource: AgentSource {
 
     private static func rollout(path: String, mtime: Date) -> Rollout {
         if let hit = cache[path], hit.mtime == mtime { return hit.value }
-        var r = Rollout()
-        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return r }
-
-        var lastUsage: [String: Any]?
-        var window: Double?
-        for line in text.split(whereSeparator: \.isNewline) {
-            // Cheap substring gate before paying for JSON on a line we do not want.
-            // Older rollouts logged a `user_message` event; newer ones record the turn as a
-            // response_item whose content is a block array. Gate on either.
-            let wantsPrompt = line.contains("\"user_message\"") || line.contains("\"input_text\"")
-            let wantsUsage = line.contains("total_token_usage")
-            guard wantsPrompt || wantsUsage,
-                  let data = line.data(using: .utf8),
-                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-            else { continue }
-            let payload = obj["payload"] as? [String: Any] ?? obj
-            if wantsPrompt, let t = promptText(payload) {
-                if r.firstPrompt == nil { r.firstPrompt = String(t.prefix(60)) }
-                r.lastPrompt = t.count > 120 ? String(t.prefix(120)) + "…" : t
-            }
-            if wantsUsage {
-                // The accounting sits under `info`, and the cumulative total counts every turn
-                // ever sent — using it put every row at the compaction cliff. The last turn's
-                // input is the context that actually exists right now.
-                let info = (payload["info"] as? [String: Any]) ?? payload
-                if let u = info["last_token_usage"] as? [String: Any] { lastUsage = u }
-                if let w = (info["model_context_window"] as? NSNumber)?.doubleValue, w > 0 {
-                    window = w
+        // Bounded reads rather than the whole file: the opening prompt is at the top, the newest
+        // prompt and token count at the bottom. A single rollout entry can be large enough to push
+        // the last token count out of a small tail, so the window is generous and we re-read in
+        // full only when something is genuinely missing — which the mtime cache makes rare.
+        func parse(_ text: String) -> Rollout {
+            var r = Rollout()
+            var lastUsage: [String: Any]?
+            var window: Double?
+            for line in text.split(whereSeparator: \.isNewline) {
+                // Older rollouts logged a `user_message` event; newer ones record the turn as a
+                // response_item whose content is a block array. Gate on either.
+                let wantsPrompt = line.contains("\"user_message\"") || line.contains("\"input_text\"")
+                let wantsUsage = line.contains("total_token_usage")
+                guard wantsPrompt || wantsUsage,
+                      let data = line.data(using: .utf8),
+                      let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                else { continue }
+                let payload = obj["payload"] as? [String: Any] ?? obj
+                if wantsPrompt, let t = promptText(payload) {
+                    if r.firstPrompt == nil { r.firstPrompt = String(t.prefix(60)) }
+                    r.lastPrompt = t.count > 120 ? String(t.prefix(120)) + "…" : t
+                }
+                if wantsUsage {
+                    // The accounting sits under `info`, and the cumulative total counts every turn
+                    // ever sent — using it put every row at the compaction cliff. The last turn's
+                    // input is the context that actually exists right now.
+                    let info = (payload["info"] as? [String: Any]) ?? payload
+                    if let u = info["last_token_usage"] as? [String: Any] { lastUsage = u }
+                    if let w = (info["model_context_window"] as? NSNumber)?.doubleValue, w > 0 {
+                        window = w
+                    }
                 }
             }
+            if let u = lastUsage, let used = (u["input_tokens"] as? NSNumber)?.doubleValue {
+                // Codex publishes the window it is actually using; 200k is only the fallback.
+                r.contextPct = min(99, Int(used / (window ?? 200_000) * 100))
+            }
+            return r
         }
-        if let u = lastUsage, let used = (u["input_tokens"] as? NSNumber)?.doubleValue {
-            // Codex publishes the window it is actually using; 200k is only the fallback.
-            r.contextPct = min(99, Int(used / (window ?? 200_000) * 100))
+
+        var r = parse(Tail.head(path: path, bytes: 256 * 1024) + "\n"
+                      + Tail.read(path: path, bytes: 2 * 1024 * 1024))
+        if r.firstPrompt == nil || r.contextPct == nil,
+           let whole = try? String(contentsOfFile: path, encoding: .utf8) {
+            r = parse(whole)
         }
         cache[path] = (mtime, r)
         return r

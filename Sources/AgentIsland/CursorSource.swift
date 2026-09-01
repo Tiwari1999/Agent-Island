@@ -172,7 +172,10 @@ struct CursorSource: AgentSource {
     }
 
     private static func scan(path: String, fromEnd: Bool) -> String? {
-        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+        // Only the end that is being asked for: a transcript's middle never holds either answer.
+        let text = fromEnd ? Tail.read(path: path, bytes: 256 * 1024)
+                           : Tail.head(path: path, bytes: 256 * 1024)
+        guard !text.isEmpty else { return nil }
         let all = text.split(whereSeparator: \.isNewline)
         let window = fromEnd ? Array(all.suffix(80).reversed()) : Array(all.prefix(40))
         for line in window {

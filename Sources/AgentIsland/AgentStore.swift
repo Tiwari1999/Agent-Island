@@ -236,8 +236,9 @@ final class AgentStore: ObservableObject {
                   }.joined(separator: ", ") + "] "
                 + Shell.spawnsSinceLastCheck())
             Task { @MainActor in
-                self?.refreshing = false
                 self?.hasRefreshed = true
+                // Cleared by rebuild once the rows are published: releasing it here let the next
+                // refresh overtake a slow rebuild and publish an older set over a newer one.
                 self?.rebuild(found)
             }
         }
@@ -288,6 +289,7 @@ final class AgentStore: ObservableObject {
                     // Purely by recency: anything working is writing to its transcript now,
                     // so it rises on its own without a state bucket pinning idle rows down.
                     .sorted { ($0.lastActive ?? .distantPast) > ($1.lastActive ?? .distantPast) }
+                self.refreshing = false
                 Self.publishManifest(self.rows)
             }
         }
