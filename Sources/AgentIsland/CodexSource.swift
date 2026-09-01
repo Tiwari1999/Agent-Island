@@ -17,21 +17,20 @@ struct CodexSource: AgentSource {
         guard isAvailable else { return [] }
         let cutoff = Date().addingTimeInterval(-Self.maxAge)
 
-        // Only stat files inside the window; a year of rollouts is thousands of files. The cap
-        // takes the newest, not an arbitrary 200 — unsorted, a busy machine could drop the very
-        // session the user is watching.
-        let listing = Shell.runSync("/bin/sh", ["-c",
-            "find \(root) -name 'rollout-*.jsonl' -newermt '-10 days' 2>/dev/null"])
-        let all = listing.split(whereSeparator: \.isNewline).map(String.init)
-        let paths = all.count <= 200 ? all : all
-            .compactMap { p -> (String, Date)? in
-                guard let m = (try? FileManager.default.attributesOfItem(atPath: p))?[.modificationDate]
-                        as? Date else { return nil }
-                return (p, m)
+        // Walked in-process (this was a `find` spawn), windowed by mtime, capped to the
+        // newest 200 — unsorted, a busy machine could drop the very session being watched.
+        var dated: [(String, Date)] = []
+        if let e = FileManager.default.enumerator(atPath: root) {
+            for case let f as String in e where f.hasSuffix(".jsonl")
+                && (f as NSString).lastPathComponent.hasPrefix("rollout-") {
+                let path = root + "/" + f
+                guard let m = (try? FileManager.default.attributesOfItem(atPath: path))?[
+                    .modificationDate] as? Date, m > cutoff else { continue }
+                dated.append((path, m))
             }
-            .sorted { $0.1 > $1.1 }.prefix(200).map(\.0)
+        }
+        let paths = dated.sorted { $0.1 > $1.1 }.prefix(200).map(\.0)
 
-        // `find -newermt` is unreliable across BSD/GNU, so verify the age from the file itself.
         var agents: [Agent] = []
         var skipStale = 0, skipMeta = 0, skipCwd = 0
         let running = Self.runningSessions()
@@ -199,8 +198,7 @@ struct CodexSource: AgentSource {
         // Exact name only. Matching the full command line pulled in 97 processes — every one
         // carrying "codex" anywhere in its environment, including unrelated agents — and each
         // cost an lsof call.
-        let pids = Shell.runSync("/usr/bin/pgrep", ["-x", "codex"])
-            .split(whereSeparator: \.isNewline).compactMap { Int($0) }
+        let pids = Proc.pids(comm: "codex")
         return Cwd.map(pids: pids)
     }
 

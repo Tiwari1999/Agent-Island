@@ -413,6 +413,21 @@ check("every card exit ends the hold", isl3.count("hold.end()") >= 4)
 check("context assembly is off-main (a 44MB transcript must not jank the card)",
       "qos: .userInitiated).async" in isl3)
 
+print("\n=== 9g. zero spawns at idle ===")
+pc=subprocess.run([os.path.join(REPO,".build/release/AgentIsland"),"--check-proc"],
+                  capture_output=True,text=True)
+check("syscall layer agrees with the live process table", pc.returncode==0,
+      (pc.stdout+pc.stderr).strip()[:60])
+last=[l for l in open("/tmp/agentisland.log") if "refresh:" in l]
+check("a refresh spawns zero subprocesses", bool(last) and "0 spawns" in last[-1],
+      last[-1].split("refresh:")[-1].strip()[:70] if last else "no log")
+blob2="".join(open(os.path.join(REPO,"Sources/AgentIsland",f)).read()
+              for f in os.listdir(os.path.join(REPO,"Sources/AgentIsland")) if f.endswith(".swift"))
+import re as _re
+spawn_sites=[l for l in blob2.splitlines() if "Shell.runSync" in l or "Shell.run(" in l]
+check("every remaining spawn site is user-action, not refresh",
+      len(spawn_sites) <= 6, f"{len(spawn_sites)} sites")
+
 check("blocked badge matches the jobs actually blocked on disk",
       shown_blocked<=disk_blocked, f"{shown_blocked} shown, {disk_blocked} on disk")
 
@@ -632,11 +647,11 @@ for name in ("ProcEnv.retain","Cwd.retain","Transcript.retain","Titles.retain"):
 check("codex rollout cache is trimmed",
       "trimCache(keeping" in open(f"{src}/CodexSource.swift").read())
 _cwd=open(f"{src}/Cwd.swift").read()
-check("cwd lookups are batched into one lsof", "-p \\(list)" in _cwd)
+check("cwd comes from a syscall, not an lsof spawn", "Proc.cwd(pid:" in _cwd)
 check("cwd misses are recorded so they are not retried",
-      "not retried every cycle" in _cwd or 'found[pid] == nil { found[pid] = "" }' in _cwd)
+      'Proc.cwd(pid: pid) ?? ""' in open(os.path.join(REPO,"Sources/AgentIsland/Cwd.swift")).read())
 _cx=open(f"{src}/CodexSource.swift").read()
-check("codex pgrep is exact-match, not full command line", '"-x", "codex"' in _cx)
+check("codex liveness is an exact comm match in-process", 'Proc.pids(comm: "codex")' in _cx)
 
 print("\n=== 20. honest degradation ===")
 host=open(f"{src}/HostTerminal.swift").read()

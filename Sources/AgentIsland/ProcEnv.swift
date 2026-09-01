@@ -2,10 +2,8 @@ import Foundation
 
 /// Warp identifiers read from a process's environment, cached for the life of that process.
 ///
-/// These were being fetched with two separate `ps` calls per agent on every refresh — one for the
-/// focus URL, one for the session UUID — despite both living in the same environment block, which
-/// never changes once a process has started. At eight agents that was sixteen process spawns
-/// every four seconds for values that are fixed at exec time.
+/// Read via one KERN_PROCARGS2 sysctl per unseen pid and cached for the process's life — the
+/// environment block is fixed at exec time, so asking twice is pure waste.
 enum ProcEnv {
     /// The environment facts that identify where an agent is running and how to reach it.
     struct Info {
@@ -34,31 +32,24 @@ enum ProcEnv {
         lock.unlock()
         guard !missing.isEmpty else { return }
 
-        let list = missing.map(String.init).joined(separator: ",")
-        let out = Shell.runSync("/bin/ps", ["eww", "-o", "pid=,command=", "-p", list])
-
         var found: [Int: Info] = [:]
-        for line in out.split(whereSeparator: \.isNewline) {
-            let fields = line.split(separator: " ", omittingEmptySubsequences: true)
-            guard let first = fields.first, let pid = Int(first) else { continue }
+        for pid in missing {
+            guard let ae = Proc.argsEnv(pid: pid) else { continue }
             var i = Info()
             var wantsResume = false
-            for f in fields {
-                if wantsResume { i.resumeSession = String(f); wantsResume = false }
-                if f == "--resume" || f == "-r" { wantsResume = true }
-                func val(_ key: String) -> String? {
-                    f.hasPrefix(key) ? String(f.dropFirst(key.count)) : nil
-                }
-                if let v = val("WARP_FOCUS_URL=") { i.focusURL = v }
-                else if let v = val("WARP_TERMINAL_SESSION_UUID=") { i.sessionUUID = v }
-                else if let v = val("ITERM_SESSION_ID=") { i.itermSession = v }
-                else if let v = val("TERM_SESSION_ID=") { i.appleSession = v }
-                else if let v = val("KITTY_WINDOW_ID=") { i.kittyWindow = v }
-                else if let v = val("WEZTERM_PANE=") { i.weztermPane = v }
-                else if let v = val("TERM_PROGRAM=") { i.termProgram = v }
-                else if let v = val("__CFBundleIdentifier=") { i.bundleID = v }
-                else if let v = val("TERMINAL_EMULATOR="), v.contains("JetBrains") { i.jetbrains = true }
+            for a in ae.argv {
+                if wantsResume { i.resumeSession = a; wantsResume = false }
+                if a == "--resume" || a == "-r" { wantsResume = true }
             }
+            i.focusURL = ae.env["WARP_FOCUS_URL"]
+            i.sessionUUID = ae.env["WARP_TERMINAL_SESSION_UUID"]
+            i.itermSession = ae.env["ITERM_SESSION_ID"]
+            i.appleSession = ae.env["TERM_SESSION_ID"]
+            i.kittyWindow = ae.env["KITTY_WINDOW_ID"]
+            i.weztermPane = ae.env["WEZTERM_PANE"]
+            i.termProgram = ae.env["TERM_PROGRAM"]
+            i.bundleID = ae.env["__CFBundleIdentifier"]
+            i.jetbrains = ae.env["TERMINAL_EMULATOR"]?.contains("JetBrains") ?? false
             found[pid] = i
         }
         // A pid we could not read still gets an entry, so we never re-ask about it.

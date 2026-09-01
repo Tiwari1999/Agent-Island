@@ -33,6 +33,7 @@ struct AgentIslandApp {
         // Pure text logic is worth checking without a window; the suite drives this.
         if CommandLine.arguments.contains("--check-prompts") { exit(PromptCheck.run()) }
         if CommandLine.arguments.contains("--costs-json") { print(Costs.json()); exit(0) }
+        if CommandLine.arguments.contains("--check-proc") { exit(ProcCheck.run()) }
         // Synchronous probe of one remote, for the suite: async polling can't be asserted on.
         if let i = CommandLine.arguments.firstIndex(of: "--probe-remote"),
            let host = CommandLine.arguments.dropFirst(i + 1).first {

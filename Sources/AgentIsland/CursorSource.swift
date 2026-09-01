@@ -95,16 +95,19 @@ struct CursorSource: AgentSource {
         guard Date().timeIntervalSince(indexedAt) > 30 else { return }
         indexedAt = Date()
         let root = Home.path + "/.cursor/projects"
-        let listing = Shell.runSync("/usr/bin/find", [
-            // Wider than the two-day session window on purpose: a chat directory can be touched
-            // long after its transcript was last written, and matching the windows left those
-            // rows with no title and no activity.
-            root, "-name", "*.jsonl", "-path", "*/agent-transcripts/*", "-newermt", "-30 days"])
+        // Wider than the two-day session window on purpose: a chat directory can be touched
+        // long after its transcript was last written. In-process walk; this was a `find` spawn.
+        let cutoff = Date().addingTimeInterval(-30 * 24 * 3600)
         var map: [String: String] = [:]
-        for path in listing.split(whereSeparator: \.isNewline).map(String.init) {
-            // .../agent-transcripts/<session-uuid>/<file>.jsonl
-            let session = (path as NSString).deletingLastPathComponent
-            map[(session as NSString).lastPathComponent] = path
+        if let e = FileManager.default.enumerator(atPath: root) {
+            for case let f as String in e where f.hasSuffix(".jsonl")
+                && f.contains("/agent-transcripts/") {
+                let path = root + "/" + f
+                guard let m = (try? FileManager.default.attributesOfItem(atPath: path))?[
+                    .modificationDate] as? Date, m > cutoff else { continue }
+                let session = (path as NSString).deletingLastPathComponent
+                map[(session as NSString).lastPathComponent] = path
+            }
         }
         if !map.isEmpty { index = map }
     }
@@ -239,10 +242,12 @@ struct CursorSource: AgentSource {
     }
 
     private static func runningSessions() -> [String: Int] {
-        // Full-command match is required here: cursor-agent execs a versioned node binary, so
-        // the process name is "node". It matches a single process, unlike codex.
-        let pids = Shell.runSync("/usr/bin/pgrep", ["-f", "cursor-agent"])
-            .split(whereSeparator: \.isNewline).compactMap { Int($0) }
+        // cursor-agent's comm is the launcher's basename ("agent") or the interpreter ("node"),
+        // so candidates are confirmed by argv — still zero spawns, just one sysctl per candidate.
+        let candidates = Proc.all().filter { ["agent", "cursor-agent", "node"].contains($0.value) }
+        let pids = candidates.keys.map(Int.init).filter { pid in
+            Proc.argsEnv(pid: pid)?.argv.contains { $0.contains("cursor-agent") } ?? false
+        }
         return Cwd.map(pids: pids)
     }
 }
@@ -298,10 +303,7 @@ struct ClaudeSource: AgentSource {
 
         // Who is running what: argv carries `--resume <id>`; a fresh session has no argv mark
         // and is bound only when its directory identifies it uniquely — never guessed.
-        // -a includes pgrep's own ancestors: without it a claude that launched the launcher
-        // that launched us would be invisible, which is exactly the kind of miss nobody debugs.
-        let pids = Shell.runSync("/usr/bin/pgrep", ["-a", "-x", "claude"])
-            .split(whereSeparator: \.isNewline).compactMap { Int($0) }
+        let pids = Proc.pids(comm: "claude")
         ProcEnv.prime(pids: pids)
         var bySession: [String: Int] = [:]
         var unbound: [Int] = []

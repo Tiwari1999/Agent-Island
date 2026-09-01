@@ -255,3 +255,27 @@ enum Home {
         ProcessInfo.processInfo.environment["AGENTISLAND_HOME"] ?? NSHomeDirectory()
     }
 }
+
+/// The syscall layer, validated against the live process table — a wrong struct offset here
+/// reads garbage paths, which is worse than a crash.
+enum ProcCheck {
+    static func run() -> Int32 {
+        var failed = 0
+        func fail(_ m: String) { failed += 1
+            FileHandle.standardError.write("FAIL \(m)\n".data(using: .utf8)!) }
+
+        let me = Int(getpid())
+        if Proc.cwd(pid: me) != FileManager.default.currentDirectoryPath {
+            fail("cwd(self) != FileManager cwd: \(Proc.cwd(pid: me) ?? "nil")")
+        }
+        guard let ae = Proc.argsEnv(pid: me) else { fail("argsEnv(self) nil"); return 1 }
+        if ae.env["HOME"] != NSHomeDirectory() { fail("env HOME mismatch") }
+        if !(ae.argv.first ?? "").contains("AgentIsland") { fail("argv[0] = \(ae.argv)") }
+        let table = Proc.all()
+        if table[Int32(me)] == nil { fail("own pid missing from table") }
+        if table.count < 50 { fail("implausibly small table: \(table.count)") }
+        print("proc checks: \(failed == 0 ? "ok" : "\(failed) failed") "
+              + "(\(table.count) processes, self comm=\(table[Int32(me)] ?? "?"))")
+        return failed == 0 ? 0 : 1
+    }
+}

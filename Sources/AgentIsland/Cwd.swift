@@ -2,9 +2,8 @@ import Foundation
 
 /// Working directory of a process, cached for its lifetime.
 ///
-/// `lsof` costs roughly 40 ms a call and a process cannot change the directory it was launched
-/// in, so asking twice is pure waste. Twelve uncached calls per refresh were most of the gap
-/// between the 0.9 s the parts measured and the 2.5 s discovery actually took.
+/// One PROC_PIDVNODEPATHINFO syscall per unseen pid, cached for its life — this was an `lsof`
+/// spawn costing ~40 ms; the syscall costs microseconds and no process.
 enum Cwd {
     private static var cache: [Int: String] = [:]
     private static let lock = NSLock()
@@ -16,19 +15,8 @@ enum Cwd {
         lock.unlock()
 
         if !unknown.isEmpty {
-            let list = unknown.map(String.init).joined(separator: ",")
-            let out = Shell.runSync("/bin/sh", ["-c",
-                "lsof -a -p \(list) -d cwd -Fpn 2>/dev/null"])
-            var current: Int?
             var found: [Int: String] = [:]
-            for line in out.split(whereSeparator: \.isNewline) {
-                if line.hasPrefix("p") { current = Int(line.dropFirst()) }
-                else if line.hasPrefix("n"), let pid = current {
-                    found[pid] = String(line.dropFirst())
-                }
-            }
-            // Record a miss too, so a pid we cannot read is not retried every cycle.
-            for pid in unknown where found[pid] == nil { found[pid] = "" }
+            for pid in unknown { found[pid] = Proc.cwd(pid: pid) ?? "" }
             lock.lock(); cache.merge(found) { _, new in new }; lock.unlock()
         }
 
