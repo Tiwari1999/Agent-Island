@@ -47,6 +47,7 @@ struct CursorSource: AgentSource {
                     Date(timeIntervalSince1970: $0.doubleValue / 1000)
                 } ?? mtime
                 let live = cwd.flatMap { running[$0] }
+                guard Self.isUserDriven(dir: dir) else { continue }
                 let activity = Self.activity(sessionId: session)
                 let prompt = Self.lastPrompt(dir: dir)
                 // Cursor names a chat only once it has summarised it, so fall back to what the
@@ -218,6 +219,20 @@ struct CursorSource: AgentSource {
               var last = list.last, !last.isEmpty else { return nil }
         last = last.split(whereSeparator: \.isNewline).first.map(String.init) ?? last
         return last.count > 120 ? String(last.prefix(120)) + "…" : last
+    }
+
+    /// Whether a human started this chat, rather than an agent spawning `cursor-agent -p`.
+    ///
+    /// Claude drives Cursor headlessly for its own subagent work, and those runs are effectively
+    /// unlimited — 193 of the 198 sessions on this machine in a fortnight. Left in, they bury the
+    /// user's own work in a panel that exists to show it.
+    ///
+    /// `prompt_history.json` is the only positive evidence of a person typing: the IDE writes it
+    /// on submit. A title is not enough — Cursor summarises headless runs too — and a live
+    /// process cannot be attributed to one session, because agents in a shared repo report the
+    /// same working directory and none of them holds its transcript open.
+    static func isUserDriven(dir: String) -> Bool {
+        FileManager.default.fileExists(atPath: dir + "/prompt_history.json")
     }
 
     private static func runningSessions() -> [String: Int] {

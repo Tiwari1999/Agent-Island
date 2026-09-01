@@ -3,6 +3,19 @@ import Foundation
 enum Shell {
     static let claude = "/opt/homebrew/bin/claude"
 
+    /// Process creation is the dominant energy cost in a poller, so it is counted rather than
+    /// guessed at: the panel is meant to sit in the notch all day.
+    private static let counter = NSLock()
+    private static var spawns: [String: Int] = [:]
+    static func spawnsSinceLastCheck() -> String {
+        counter.lock(); defer { counter.unlock() }
+        let total = spawns.values.reduce(0, +)
+        let detail = spawns.sorted { $0.value > $1.value }
+            .map { "\($0.key)×\($0.value)" }.joined(separator: " ")
+        spawns = [:]
+        return "\(total) spawns [\(detail)]"
+    }
+
     /// Run a command off the main thread; completion is delivered on the main queue.
     static func run(_ path: String, _ args: [String], done: @escaping (String, Int32) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
@@ -42,6 +55,9 @@ enum Shell {
         // a lot to stderr can no longer block forever on a full buffer nobody drains.
         task.standardError = FileHandle.nullDevice
         task.standardInput = FileHandle.nullDevice
+        counter.lock()
+        spawns[(path as NSString).lastPathComponent, default: 0] += 1
+        counter.unlock()
         guard (try? task.run()) != nil else {
             try? out.fileHandleForReading.close()
             try? out.fileHandleForWriting.close()

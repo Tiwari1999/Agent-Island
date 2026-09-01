@@ -152,3 +152,29 @@ enum PromptCheck {
         return failed == 0 ? 0 : 1
     }
 }
+
+/// Reading the end of an append-only file without spawning anything.
+///
+/// `tail | grep | tail` costs four processes per session per refresh. At one agent that is
+/// invisible; at a hundred it is four hundred process creations every cycle, which is the single
+/// largest energy cost a notch app can have. It also removes a path interpolated into a shell.
+enum Tail {
+    static func read(path: String, bytes: UInt64) -> String {
+        guard let h = FileHandle(forReadingAtPath: path) else { return "" }
+        defer { try? h.close() }
+        let size = (try? h.seekToEnd()) ?? 0
+        try? h.seek(toOffset: size > bytes ? size - bytes : 0)
+        let data = (try? h.readToEnd()) ?? Data()
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    /// The last value of a `"key":"value"` pair, searching from the end.
+    static func lastValue(of key: String, in text: String) -> String? {
+        let needle = "\"\(key)\":\""
+        guard let r = text.range(of: needle, options: .backwards) else { return nil }
+        let rest = text[r.upperBound...]
+        guard let end = rest.firstIndex(of: "\"") else { return nil }
+        let value = String(rest[..<end])
+        return value.isEmpty ? nil : value
+    }
+}

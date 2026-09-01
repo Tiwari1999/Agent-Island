@@ -1,71 +1,53 @@
 import Foundation
 
-/// Claude writes an `ai-title` line into the transcript once it can describe the session, and
-/// sets the terminal title from it — which is what Warp shows on the tab. Reading it back is the
-/// only way to label a row with something a human recognises; `mono-17` is a hash, not a name.
+/// Claude writes an `ai-title` line into the transcript once it can describe the session, and a
+/// `last-prompt` line for the most recent instruction. Reading them back is the only way to label
+/// a row with something a human recognises; `mono-17` is a hash, not a name.
+///
+/// Both are read once per file version. Time-based caches were the app's largest energy cost: a
+/// ten-second prompt cache against a twenty-second refresh missed every single time, so every
+/// session spawned a `grep` on every cycle — eighteen processes a cycle here, and one per agent
+/// at any scale. A transcript is append-only, so unchanged bytes cannot hold a newer answer.
 enum Titles {
-    private static var cache: [String: String] = [:]
-    private static var checked: [String: Date] = [:]
+    private struct Entry { var mtime: Date; var title: String?; var prompt: String? }
+    private static var cache: [String: Entry] = [:]
+
+    static func retain(_ ids: Set<String>) { cache = cache.filter { ids.contains($0.key) } }
 
     static func title(for sessionId: String, cwd: String?) -> String? {
-        if let hit = cache[sessionId],
-           let at = checked[sessionId], Date().timeIntervalSince(at) < 30 { return hit }
-        guard let path = transcriptPath(sessionId: sessionId, cwd: cwd) else { return cache[sessionId] }
-
-        // Transcripts reach tens of MB, so let grep find the line instead of parsing the file.
-        let line = Shell.runSync("/bin/sh", ["-c",
-            "grep '\"ai-title\"' \(shellQuote(path)) 2>/dev/null | tail -1"])
-        checked[sessionId] = Date()
-        guard let data = line.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let t = obj["aiTitle"] as? String, !t.isEmpty else { return cache[sessionId] }
-        cache[sessionId] = t
-        return t
+        entry(sessionId, cwd)?.title
     }
 
-    private static var promptCache: [String: String] = [:]
-    private static var promptChecked: [String: Date] = [:]
-
-    /// Drop entries for sessions that are no longer listed, so the caches track the panel
-    /// rather than every session the app has ever seen.
-    static func retain(_ ids: Set<String>) {
-        cache = cache.filter { ids.contains($0.key) }
-        checked = checked.filter { ids.contains($0.key) }
-        promptCache = promptCache.filter { ids.contains($0.key) }
-        promptChecked = promptChecked.filter { ids.contains($0.key) }
-    }
-
-    /// The user's most recent instruction — the single most useful line for recognising a session.
     static func lastPrompt(for sessionId: String, cwd: String?) -> String? {
-        if let hit = promptCache[sessionId],
-           let at = promptChecked[sessionId], Date().timeIntervalSince(at) < 10 { return hit }
-        guard let path = transcriptPath(sessionId: sessionId, cwd: cwd) else { return promptCache[sessionId] }
-        let line = Shell.runSync("/bin/sh", ["-c",
-            "grep '\"last-prompt\"' \(shellQuote(path)) 2>/dev/null | tail -1"])
-        promptChecked[sessionId] = Date()
-        guard let data = line.data(using: .utf8),
+        entry(sessionId, cwd)?.prompt
+    }
+
+    private static func entry(_ sessionId: String, _ cwd: String?) -> Entry? {
+        guard let path = Transcript.path(sessionId: sessionId, cwd: cwd) else { return cache[sessionId] }
+        let mtime = ((try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate]
+                     as? Date) ?? .distantPast
+        if let hit = cache[sessionId], hit.mtime == mtime { return hit }
+
+        // Both lines are appended, so the tail holds the newest of each. Transcripts reach tens
+        // of megabytes; reading the end is cheaper than any scan of the whole file.
+        let tail = Tail.read(path: path, bytes: 512 * 1024)
+        var e = Entry(mtime: mtime,
+                      title: value("aiTitle", marker: "\"ai-title\"", in: tail),
+                      prompt: value("lastPrompt", marker: "\"last-prompt\"", in: tail))
+        // A title is written once and may have scrolled out of the tail of a long session, so
+        // keep the one we already had rather than letting the row fall back to its hash.
+        if e.title == nil { e.title = cache[sessionId]?.title }
+        if e.prompt == nil { e.prompt = cache[sessionId]?.prompt }
+        cache[sessionId] = e
+        return e
+    }
+
+    /// The last line carrying `marker`, decoded for `key`.
+    private static func value(_ key: String, marker: String, in text: String) -> String? {
+        guard let found = text.split(whereSeparator: \.isNewline).last(where: { $0.contains(marker) }),
+              let data = found.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let t = obj["lastPrompt"] as? String, !t.isEmpty else { return promptCache[sessionId] }
-        let clean = t.split(whereSeparator: \.isNewline).first.map(String.init) ?? t
-        promptCache[sessionId] = clean
-        return clean
-    }
-
-    private static func transcriptPath(sessionId: String, cwd: String?) -> String? {
-        let fm = FileManager.default
-        if let cwd {
-            let slug = cwd.map { $0.isLetter || $0.isNumber ? $0 : "-" }
-                          .reduce(into: "") { $0.append($1) }
-            let p = NSHomeDirectory() + "/.claude/projects/\(slug)/\(sessionId).jsonl"
-            if fm.fileExists(atPath: p) { return p }
-        }
-        let found = Shell.runSync("/bin/sh", ["-c",
-            "ls \(NSHomeDirectory())/.claude/projects/*/\(sessionId).jsonl 2>/dev/null | head -1"])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return found.isEmpty ? nil : found
-    }
-
-    private static func shellQuote(_ s: String) -> String {
-        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+              let v = obj[key] as? String, !v.isEmpty else { return nil }
+        return v.split(whereSeparator: \.isNewline).first.map(String.init) ?? v
     }
 }

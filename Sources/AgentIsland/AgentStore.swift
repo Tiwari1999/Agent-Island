@@ -146,14 +146,31 @@ final class AgentStore: ObservableObject {
             .store(in: &bag)
         refresh()
         reschedule()
+        startWatching()
     }
 
     /// `claude agents --json` costs ~256ms of CPU per call — a Node process start. Polling it
     /// every 4s burned 6.4% of a core continuously just to keep a list nobody was looking at.
-    /// Hooks already push state changes, so the poll only needs to be brisk while the panel is
-    /// open; otherwise it is a slow backstop.
-    private static let activeInterval: TimeInterval = 4
-    private static let idleInterval: TimeInterval = 20
+    /// Hooks push state changes and the watcher reports writes, so the timer is only a backstop
+    /// for what neither can see — a process exiting without a hook firing. It does not need to be
+    /// brisk, and being brisk is expensive: each cycle spawns a Node process to ask Claude Code
+    /// for its sessions.
+    private static let activeInterval: TimeInterval = 15
+    private static let idleInterval: TimeInterval = 180
+    private var watcher: SourceWatcher?
+
+    /// Watch what every vendor writes to. Directories that do not exist are skipped, so a machine
+    /// without Codex or Cursor installed simply watches fewer trees.
+    func startWatching() {
+        let home = NSHomeDirectory()
+        watcher = SourceWatcher(paths: [
+            home + "/.claude/projects", home + "/.claude/jobs",
+            home + "/.codex/sessions", home + "/.cursor/chats",
+        ]) { [weak self] in
+            Task { @MainActor in self?.refresh() }
+        }
+        watcher?.start()
+    }
     private var panelVisible = false
 
     func setPanelVisible(_ visible: Bool) {
@@ -180,9 +197,28 @@ final class AgentStore: ObservableObject {
     /// syscall freeze every later refresh.
     private var refreshing = false
 
+    private var lastRefreshAt = Date.distantPast
+    private var coalescing: Timer?
+
+    /// The shortest gap the watcher may drive. A hundred agents writing at once must not mean a
+    /// hundred refreshes — the floor turns any burst into a single one, and nothing is dropped:
+    /// an event arriving inside the window schedules the refresh at its far edge.
+    private var refreshFloor: TimeInterval { panelVisible ? 4 : 20 }
+
+    func refreshSoon() {
+        let due = lastRefreshAt.addingTimeInterval(refreshFloor)
+        if Date() >= due { refresh(); return }
+        guard coalescing == nil else { return }
+        coalescing = Timer.scheduledTimer(withTimeInterval: due.timeIntervalSinceNow,
+                                          repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.coalescing = nil; self?.refresh() }
+        }
+    }
+
     func refresh() {
         guard !refreshing else { return }
         refreshing = true
+        lastRefreshAt = Date()
         // Snapshot the sources on the main actor; the discovery work itself is off it.
         let sources = self.sources
         DispatchQueue.global(qos: .utility).async { [weak self] in
@@ -197,7 +233,8 @@ final class AgentStore: ObservableObject {
                 + String(format: "%.2fs", Date().timeIntervalSince(started))
                 + " [" + perSource.map {
                     String(format: "%@ %d/%.2fs", $0.0.rawValue, $0.1.count, $0.2)
-                  }.joined(separator: ", ") + "]")
+                  }.joined(separator: ", ") + "] "
+                + Shell.spawnsSinceLastCheck())
             Task { @MainActor in
                 self?.refreshing = false
                 self?.hasRefreshed = true
@@ -339,6 +376,7 @@ enum Transcript {
     /// Drop entries for sessions that are no longer listed.
     static func retain(_ ids: Set<String>) {
         activeCache = activeCache.filter { ids.contains($0.key) }
+        pathCache = pathCache.filter { ids.contains($0.key) }
     }
 
     static func lastActive(_ a: Agent) -> Date? {
@@ -348,11 +386,7 @@ enum Transcript {
         let mtime = (try? FileManager.default.attributesOfItem(atPath: path)[.modificationDate]
                      as? Date) ?? .distantPast
         if let hit = activeCache[a.sessionId], hit.mtime == mtime { return hit.value }
-        let tail = Shell.runSync("/bin/sh", ["-c",
-            "tail -c 32768 '\(path)' 2>/dev/null | grep -o '\"timestamp\":\"[^\"]*\"' | tail -1"])
-        let stamp = tail.replacingOccurrences(of: "\"timestamp\":\"", with: "")
-                        .replacingOccurrences(of: "\"", with: "")
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
+        let stamp = Tail.lastValue(of: "timestamp", in: Tail.read(path: path, bytes: 32768)) ?? ""
         if !stamp.isEmpty {
             let iso = ISO8601DateFormatter()
             iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -365,16 +399,28 @@ enum Transcript {
         return mtime
     }
 
-    static func path(for a: Agent) -> String? {
+    /// A transcript never moves, so the answer — including "there isn't one" — is resolved once.
+    /// The fallback used to shell out per session per refresh, which at a hundred agents is a
+    /// hundred process spawns every cycle for a path that cannot have changed.
+    private static var pathCache: [String: String] = [:]
+
+    static func path(for a: Agent) -> String? { path(sessionId: a.sessionId, cwd: a.cwd) }
+
+    static func path(sessionId: String, cwd: String?) -> String? {
+        if let hit = pathCache[sessionId] { return hit.isEmpty ? nil : hit }
         let fm = FileManager.default
-        if let cwd = a.cwd {
+        let projects = NSHomeDirectory() + "/.claude/projects"
+        if let cwd {
             let slug = cwd.map { $0.isLetter || $0.isNumber ? $0 : "-" }.reduce(into: "") { $0.append($1) }
-            let p = NSHomeDirectory() + "/.claude/projects/\(slug)/\(a.sessionId).jsonl"
-            if fm.fileExists(atPath: p) { return p }
+            let p = "\(projects)/\(slug)/\(sessionId).jsonl"
+            if fm.fileExists(atPath: p) { pathCache[sessionId] = p; return p }
         }
-        let found = Shell.runSync("/bin/sh", ["-c",
-            "ls \(NSHomeDirectory())/.claude/projects/*/\(a.sessionId).jsonl 2>/dev/null | head -1"])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return found.isEmpty ? nil : found
+        // Scanning the project directories costs stats, not processes.
+        for dir in (try? fm.contentsOfDirectory(atPath: projects)) ?? [] {
+            let p = "\(projects)/\(dir)/\(sessionId).jsonl"
+            if fm.fileExists(atPath: p) { pathCache[sessionId] = p; return p }
+        }
+        pathCache[sessionId] = ""
+        return nil
     }
 }
