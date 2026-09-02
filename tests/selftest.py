@@ -532,6 +532,16 @@ check("the cost chip follows the selection",
 check("the resting bar cannot disagree with the header",
       "for v in [store.effectiveVendor]" in vw5)
 
+print("\n=== 9n. the bar fits what it has to say ===")
+vw6=open(os.path.join(REPO,"Sources/AgentIsland/Views.swift")).read()
+check("bar width follows the activity text, not a fixed number",
+      "text: String? = nil" in vw6 and "min(210, needed)" in vw6)
+check("it still has a floor and a ceiling", "max(112, min(210" in vw6)
+check("the pulse is kept off the rounded corner", ".padding(.leading, 4)" in vw6)
+isl6=open(os.path.join(REPO,"Sources/AgentIsland/Island.swift")).read()
+check("the shell sizes itself from the same text the bar prints",
+      "text: lead.map { $0.activity ?? $0.displayName }" in isl6)
+
 check("blocked badge matches the jobs actually blocked on disk",
       shown_blocked<=disk_blocked, f"{shown_blocked} shown, {disk_blocked} on disk")
 

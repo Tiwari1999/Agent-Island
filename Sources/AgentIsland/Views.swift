@@ -26,9 +26,15 @@ struct CollapsedView: View {
     /// The two sides are not equal: the right holds three short numbers, the left holds a
     /// sentence. Splitting the same total 210/86 instead of 148/148 buys the sentence room
     /// without the bar growing at all; hover buys it more.
-    static func sides(revealed: Bool, quiet: Bool) -> (left: CGFloat, right: CGFloat) {
+    /// Sized to what there is to say. A fixed 210 left a wide empty gap whenever the activity
+    /// line was short, which reads as a bar that is mostly nothing.
+    static func sides(revealed: Bool, quiet: Bool, text: String? = nil)
+        -> (left: CGFloat, right: CGFloat) {
         if quiet { return (restingSide, restingSide) }
-        return (revealed ? 300 : 210, 86)
+        if revealed { return (300, 86) }
+        // pulse + avatar + gaps, then roughly one glyph width per character of activity.
+        let needed = 46 + CGFloat(min((text ?? "").count, 30)) * 5.8
+        return (max(112, min(210, needed)), 86)
     }
     static func side(revealed: Bool, quiet: Bool = false) -> CGFloat {
         sides(revealed: revealed, quiet: quiet).left
@@ -52,6 +58,9 @@ struct CollapsedView: View {
         return nil
     }
 
+    /// What the bar is actually going to print, which is what its width should follow.
+    var leadText: String? { lead.map { $0.activity ?? $0.displayName } }
+
     private var lead: AgentRow? {
         store.rows.first { $0.waiting } ?? store.rows.first { $0.isWorking }
     }
@@ -63,11 +72,13 @@ struct CollapsedView: View {
                 // Leading edge, ahead of the Spacer: this group is trailing-aligned and clipped,
                 // so anything placed after a greedy Text is the first thing cut off.
                 if !quiet, let row = lead, row.workKind != .idle {
-                    RunningPulse(kind: row.workKind)
+                    // Kept off the rounded corner, which was clipping it.
+                    RunningPulse(kind: row.workKind).padding(.leading, 4)
                 }
                 Spacer(minLength: 0)
                 if quiet {
                     Circle().fill(Theme.faint.opacity(0.6)).frame(width: 4, height: 4)
+                        .padding(.leading, 4)
                 } else if let row = lead {
                     AgentAvatar(seed: row.agent.sessionId, size: 13, active: true)
                     Text(row.activity ?? row.displayName)
@@ -75,13 +86,15 @@ struct CollapsedView: View {
                         .foregroundColor(row.waiting ? Theme.waiting : Theme.muted)
                         .lineLimit(1).truncationMode(.tail)
                         // Bounded so the text cannot grow into the pulse's place.
-                        .frame(maxWidth: Self.sides(revealed: revealed, quiet: quiet).left - 52,
+                        .frame(maxWidth: Self.sides(revealed: revealed, quiet: quiet,
+                                                    text: leadText).left - 46,
                                alignment: .trailing)
                 } else {
                     Text("idle").font(Theme.mono(9.5)).foregroundColor(Theme.faint)
                 }
             }
-            .frame(width: Self.sides(revealed: revealed, quiet: quiet).left, alignment: .trailing)
+            .frame(width: Self.sides(revealed: revealed, quiet: quiet, text: leadText).left,
+                   alignment: .trailing)
             .padding(.trailing, Self.notchMargin)
             .clipped()
 
@@ -129,7 +142,8 @@ struct CollapsedView: View {
                 }
                 Spacer(minLength: 0)
             }
-            .frame(width: Self.sides(revealed: revealed, quiet: quiet).right, alignment: .leading)
+            .frame(width: Self.sides(revealed: revealed, quiet: quiet, text: leadText).right,
+                   alignment: .leading)
             .padding(.leading, Self.notchMargin)
             .clipped()
         }

@@ -9,7 +9,7 @@ Claude Code · Codex · Cursor — one panel, at a glance · jump to the exact t
 [![Platform](https://img.shields.io/badge/macOS-14%2B-000000?style=flat-square&logo=apple&logoColor=white)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-6.0-F05138?style=flat-square&logo=swift&logoColor=white)](https://swift.org)
 [![No Xcode](https://img.shields.io/badge/Xcode-not%20required-4BC51D?style=flat-square)](https://www.swift.org/getting-started/)
-[![Tests](https://img.shields.io/badge/self--tests-200-4BC51D?style=flat-square)](tests/selftest.py)
+[![Tests](https://img.shields.io/badge/self--tests-204-4BC51D?style=flat-square)](tests/selftest.py)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue?style=flat-square)](#-licence)
 
 </div>
@@ -190,7 +190,7 @@ Two design rules earned the hard way:
 python3 tests/selftest.py
 ```
 
-200 checks: jump resolution against live Warp tabs, every hook contract (including that each failure path exits without blocking), auto-approve decisions, panel geometry, the staleness window, and that the panel holds only real sessions — every vendor present on disk reaches it, no row is labelled with a bare session id, and no test data survives.
+204 checks: jump resolution against live Warp tabs, every hook contract (including that each failure path exits without blocking), auto-approve decisions, panel geometry, the staleness window, and that the panel holds only real sessions — every vendor present on disk reaches it, no row is labelled with a bare session id, and no test data survives.
 
 ## 📄 Licence
 
