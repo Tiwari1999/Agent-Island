@@ -240,6 +240,20 @@ enum PromptCheck {
                                    status: nil, pid: 1), live: nil), false,
              "idle without hooks stays idle"),
         ]
+        // A stale "active" is a turn that ended without a Stop, not work in progress.
+        let stale = AgentRow(agent: busy,
+                             live: LiveState(tool: "Bash", detail: "x", waiting: false,
+                                             at: Date(timeIntervalSinceNow: -200), active: true))
+        if stale.isWorking {
+            failed += 1
+            FileHandle.standardError.write("FAIL a 200s-old active claim must not count\n"
+                                           .data(using: .utf8)!)
+        }
+        if stale.activity != nil {
+            failed += 1
+            FileHandle.standardError.write("FAIL finished work must not read as activity\n"
+                                           .data(using: .utf8)!)
+        }
         for (r, want, why) in working where r.isWorking != want {
             failed += 1
             FileHandle.standardError.write("FAIL working \(why)\n".data(using: .utf8)!)
@@ -254,8 +268,8 @@ enum PromptCheck {
             }
         }
         print("pure-logic checks: "
-              + "\(cases.count + hooks.count + kinds.count + working.count + 9 - failed)/"
-              + "\(cases.count + hooks.count + kinds.count + working.count + 9) cases")
+              + "\(cases.count + hooks.count + kinds.count + working.count + 11 - failed)/"
+              + "\(cases.count + hooks.count + kinds.count + working.count + 11) cases")
         return failed == 0 ? 0 : 1
     }
 }

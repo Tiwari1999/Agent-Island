@@ -100,7 +100,11 @@ struct AgentRow: Identifiable {
 
     var tabHint: String { isBackground ? "background session" : host.name }
     /// A blocked agent's own question outranks any stale tool activity.
-    var activity: String? { blockedQuestion ?? live?.detail ?? narration }
+    var activity: String? {
+        if let q = blockedQuestion { return q }
+        guard isWorking else { return nil }   // finished work is not current activity
+        return live?.detail ?? narration
+    }
     var blockedQuestion: String? {
         agent.phase == "blocked" ? Blocked.question(for: agent.sessionId) : nil
     }
@@ -116,7 +120,12 @@ struct AgentRow: Identifiable {
     /// working, whatever the spool remembers. Under-reporting beats claiming work that is over.
     var isWorking: Bool {
         guard agent.pid != nil || agent.remoteHost != nil else { return false }
-        return live?.active ?? agent.isWorking
+        // Once hooks report for a session they are the authority, and a working agent emits one
+        // every few seconds: a claim this old is a turn that ended without a final Stop, not
+        // work still running. Only a session with no hook data at all falls back to the
+        // vendor's own guess, which for Claude is the transcript's mtime.
+        if let l = live { return l.active && Date().timeIntervalSince(l.at) < 90 }
+        return agent.isWorking
     }
 
     /// What the agent is actually doing right now, from the tool it last announced. The bar
