@@ -43,10 +43,20 @@ def load(path):
 
 
 def add_hook(cfg, event, command, *, first=False, matcher=None, timeout=None):
-    """Append one entry. Returns True if the file changed."""
+    """Install one entry, replacing our own stale copies. Returns True if the file changed."""
     entries = cfg.setdefault("hooks", {}).setdefault(event, [])
+    # Drop our own entries for this script that point somewhere else. Matching on the exact
+    # command string meant a moved or re-cloned repo registered a second copy beside the first,
+    # so every hook fired twice and dead paths accumulated.
+    script = os.path.basename(command.split()[-1])
+    kept = [e for e in entries
+            if not (MARK in json.dumps(e) and script in json.dumps(e)
+                    and command not in json.dumps(e))]
+    replaced = len(entries) - len(kept)
+    if replaced:
+        entries[:] = kept
     if any(MARK in json.dumps(e) and command in json.dumps(e) for e in entries):
-        return False
+        return replaced > 0
     spec = {"type": "command", "command": command}
     if timeout:
         spec["timeout"] = timeout
@@ -69,7 +79,24 @@ def install(name, path, plan, statusline=False):
     for event, command, kw in plan:
         changed += add_hook(cfg, event, command, **kw)
 
-    if statusline and MARK not in json.dumps(cfg.get("statusLine", {})):
+    # Sweep our entries that point at a different copy of this repo, on any event -- including
+    # events an older version of this installer used and this one no longer does. Ours always
+    # live under REPO; anything else marked as ours is a leftover that would still fire.
+    for event, entries in list(cfg.get("hooks", {}).items()):
+        kept = [e for e in entries
+                if not (MARK in json.dumps(e) and REPO not in json.dumps(e))]
+        if len(kept) != len(entries):
+            changed += len(entries) - len(kept)
+            entries[:] = kept
+        if not entries:
+            del cfg["hooks"][event]
+
+    want_status = f"bash {STATUSLINE}"
+    have_status = json.dumps(cfg.get("statusLine", {}))
+    if statusline and MARK in have_status and want_status not in have_status:
+        cfg["statusLine"] = {"type": "command", "command": want_status}   # ours, but stale path
+        changed += 1
+    elif statusline and MARK not in have_status:
         # Wrap, do not replace: the wrapper runs the user's own statusline inside it.
         cfg["statusLine"] = {"type": "command", "command": f"bash {STATUSLINE}"}
         changed += 1
