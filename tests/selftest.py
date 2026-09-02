@@ -550,6 +550,20 @@ isl6=open(os.path.join(REPO,"Sources/AgentIsland/Island.swift")).read()
 check("the shell sizes itself from the same text the bar prints",
       "text: lead.map { $0.activity ?? $0.displayName }" in isl6)
 
+print("\n=== 9o. idle reports what the day consumed ===")
+vw7=open(os.path.join(REPO,"Sources/AgentIsland/Views.swift")).read()
+cs3=open(os.path.join(REPO,"Sources/AgentIsland/Costs.swift")).read()
+st7=open(os.path.join(REPO,"Sources/AgentIsland/AgentStore.swift")).read()
+check("the resting bar reports spend and tokens, not just a percentage",
+      "private var usageToday" in vw7 and "Costs.tokens(today, for: v)" in vw7)
+check("tokens counted include cache, which is what was processed",
+      "$1.input + $1.output + $1.cacheRead + $1.cacheWrite" in cs3)
+check("usage follows the selected agent", "store.effectiveVendor" in vw7.split("usageToday")[1][:400])
+check("costs refresh while idle, on a slow clock",
+      "refreshCosts(minInterval: 300)" in st7 and "workingCount == 0" in st7)
+check("a day with no usage says idle rather than a fake zero",
+      "guard toks > 0 else { return nil }" in vw7)
+
 check("blocked badge matches the jobs actually blocked on disk",
       shown_blocked<=disk_blocked, f"{shown_blocked} shown, {disk_blocked} on disk")
 

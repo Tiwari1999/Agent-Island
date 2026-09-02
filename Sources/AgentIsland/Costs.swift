@@ -184,6 +184,13 @@ enum Costs {
         return nil
     }
 
+    /// Every token the account processed, cache included — that is what was consumed, even
+    /// though cache reads dominate it.
+    static func tokens(_ models: [String: Line], for v: Vendor) -> Int {
+        models.filter { vendor(ofModel: $0.key) == v }.values
+            .reduce(0) { $0 + $1.input + $1.output + $1.cacheRead + $1.cacheWrite }
+    }
+
     static func spend(_ models: [String: Line], for v: Vendor) -> Double {
         models.filter { vendor(ofModel: $0.key) == v }.values.reduce(0) { $0 + $1.cost }
     }

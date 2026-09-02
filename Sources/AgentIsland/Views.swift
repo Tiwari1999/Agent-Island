@@ -30,7 +30,8 @@ struct CollapsedView: View {
     /// line was short, which reads as a bar that is mostly nothing.
     static func sides(revealed: Bool, quiet: Bool, text: String? = nil)
         -> (left: CGFloat, right: CGFloat) {
-        if quiet { return (restingSide, restingSide) }
+        // Resting is asymmetric too: a dot on one side, the usage line on the other.
+        if quiet { return (30, 158) }
         if revealed { return (300, 86) }
         // pulse + avatar + gaps, then roughly one glyph width per character of activity.
         let needed = 46 + CGFloat(min((text ?? "").count, 30)) * 5.8
@@ -60,6 +61,17 @@ struct CollapsedView: View {
 
     /// What the bar is actually going to print, which is what its width should follow.
     var leadText: String? { lead.map { $0.activity ?? $0.displayName } }
+
+    /// Spend and tokens for the agent the panel is reporting on, today.
+    private var usageToday: String? {
+        let today = Costs.today(store.costTable)
+        guard !today.isEmpty else { return nil }
+        let v = store.effectiveVendor
+        let spend = Costs.spend(today, for: v)
+        let toks = Costs.tokens(today, for: v)
+        guard toks > 0 else { return nil }
+        return "\(Costs.dollars(spend)) · \(Costs.tokens(toks))"
+    }
 
     private var lead: AgentRow? {
         store.rows.first { $0.waiting } ?? store.rows.first { $0.isWorking }
@@ -103,14 +115,21 @@ struct CollapsedView: View {
             // RIGHT — counts and quota pressure, at a glance.
             HStack(spacing: 7) {
                 if quiet {
-                    // Idle is not news; how close the account is to a limit is.
-                    if let (name, pct) = primaryLimit {
-                        Text("\(name) \(pct)%")
-                            .font(Theme.mono(8.5)).foregroundColor(Quota.tint(pct))
-                            .lineLimit(1).fixedSize()
-                    } else {
-                        Text("idle").font(Theme.mono(8.5)).foregroundColor(Theme.faint.opacity(0.8))
+                    // Idle is not news. What the day cost is.
+                    HStack(spacing: 5) {
+                        if let (name, pct) = primaryLimit {
+                            Text("\(name) \(pct)%")
+                                .font(Theme.mono(8.5)).foregroundColor(Quota.tint(pct))
+                        }
+                        if let u = usageToday {
+                            Text("·").font(Theme.mono(8.5)).foregroundColor(Theme.hairline)
+                            Text(u).font(Theme.mono(8.5)).foregroundColor(Theme.muted)
+                        } else if primaryLimit == nil {
+                            Text("idle").font(Theme.mono(8.5))
+                                .foregroundColor(Theme.faint.opacity(0.8))
+                        }
                     }
+                    .lineLimit(1).fixedSize()
                 } else if store.workingCount > 0 {
                     HStack(spacing: 4) {
                         Text("\(store.workingCount)")

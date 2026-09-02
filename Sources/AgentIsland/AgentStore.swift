@@ -273,8 +273,11 @@ final class AgentStore: ObservableObject {
     }
     private var costsAt = Date.distantPast
 
-    func refreshCosts() {
-        guard Date().timeIntervalSince(costsAt) > 60 else { return }
+    /// Also refreshed while nothing is running, because that is when the resting bar reports
+    /// consumption. The first scan reads a month of transcripts; every later one is served from
+    /// the per-file mtime cache, so a slow cadence costs almost nothing.
+    func refreshCosts(minInterval: TimeInterval = 60) {
+        guard Date().timeIntervalSince(costsAt) > minInterval else { return }
         costsAt = Date()
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let t = Costs.scan()
@@ -412,6 +415,7 @@ final class AgentStore: ObservableObject {
                 // Recency by default; frozen to the opening order while the panel is visible.
                 self.rows = self.applyOrder(built)
                 self.refreshing = false
+                if self.workingCount == 0 { self.refreshCosts(minInterval: 300) }
                 Self.publishManifest(self.rows)
             }
         }
