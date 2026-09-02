@@ -175,6 +175,19 @@ enum Costs {
         return out
     }
 
+    /// Which agent a model belongs to, so spend can be read per agent rather than in total.
+    static func vendor(ofModel model: String) -> Vendor? {
+        let m = model.lowercased()
+        if m.contains("claude") || m.contains("opus") || m.contains("sonnet")
+            || m.contains("haiku") || m.contains("fable") { return .claude }
+        if m.contains("gpt") || m.contains("codex") || m.contains("o1") { return .codex }
+        return nil
+    }
+
+    static func spend(_ models: [String: Line], for v: Vendor) -> Double {
+        models.filter { vendor(ofModel: $0.key) == v }.values.reduce(0) { $0 + $1.cost }
+    }
+
     static func dollars(_ v: Double) -> String {
         v >= 100 ? String(format: "$%.0f", v) : String(format: "$%.2f", v)
     }

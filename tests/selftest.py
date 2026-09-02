@@ -489,7 +489,8 @@ check("the panel header shows codex's limit beside claude's",
 check("the resting bar shows the most-used agent's limit, not just 'idle'",
       "primaryLimit" in vw4 and 'Text("idle")' in vw4)
 check("the primary agent is chosen by how many rows are its own",
-      "counts[r.agent.vendor, default: 0] += 1" in vw4)
+      "counts[r.agent.vendor, default: 0] += 1" in
+      open(os.path.join(REPO,"Sources/AgentIsland/AgentStore.swift")).read())
 check("cursor is not given a limit it does not publish",
       "case .cursor: return nil" in vw4)
 
@@ -510,6 +511,26 @@ st5=open(os.path.join(REPO,"Sources/AgentIsland/AgentStore.swift")).read()
 check("discovery falls back to the hook binding only when argv could not bind",
       "guard a.pid == nil, let p = fromHooks[a.sessionId]" in st5)
 check("a hook-reported pid is checked to still exist", "Proc.all()[Int32(p)] != nil" in st5)
+
+print("\n=== 9m. pick the agent the header reports on ===")
+vw5=open(os.path.join(REPO,"Sources/AgentIsland/Views.swift")).read()
+st6=open(os.path.join(REPO,"Sources/AgentIsland/AgentStore.swift")).read()
+cs2=open(os.path.join(REPO,"Sources/AgentIsland/Costs.swift")).read()
+check("one control cycles the agent, no settings pane",
+      "agentPicker" in vw5 and "store.cycleVendor()" in vw5)
+check("selection defaults to the agent you use most, not a fixed one",
+      "selectedVendor ?? vendorsPresent.first" in st6)
+check("only agents actually present can be selected", "for r in rows { counts[" in st6)
+check("the header reports the selected agent's own windows",
+      "private func quota(for v: Vendor)" in vw5 and "case .codex:  return CodexSource.quota" in vw5)
+check("cursor's row says it publishes nothing rather than showing zeros",
+      "publishes no limits" in vw5)
+check("spend is attributed per agent by model family",
+      "static func vendor(ofModel" in cs2 and "static func spend(" in cs2)
+check("the cost chip follows the selection",
+      "Costs.spend(Costs.today(store.costTable), for: store.effectiveVendor)" in vw5)
+check("the resting bar cannot disagree with the header",
+      "for v in [store.effectiveVendor]" in vw5)
 
 check("blocked badge matches the jobs actually blocked on disk",
       shown_blocked<=disk_blocked, f"{shown_blocked} shown, {disk_blocked} on disk")

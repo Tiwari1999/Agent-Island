@@ -250,6 +250,27 @@ final class AgentStore: ObservableObject {
     /// The month's cost table. The first scan reads every transcript touched this month (~4s of
     /// CPU), so it runs off-main, at most once a minute, and only while someone is looking.
     @Published var costTable: Costs.Table = [:]
+
+    /// Which agent the header is reporting on. nil means "follow whoever I use most", which is
+    /// the right default and the answer most people would never change.
+    @Published var selectedVendor: Vendor?
+
+    /// Agents actually present, most-used first.
+    var vendorsPresent: [Vendor] {
+        var counts: [Vendor: Int] = [:]
+        for r in rows { counts[r.agent.vendor, default: 0] += 1 }
+        let order = counts.sorted { $0.value > $1.value }.map(\.key)
+        return order.isEmpty ? [.claude] : order
+    }
+
+    var effectiveVendor: Vendor { selectedVendor ?? vendorsPresent.first ?? .claude }
+
+    func cycleVendor() {
+        let list = vendorsPresent
+        guard list.count > 1 else { return }
+        let i = list.firstIndex(of: effectiveVendor) ?? 0
+        selectedVendor = list[(i + 1) % list.count]
+    }
     private var costsAt = Date.distantPast
 
     func refreshCosts() {

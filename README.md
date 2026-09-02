@@ -9,7 +9,7 @@ Claude Code · Codex · Cursor — one panel, at a glance · jump to the exact t
 [![Platform](https://img.shields.io/badge/macOS-14%2B-000000?style=flat-square&logo=apple&logoColor=white)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-6.0-F05138?style=flat-square&logo=swift&logoColor=white)](https://swift.org)
 [![No Xcode](https://img.shields.io/badge/Xcode-not%20required-4BC51D?style=flat-square)](https://www.swift.org/getting-started/)
-[![Tests](https://img.shields.io/badge/self--tests-192-4BC51D?style=flat-square)](tests/selftest.py)
+[![Tests](https://img.shields.io/badge/self--tests-200-4BC51D?style=flat-square)](tests/selftest.py)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue?style=flat-square)](#-licence)
 
 </div>
@@ -54,6 +54,7 @@ Agent Island puts the answer where your eyes already are.
 | 🎬 **Precise jump** | Click a row → land on that agent's **exact Warp tab**, not just the app |
 | 💠 **Cost breakdown** | API-equivalent spend per model, today and this month — from the vendors' own token accounting |
 | 📋 **Plan review** | Read the full Markdown plan and approve it from the notch, with a 55s window instead of 20 |
+| 📊 **Pick your agent** | One control in the header switches which agent it reports on — that agent's own limit windows and its own spend, defaulting to whichever you use most |
 | 📊 **Per-vendor limits** | Claude's 5h/7d windows and Codex's own rate limits side by side; at rest the bar shows whichever limit is closest to biting instead of just "idle" |
 | 💚 **Proof of life** | The resting bar shows *what* the agent is doing, not just that it is running — the motion differs for thinking, reading, editing, running and waiting. CoreAnimation-backed, 0.15% CPU |
 | 🕊 **Zero spawns at idle** | A refresh creates no processes at all — the process table, environments and working directories are read with syscalls; warm discovery of 27 sessions takes 0.08s |
@@ -189,7 +190,7 @@ Two design rules earned the hard way:
 python3 tests/selftest.py
 ```
 
-192 checks: jump resolution against live Warp tabs, every hook contract (including that each failure path exits without blocking), auto-approve decisions, panel geometry, the staleness window, and that the panel holds only real sessions — every vendor present on disk reaches it, no row is labelled with a bare session id, and no test data survives.
+200 checks: jump resolution against live Warp tabs, every hook contract (including that each failure path exits without blocking), auto-approve decisions, panel geometry, the staleness window, and that the panel holds only real sessions — every vendor present on disk reaches it, no row is labelled with a bare session id, and no test data survives.
 
 ## 📄 Licence
 

@@ -45,11 +45,8 @@ struct CollapsedView: View {
             case .cursor: return nil        // publishes no quota; never invent one
             }
         }
-        var counts: [Vendor: Int] = [:]
-        for r in store.rows { counts[r.agent.vendor, default: 0] += 1 }
-        let byUse = counts.sorted { $0.value > $1.value }.map(\.key)
-        // The most-used agent first; if it publishes nothing, whoever else does.
-        for v in byUse + [.claude, .codex] {
+        // Whatever the panel is reporting on, so the two never disagree.
+        for v in [store.effectiveVendor] + store.vendorsPresent + [.claude, .codex] {
             if let hit = limit(v) { return hit }
         }
         return nil
@@ -333,29 +330,27 @@ struct PanelView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 7) {
-                Image(systemName: "bolt.horizontal.fill")
-                    .font(.system(size: 9)).foregroundColor(Theme.agentTint)
-                window("5h", status.quota.fiveHourPct, status.quota.fiveHourResets)
-                if let r = status.quota.burnPerHour, r >= 0.5 {
-                    HStack(spacing: 3) {
-                        Image(systemName: "flame.fill")
-                            .font(.system(size: 8)).foregroundColor(burnTint)
-                        Text(Quota.rate(r)).font(Theme.mono(9)).foregroundColor(burnTint)
-                        if let e = status.quota.exhaustsIn, e < 6 * 3600 {
-                            Text("· full in \(Quota.short(e))")
-                                .font(Theme.mono(9)).foregroundColor(Theme.faint)
+                agentPicker
+                let q = quota(for: store.effectiveVendor)
+                if q.fiveHourPct == nil && q.sevenDayPct == nil {
+                    Text("publishes no limits")
+                        .font(Theme.mono(9)).foregroundColor(Theme.faint)
+                } else {
+                    window("5h", q.fiveHourPct, q.fiveHourResets)
+                    if store.effectiveVendor == .claude,
+                       let r = status.quota.burnPerHour, r >= 0.5 {
+                        HStack(spacing: 3) {
+                            Image(systemName: "flame.fill")
+                                .font(.system(size: 8)).foregroundColor(burnTint)
+                            Text(Quota.rate(r)).font(Theme.mono(9)).foregroundColor(burnTint)
+                            if let e = status.quota.exhaustsIn, e < 6 * 3600 {
+                                Text("· full in \(Quota.short(e))")
+                                    .font(Theme.mono(9)).foregroundColor(Theme.faint)
+                            }
                         }
                     }
-                }
-                Text("|").font(Theme.mono(9)).foregroundColor(Theme.hairline)
-                window("7d", status.quota.sevenDayPct, status.quota.sevenDayResets)
-                // Codex reports its own limits in the rollout stream; Cursor reports none.
-                if let cx = CodexSource.quota.fiveHourPct {
                     Text("|").font(Theme.mono(9)).foregroundColor(Theme.hairline)
-                    HStack(spacing: 4) {
-                        Text("codex").font(Theme.mono(9)).foregroundColor(Theme.faint)
-                        Text("\(cx)%").font(Theme.label(10)).foregroundColor(Quota.tint(cx))
-                    }
+                    window("7d", q.sevenDayPct, q.sevenDayResets)
                 }
                 Spacer()
                 if !hooksReady {
@@ -453,12 +448,42 @@ struct PanelView: View {
         }
     }
 
+    /// Tap to move to the next agent you actually run. One control, no settings pane: the
+    /// header then reports that agent's windows and that agent's spend.
+    private var agentPicker: some View {
+        let v = store.effectiveVendor
+        let many = store.vendorsPresent.count > 1
+        return HStack(spacing: 4) {
+            Image(systemName: "bolt.horizontal.fill")
+                .font(.system(size: 9)).foregroundColor(Theme.agentTint)
+            Text(v.label).font(Theme.label(10)).foregroundColor(Theme.text)
+            if many {
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 7)).foregroundColor(Theme.faint)
+            }
+        }
+        .padding(.horizontal, 6).padding(.vertical, 2)
+        .background(Capsule().fill(Theme.raised))
+        .contentShape(Capsule())
+        .onTapGesture { withAnimation(.snappy(duration: 0.2)) { store.cycleVendor() } }
+    }
+
+    /// The selected agent's own limits. Claude reports through its status line, Codex in its
+    /// rollout stream, Cursor not at all.
+    private func quota(for v: Vendor) -> Quota {
+        switch v {
+        case .claude: return status.quota
+        case .codex:  return CodexSource.quota
+        case .cursor: return Quota()
+        }
+    }
+
     private func back() {
         withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) { mode = .sessions }
     }
 
     private var costChip: some View {
-        let today = Costs.today(store.costTable).values.reduce(0) { $0 + $1.cost }
+        let today = Costs.spend(Costs.today(store.costTable), for: store.effectiveVendor)
         return HStack(spacing: 3) {
             Image(systemName: "dollarsign.circle").font(.system(size: 8.5))
             Text(store.costTable.isEmpty ? "cost" : Costs.dollars(today))
