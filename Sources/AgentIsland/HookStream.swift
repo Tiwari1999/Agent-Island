@@ -288,6 +288,13 @@ final class HookStream: ObservableObject {
     private static func describe(tool: String?, input: Any?) -> String? {
         guard let tool else { return nil }
         let d = input as? [String: Any] ?? [:]
+        // The model writes an active-voice summary for most calls ("Debug why hook writes
+        // nothing live"); the raw command is what three identical `python3 - <<'PY'` lines
+        // look like in a notch. Prefer the sentence, keep the command for the expanded card.
+        if let described = (d["description"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !described.isEmpty {
+            return described.count > 52 ? String(described.prefix(52)) + "…" : described
+        }
         func short(_ s: String?, _ n: Int = 44) -> String? {
             guard let s, !s.isEmpty else { return nil }
             let one = s.split(whereSeparator: \.isNewline).first.map(String.init) ?? s

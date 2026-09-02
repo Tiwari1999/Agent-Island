@@ -65,6 +65,8 @@ struct AgentRow: Identifiable {
     var status: SessionStatus?
     var tasks: TaskProgress?
     var died: String?
+    /// The agent's own last sentence, shown while it is thinking rather than calling a tool.
+    var narration: String?
     var id: String { agent.sessionId }
 
     /// A session with no reachable host is attached to, not jumped to.
@@ -98,7 +100,7 @@ struct AgentRow: Identifiable {
 
     var tabHint: String { isBackground ? "background session" : host.name }
     /// A blocked agent's own question outranks any stale tool activity.
-    var activity: String? { blockedQuestion ?? live?.detail }
+    var activity: String? { blockedQuestion ?? live?.detail ?? narration }
     var blockedQuestion: String? {
         agent.phase == "blocked" ? Blocked.question(for: agent.sessionId) : nil
     }
@@ -329,6 +331,7 @@ final class AgentStore: ObservableObject {
             let ids = Set(agents.map(\.sessionId))
             Transcript.retain(ids)
             Titles.retain(ids)
+            Narration.retain(ids)
             let resolved: [(Agent, String?, Date?, HostTerminal)] = agents.map { a in
                 (a, a.pid.flatMap { WarpJump.focusURL(pid: $0) },
                  a.lastActiveOverride ?? Transcript.lastActive(a),
@@ -355,7 +358,13 @@ final class AgentStore: ObservableObject {
                                         ?? Titles.lastPrompt(for: $0.0.sessionId, cwd: $0.0.cwd),
                                     status: SessionStatuses.get($0.0.sessionId),
                                     tasks: Tasks.progress(for: $0.0.sessionId),
-                                    died: self.hooks.failures[$0.0.sessionId]) }
+                                    died: self.hooks.failures[$0.0.sessionId],
+                                    // Only for rows with nothing in flight: one cached tail
+                                    // read, and only when there is a gap worth filling.
+                                    narration: (self.hooks.live[$0.0.sessionId]?.tool == nil
+                                                && $0.0.isWorking)
+                                        ? Narration.line(session: $0.0.sessionId, cwd: $0.0.cwd)
+                                        : nil) }
                 // Recency by default; frozen to the opening order while the panel is visible.
                 self.rows = self.applyOrder(built)
                 self.refreshing = false

@@ -22,8 +22,16 @@ struct CollapsedView: View {
     /// At rest with nothing running the bar shrinks, so a permanent idle state cannot crowd
     /// the menu bar beside the notch. Hover or any activity restores the full cluster.
     static let restingSide: CGFloat = 72
+
+    /// The two sides are not equal: the right holds three short numbers, the left holds a
+    /// sentence. Splitting the same total 210/86 instead of 148/148 buys the sentence room
+    /// without the bar growing at all; hover buys it more.
+    static func sides(revealed: Bool, quiet: Bool) -> (left: CGFloat, right: CGFloat) {
+        if quiet { return (restingSide, restingSide) }
+        return (revealed ? 300 : 210, 86)
+    }
     static func side(revealed: Bool, quiet: Bool = false) -> CGFloat {
-        quiet ? restingSide : sideWidth
+        sides(revealed: revealed, quiet: quiet).left
     }
 
     /// The limit closest to biting, across the agents that publish one. Cursor publishes none.
@@ -57,12 +65,13 @@ struct CollapsedView: View {
                         .foregroundColor(row.waiting ? Theme.waiting : Theme.muted)
                         .lineLimit(1).truncationMode(.tail)
                         // Bounded so the text cannot grow into the pulse's place.
-                        .frame(maxWidth: Self.sideWidth - 52, alignment: .trailing)
+                        .frame(maxWidth: Self.sides(revealed: revealed, quiet: quiet).left - 52,
+                               alignment: .trailing)
                 } else {
                     Text("idle").font(Theme.mono(9.5)).foregroundColor(Theme.faint)
                 }
             }
-            .frame(width: Self.side(revealed: revealed, quiet: quiet), alignment: .trailing)
+            .frame(width: Self.sides(revealed: revealed, quiet: quiet).left, alignment: .trailing)
             .padding(.trailing, Self.notchMargin)
             .clipped()
 
@@ -110,7 +119,7 @@ struct CollapsedView: View {
                 }
                 Spacer(minLength: 0)
             }
-            .frame(width: Self.side(revealed: revealed, quiet: quiet), alignment: .leading)
+            .frame(width: Self.sides(revealed: revealed, quiet: quiet).right, alignment: .leading)
             .padding(.leading, Self.notchMargin)
             .clipped()
         }

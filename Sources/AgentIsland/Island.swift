@@ -511,9 +511,8 @@ private struct RootView: View {
     private var shellWidth: CGFloat {
         switch island.state {
         case .collapsed:
-            return island.notchWidth
-                + 2 * (CollapsedView.side(revealed: island.revealed, quiet: quiet)
-                       + CollapsedView.notchMargin)
+            let w = CollapsedView.sides(revealed: island.revealed, quiet: quiet)
+            return island.notchWidth + w.left + w.right + 2 * CollapsedView.notchMargin
         case .peek:      return 380
         case .approval(let a):  return (a.plan != nil || island.approvalContext != nil) ? 640 : 560
         case .question:  return 600

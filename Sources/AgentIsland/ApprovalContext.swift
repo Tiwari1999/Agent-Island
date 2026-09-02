@@ -58,6 +58,26 @@ struct ApprovalContext {
     }
 }
 
+/// What the agent said last, for a row with no tool in flight — thinking is still doing
+/// something, and a blank line says less than a sentence does.
+enum Narration {
+    private static var cache: [String: (mtime: Date, line: String?)] = [:]
+
+    static func retain(_ ids: Set<String>) { cache = cache.filter { ids.contains($0.key) } }
+
+    static func line(session: String, cwd: String?) -> String? {
+        guard let path = Transcript.path(sessionId: session, cwd: cwd) else { return nil }
+        let mtime = ((try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate]
+                     as? Date) ?? .distantPast
+        if let hit = cache[session], hit.mtime == mtime { return hit.line }
+        let text = ApprovalContext.lastAssistantText(session: session, cwd: cwd)
+        let line = text.flatMap { PromptText.humanLine($0) }
+            .map { $0.count > 52 ? String($0.prefix(52)) + "…" : $0 }
+        cache[session] = (mtime, line)
+        return line
+    }
+}
+
 /// Keeps the hook waiting while the user reads: a fresh `<id>.hold` beside the decision file
 /// extends the hook's own loop past its base timeout, up to the hook's hard ceiling.
 @MainActor

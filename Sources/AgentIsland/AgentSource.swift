@@ -124,6 +124,25 @@ enum PromptCheck {
               "tool_input": ["file_path": "/a/b/Views.swift"]],
              "Read Views.swift", "claude read"),
         ]
+        // The model's own summary beats the raw parameters: three identical `python3 - <<'PY'`
+        // lines are indistinguishable in a notch, three descriptions are not.
+        let described = HookStream.activity(from: [
+            "tool_name": "Bash",
+            "tool_input": ["command": "python3 - <<'PY'\nimport json",
+                           "description": "Check hook payloads for description fields"]])?.detail
+        if described != "Check hook payloads for description fields" {
+            failed += 1
+            FileHandle.standardError.write(
+                "FAIL description should win over command: \(described ?? "nil")\n"
+                    .data(using: .utf8)!)
+        }
+        let noDesc = HookStream.activity(from: [
+            "tool_name": "Bash", "tool_input": ["command": "git status"]])?.detail
+        if noDesc != "git status" {
+            failed += 1
+            FileHandle.standardError.write("FAIL without a description the command shows\n"
+                                           .data(using: .utf8)!)
+        }
         for (obj, want, why) in hooks {
             let got = HookStream.activity(from: obj)?.detail
             if got != want {
@@ -235,8 +254,8 @@ enum PromptCheck {
             }
         }
         print("pure-logic checks: "
-              + "\(cases.count + hooks.count + kinds.count + working.count + 7 - failed)/"
-              + "\(cases.count + hooks.count + kinds.count + working.count + 7) cases")
+              + "\(cases.count + hooks.count + kinds.count + working.count + 9 - failed)/"
+              + "\(cases.count + hooks.count + kinds.count + working.count + 9) cases")
         return failed == 0 ? 0 : 1
     }
 }
