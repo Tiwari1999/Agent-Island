@@ -447,6 +447,20 @@ if fr:
     check("measured p95 frame gap is under 12ms", m and float(m.group(1)) < 12.0,
           fr[-1].split("frames:")[-1].strip())
 
+print("\n=== 9i. simple: one identity cluster, one-click setup ===")
+vw3=open(os.path.join(REPO,"Sources/AgentIsland/Views.swift")).read()
+check("identity is one chip, not three",
+      "private var identity" in vw3 and 'chip(identity' in vw3
+      and vw3.count("chip(row.agent.vendor.label") == 0)
+su=open(os.path.join(REPO,"Sources/AgentIsland/Setup.swift")).read()
+check("hook detection reads through the Home seam", "Home.path" in su)
+check("setup runs only on a click, never on refresh",
+      "User-initiated only" in su and "install(done:" not in
+      open(os.path.join(REPO,"Sources/AgentIsland/AgentStore.swift")).read())
+check("installer is bundled with the app",
+      os.path.exists(os.path.expanduser("~/Applications/AgentIsland.app/Contents/Resources/install-hooks.py")))
+check("empty state mentions setup when hooks are missing", "need hooks" in vw3)
+
 check("blocked badge matches the jobs actually blocked on disk",
       shown_blocked<=disk_blocked, f"{shown_blocked} shown, {disk_blocked} on disk")
 

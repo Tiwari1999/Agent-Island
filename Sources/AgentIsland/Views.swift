@@ -127,6 +127,18 @@ struct AgentRowView: View {
     let onJump: () -> Void
     @State private var hover = false
 
+    /// "Claude · Fable 5 · Warp", with a ⇅ host prefix when the session is remote.
+    private var identity: String {
+        var parts: [String] = []
+        if let host = row.agent.remoteHost {
+            parts.append("⇅ " + (host.split(separator: ".").first.map(String.init) ?? host))
+        }
+        parts.append(row.agent.vendor.label)
+        if let m = model, row.agent.vendor == .claude { parts.append(m) }
+        parts.append(row.terminal)
+        return parts.joined(separator: " · ")
+    }
+
     private var tint: Color {
         if row.waiting { return Theme.waiting }
         if row.agent.isWorking { return Theme.working }
@@ -155,14 +167,9 @@ struct AgentRowView: View {
                         .font(Theme.label(12)).foregroundColor(Theme.text)
                         .lineLimit(1).truncationMode(.tail)
                     Spacer(minLength: 6)
-                    if let host = row.agent.remoteHost {
-                        // The short name is what a human calls the box; the full alias is noise.
-                        chip("⇅ " + (host.split(separator: ".").first.map(String.init) ?? host),
-                             Theme.amber)
-                    }
-                    chip(row.agent.vendor.label, Theme.agentTint)
-                    if let m = model { chip(m, Theme.muted) }
-                    chip(row.terminal, row.precise ? Theme.muted : Theme.faint)
+                    // One quiet identity cluster instead of three capsules: what a row IS
+                    // never demands action, so it never earns three separate shapes.
+                    chip(identity, row.agent.remoteHost != nil ? Theme.amber : Theme.muted)
                     if let onPlan {
                         HStack(spacing: 3) {
                             Image(systemName: "doc.plaintext").font(.system(size: 8))
@@ -269,6 +276,8 @@ struct PanelView: View {
     @ObservedObject var store: AgentStore
     @ObservedObject var status: StatusStore
     @State private var mode: PanelMode = .sessions
+    @State private var hooksReady = Setup.hooksInstalled()
+    @State private var installing = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -290,6 +299,23 @@ struct PanelView: View {
                 Text("|").font(Theme.mono(9)).foregroundColor(Theme.hairline)
                 window("7d", status.quota.sevenDayPct, status.quota.sevenDayResets)
                 Spacer()
+                if !hooksReady {
+                    HStack(spacing: 4) {
+                        Image(systemName: installing ? "hourglass" : "wand.and.stars")
+                            .font(.system(size: 8.5))
+                        Text(installing ? "setting up…" : "set up hooks")
+                            .font(Theme.mono(9.5))
+                    }
+                    .foregroundColor(Theme.amber)
+                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .background(Capsule().fill(Theme.amber.opacity(0.12)))
+                    .contentShape(Capsule())
+                    .onTapGesture {
+                        guard !installing else { return }
+                        installing = true
+                        Setup.install { ok in installing = false; hooksReady = ok }
+                    }
+                }
                 costChip
                 if store.workingCount > 0 { pill("\(store.workingCount) working", Theme.working) }
                 if store.waitingCount > 0 { pill("\(store.waitingCount) waiting", Theme.waiting) }
@@ -322,6 +348,10 @@ struct PanelView: View {
                          ? "start one with `claude`, `codex` or `cursor-agent`"
                          : "reading Claude Code, Codex and Cursor")
                         .font(Theme.mono(9.5)).foregroundColor(Theme.faint)
+                    if !hooksReady {
+                        Text("live events and approvals need hooks — one click, backed up first")
+                            .font(Theme.mono(9)).foregroundColor(Theme.amber)
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
