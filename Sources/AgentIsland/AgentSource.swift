@@ -184,6 +184,27 @@ enum PromptCheck {
             failed += 1
             FileHandle.standardError.write("FAIL fullText shapes\n".data(using: .utf8)!)
         }
+        // The bar's motion is driven by this mapping; a wrong kind is a wrong status.
+        func row(_ tool: String?, waiting: Bool = false, working: Bool = true) -> AgentRow {
+            AgentRow(agent: Agent(sessionId: "k", name: nil, cwd: nil,
+                                  state: working ? "busy" : "idle", status: nil, pid: 1),
+                     live: LiveState(tool: tool, detail: nil, waiting: waiting))
+        }
+        let kinds: [(AgentRow, WorkKind, String)] = [
+            (row("Edit"), .writing, "editing a file"),
+            (row("Bash"), .running, "running a command"),
+            (row("Grep"), .reading, "reading the codebase"),
+            (row("WebSearch"), .searching, "searching the web"),
+            (row("Task"), .delegating, "delegating to a subagent"),
+            (row(nil), .thinking, "between tool calls"),
+            (row("Bash", waiting: true), .waiting, "waiting outranks any tool"),
+            (row("Bash", working: false), .idle, "not working is idle"),
+        ]
+        for (r, want, why) in kinds where r.workKind != want {
+            failed += 1
+            FileHandle.standardError.write(
+                "FAIL kind \(why): got \(r.workKind), want \(want)\n".data(using: .utf8)!)
+        }
         for (input, want, why) in cases {
             let got = PromptText.humanLine(input)
             if got != want {
@@ -193,8 +214,8 @@ enum PromptCheck {
                         .data(using: .utf8)!)
             }
         }
-        print("pure-logic checks: \(cases.count + hooks.count + 7 - failed)/"
-              + "\(cases.count + hooks.count + 7) cases")
+        print("pure-logic checks: \(cases.count + hooks.count + kinds.count + 7 - failed)/"
+              + "\(cases.count + hooks.count + kinds.count + 7) cases")
         return failed == 0 ? 0 : 1
     }
 }

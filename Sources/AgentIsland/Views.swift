@@ -27,6 +27,11 @@ struct CollapsedView: View {
         HStack(spacing: 0) {
             // LEFT — who and what, hard-capped so it cannot reach the notch.
             HStack(spacing: 6) {
+                // Leading edge, ahead of the Spacer: this group is trailing-aligned and clipped,
+                // so anything placed after a greedy Text is the first thing cut off.
+                if let row = lead, row.workKind != .idle {
+                    RunningPulse(kind: row.workKind)
+                }
                 Spacer(minLength: 0)
                 if let row = lead {
                     AgentAvatar(seed: row.agent.sessionId, size: 13, active: true)
@@ -34,6 +39,8 @@ struct CollapsedView: View {
                         .font(Theme.mono(9.5))
                         .foregroundColor(row.waiting ? Theme.waiting : Theme.muted)
                         .lineLimit(1).truncationMode(.tail)
+                        // Bounded so the text cannot grow into the pulse's place.
+                        .frame(maxWidth: Self.sideWidth - 52, alignment: .trailing)
                 } else {
                     Text("idle").font(Theme.mono(9.5)).foregroundColor(Theme.faint)
                 }
@@ -48,10 +55,6 @@ struct CollapsedView: View {
             HStack(spacing: 7) {
                 if store.workingCount > 0 {
                     HStack(spacing: 4) {
-                        // Static on purpose: this bar is visible all day, and a permanently
-                        // animating element is both a battery cost and, per the motion budget,
-                        // noise rather than signal. Motion is reserved for "needs you".
-                        Circle().fill(Theme.working).frame(width: 6, height: 6)
                         Text("\(store.workingCount)")
                             .font(Theme.label(9.5)).foregroundColor(Theme.working)
                             .contentTransition(.numericText(value: Double(store.workingCount)))

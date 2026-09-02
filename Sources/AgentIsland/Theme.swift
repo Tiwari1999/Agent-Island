@@ -123,3 +123,141 @@ extension Theme {
             startPoint: .top, endPoint: .bottom)
     }
 }
+
+/// What an agent is doing, as far as the hook stream can tell.
+enum WorkKind {
+    case idle, thinking, reading, writing, running, searching, delegating, waiting
+
+    var label: String {
+        switch self {
+        case .idle:       return "idle"
+        case .thinking:   return "thinking"
+        case .reading:    return "reading"
+        case .writing:    return "editing"
+        case .running:    return "running"
+        case .searching:  return "searching"
+        case .delegating: return "delegating"
+        case .waiting:    return "needs you"
+        }
+    }
+}
+
+/// Proof of life in the resting bar, where the motion carries the meaning.
+///
+/// Backed by Core Animation rather than SwiftUI: a `repeatForever` here re-renders a view that
+/// is on screen all day and measured 6.9% CPU, while a CAAnimation is handed to the render
+/// server once and costs this process nothing.
+///
+/// Hue stays semantic — green works, amber needs you — so the *movement* distinguishes thinking
+/// from editing: a rainbow of states reads as decoration, a vocabulary of motion reads as status.
+struct RunningPulse: View {
+    var kind: WorkKind = .thinking
+    var width: CGFloat = 15
+    var dot: CGFloat = 5
+
+    // An NSView has no intrinsic size, so without an explicit frame SwiftUI hands it the whole
+    // cell and the dot sinks to the bottom of the bar.
+    var body: some View {
+        PulseLayer(kind: kind, width: width, dot: dot)
+            .frame(width: width, height: dot)
+    }
+}
+
+private struct PulseLayer: NSViewRepresentable {
+    var kind: WorkKind
+    var width: CGFloat
+    var dot: CGFloat
+
+    func makeNSView(context: Context) -> NSView {
+        let v = NSView(frame: NSRect(x: 0, y: 0, width: width, height: dot))
+        v.wantsLayer = true
+        let track = CALayer()
+        track.name = "track"
+        track.frame = CGRect(x: 0, y: (dot - dot * 0.6) / 2, width: width, height: dot * 0.6)
+        track.cornerRadius = dot * 0.3
+        let ball = CALayer()
+        ball.name = "dot"
+        ball.frame = CGRect(x: 0, y: 0, width: dot, height: dot)
+        ball.cornerRadius = dot / 2
+        v.layer?.addSublayer(track)
+        v.layer?.addSublayer(ball)
+        apply(to: v, context: context)
+        return v
+    }
+
+    func updateNSView(_ v: NSView, context: Context) { apply(to: v, context: context) }
+
+    private func apply(to v: NSView, context: Context) {
+        guard let track = v.layer?.sublayers?.first(where: { $0.name == "track" }),
+              let ball = v.layer?.sublayers?.first(where: { $0.name == "dot" }) else { return }
+        let cg = NSColor(color).cgColor
+        track.backgroundColor = NSColor(color).withAlphaComponent(0.18).cgColor
+        ball.backgroundColor = cg
+        ball.shadowColor = cg
+        ball.shadowOpacity = 0.5
+        ball.shadowRadius = 2
+        ball.shadowOffset = .zero
+        track.isHidden = !travels
+        ball.removeAllAnimations()
+
+        let still = context.environment.accessibilityReduceMotion || kind == .idle
+        let mid = (width - dot) / 2
+        ball.frame.origin.x = travels ? 0 : mid
+        ball.opacity = 1
+        ball.transform = CATransform3DIdentity
+        guard !still else { return }
+
+        let a: CABasicAnimation
+        if travels {
+            a = CABasicAnimation(keyPath: "position.x")
+            a.fromValue = dot / 2
+            a.toValue = width - dot / 2
+        } else {
+            a = CABasicAnimation(keyPath: "transform.scale")
+            a.fromValue = 0.75
+            a.toValue = 1.45
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0.55
+            fade.toValue = 1.0
+            fade.duration = period
+            fade.autoreverses = true
+            fade.repeatCount = .infinity
+            fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            ball.add(fade, forKey: "fade")
+        }
+        a.duration = period
+        a.autoreverses = true
+        a.repeatCount = .infinity
+        a.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        ball.add(a, forKey: "pulse")
+    }
+
+    private var color: Color {
+        switch kind {
+        case .waiting:  return Theme.waiting
+        case .idle:     return Theme.faint
+        case .thinking: return Theme.muted
+        default:        return Theme.working
+        }
+    }
+
+    /// Seconds for one sweep. Deliberation is slow, scanning is quick.
+    private var period: Double {
+        switch kind {
+        case .thinking:   return 1.5
+        case .reading:    return 0.5
+        case .searching:  return 0.7
+        case .running:    return 0.85
+        case .delegating: return 1.1
+        default:          return 0.9
+        }
+    }
+
+    /// Editing types in place; everything else travels. Waiting holds still and breathes.
+    private var travels: Bool {
+        switch kind {
+        case .writing, .waiting, .idle: return false
+        default:                        return true
+        }
+    }
+}

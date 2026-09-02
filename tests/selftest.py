@@ -461,6 +461,21 @@ check("installer is bundled with the app",
       os.path.exists(os.path.expanduser("~/Applications/AgentIsland.app/Contents/Resources/install-hooks.py")))
 check("empty state mentions setup when hooks are missing", "need hooks" in vw3)
 
+print("\n=== 9j. proof of life in the resting bar ===")
+th=open(os.path.join(REPO,"Sources/AgentIsland/Theme.swift")).read()
+# A repeatForever in the always-visible bar measured 6.9% CPU; CoreAnimation costs the app none.
+check("the resting-bar pulse is CoreAnimation, not a SwiftUI repeatForever",
+      "NSViewRepresentable" in th and "CABasicAnimation" in th
+      and "repeatForever" not in th.split("struct RunningPulse")[1])
+check("the pulse has an explicit frame (an NSView has no intrinsic size)",
+      "PulseLayer(kind:" in th and ".frame(width: width, height: dot)" in th)
+check("motion carries the state, hue stays semantic",
+      "case .waiting:  return Theme.waiting" in th and "Theme.working" in th
+      and th.count("return Theme.") <= 6)
+check("reduced motion and idle hold still", "accessibilityReduceMotion" in th and "still" in th)
+st4=open(os.path.join(REPO,"Sources/AgentIsland/AgentStore.swift")).read()
+check("work kind is derived from the live tool", "var workKind: WorkKind" in st4)
+
 check("blocked badge matches the jobs actually blocked on disk",
       shown_blocked<=disk_blocked, f"{shown_blocked} shown, {disk_blocked} on disk")
 

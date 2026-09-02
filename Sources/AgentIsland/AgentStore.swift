@@ -104,6 +104,28 @@ struct AgentRow: Identifiable {
     }
     /// Tool name is rendered separately so it can read as a link, like the reference UI.
     var tool: String? { live?.tool }
+
+    /// What the agent is actually doing right now, from the tool it last announced. The bar
+    /// animates this, so "thinking" and "editing files" no longer look identical.
+    var workKind: WorkKind {
+        if waiting || dormantBlocked { return .waiting }
+        guard agent.isWorking else { return .idle }
+        switch tool {
+        case "Edit", "Write", "NotebookEdit", "MultiEdit", "str_replace_editor":
+            return .writing
+        case "Bash", "Shell", "run_terminal_cmd", "BashOutput":
+            return .running
+        case "Read", "Grep", "Glob", "LS", "read_file", "list_dir", "codebase_search":
+            return .reading
+        case "WebFetch", "WebSearch", "web_search":
+            return .searching
+        case "Task", "Agent":
+            return .delegating
+        default:
+            // No tool in flight means the model is between calls: thinking.
+            return tool == nil ? .thinking : .running
+        }
+    }
     /// Needs you *right now*: a hook fired inside the live window. This is what earns an alarm.
     var waiting: Bool { live?.waiting ?? false }
     /// Blocked on a question asked long ago. Real work, but not urgent — counting it as
