@@ -95,6 +95,22 @@ cd Agent-Island
 
 `install.sh` builds a release binary, assembles `~/Applications/AgentIsland.app`, registers the hooks, and launches it.
 
+macOS asks once for **notification permission** on first launch — that is the only permission it
+needs. No Accessibility, no Screen Recording, no Full Disk Access.
+
+<details>
+<summary>🧹 What it touches, and how to undo it</summary>
+
+It appends hook entries to `~/.claude/settings.json` and, where present, `~/.codex/hooks.json` and
+`~/.cursor/hooks.json` — timestamped backup first, other tools' entries never rewritten or
+reordered. If you already have a `statusLine`, it is saved and run inside ours rather than replaced.
+
+```bash
+python3 scripts/uninstall-hooks.py     # removes only our entries, restores your statusLine
+rm -rf ~/Applications/AgentIsland.app
+```
+</details>
+
 <details>
 <summary>🔧 Build only, without installing</summary>
 

@@ -35,8 +35,13 @@ def clean(name, path):
     sl = 0
     if MARK in json.dumps(cfg.get("statusLine", {})):
         # The wrapper ran the user's own statusline; hand it back rather than deleting the key.
+        saved = os.path.expanduser("~/.agentisland/prev-statusline.json")
         user = os.path.expanduser("~/.claude/statusline-command.sh")
-        if os.path.exists(user):
+        if os.path.exists(saved):
+            cfg["statusLine"] = json.load(open(saved))
+            for f in (saved, saved[: -len(".json")]):
+                os.remove(f)
+        elif os.path.exists(user):
             cfg["statusLine"] = {"type": "command", "command": f"bash {user}"}
         else:
             cfg.pop("statusLine", None)

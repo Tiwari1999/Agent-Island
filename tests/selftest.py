@@ -313,8 +313,11 @@ check("drain never reads the published live map off the main thread",
 proto=open(os.path.join(REPO,"Sources/AgentIsland/AgentSource.swift")).read()
 check("home seam falls back to the real home",
       'environment["AGENTISLAND_HOME"] ?? NSHomeDirectory()' in proto)
-check("no vendor path bypasses the seam",
-      not re.search(r'NSHomeDirectory\(\) \+ "/\.(claude|codex|cursor)', blob))
+# Discovery must go through the seam. Looking up the claude binary legitimately does not —
+# a fixture home has sessions in it, never an executable.
+check("no discovery path bypasses the seam",
+      not re.search(r'NSHomeDirectory\(\) \+ "/\.(claude/projects|codex/sessions|cursor/chats)',
+                    blob))
 
 print("\n=== 9d. cost breakdown & plan review ===")
 # Cost arithmetic against a fixture with hand-computed totals; the binary does the scanning.
@@ -764,10 +767,64 @@ inst=open(os.path.join(REPO,"scripts/install-hooks.py")).read()
 un=open(os.path.join(REPO,"scripts/uninstall-hooks.py")).read()
 check("installer backs up before writing", "def backup" in inst and "shutil.copy2" in inst)
 check("installer is idempotent", "already installed" in inst)
-check("installer wraps rather than replaces statusLine", "runs the user's own statusline" in inst)
 check("uninstaller exists", os.path.exists(os.path.join(REPO,"scripts/uninstall-hooks.py")))
 check("uninstaller removes only our entries", "MARK not in json.dumps" in un)
 check("uninstaller restores a wrapped statusLine", "hand it back" in un)
+
+# Re-installing from a moved or re-cloned repo used to append a second copy of every hook, so
+# each one fired twice and dead paths kept firing. Run the real installer, for real, and count.
+def _install_into(home, repo):
+    os.makedirs(os.path.join(home, ".claude"), exist_ok=True)
+    env = dict(os.environ, HOME=home)
+    return subprocess.run([sys.executable, os.path.join(REPO, "scripts/install-hooks.py"), repo],
+                          capture_output=True, text=True, env=env, timeout=60)
+
+def _entries(home):
+    cfg = json.load(open(os.path.join(home, ".claude/settings.json")))
+    return [h.get("command", "")
+            for ev, items in (cfg.get("hooks") or {}).items()
+            for it in items for h in it.get("hooks", [])]
+
+_h = os.path.join(RUN, "installhome")
+os.makedirs(os.path.join(_h, ".claude"), exist_ok=True)
+# A hook belonging to some other tool, and a statusline the user already set.
+json.dump({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks":
+                                     [{"type": "command", "command": "/opt/other/thing.sh"}]}]},
+           "statusLine": {"type": "command", "command": "/opt/other/status.sh"}},
+          open(os.path.join(_h, ".claude/settings.json"), "w"))
+
+_r1 = _install_into(_h, "/tmp/ai-fake-repo-a")
+_n1 = len([c for c in _entries(_h) if "agentisland" in c])
+check("installer registers hooks", _r1.returncode == 0 and _n1 > 0)
+
+_install_into(_h, "/tmp/ai-fake-repo-a")                       # same path again
+check("re-install does not duplicate hooks",
+      len([c for c in _entries(_h) if "agentisland" in c]) == _n1)
+
+_install_into(_h, "/tmp/ai-fake-repo-b")                       # repo moved or re-cloned
+_after = _entries(_h)
+_ours = [c for c in _after if "agentisland" in c]
+check("install from a moved repo replaces rather than appends", len(_ours) == _n1)
+check("no hook points at the old repo path",
+      not any("ai-fake-repo-a" in c for c in _ours))
+check("another tool's hook survives every install",
+      "/opt/other/thing.sh" in _after)
+# Whatever statusline was configured before us must survive install, a repo move, and uninstall.
+# Only the conventional ~/.claude/statusline-command.sh used to; anything else was silently lost.
+check("the user's own statusline is saved, not discarded",
+      open(os.path.join(_h, ".agentisland/prev-statusline")).read() == "/opt/other/status.sh")
+check("the wrapper is what Claude now calls",
+      "agentisland-status.sh" in json.dumps(
+          json.load(open(os.path.join(_h, ".claude/settings.json"))).get("statusLine")))
+subprocess.run([sys.executable, os.path.join(REPO, "scripts/uninstall-hooks.py")],
+               capture_output=True, env=dict(os.environ, HOME=_h), timeout=60)
+_sl = json.load(open(os.path.join(_h, ".claude/settings.json"))).get("statusLine")
+check("uninstall hands the original statusline back", _sl == {"type": "command",
+                                                              "command": "/opt/other/status.sh"})
+check("uninstall leaves no hook of ours behind",
+      not any("agentisland" in c for c in _entries(_h)))
+check("uninstall leaves another tool's hook alone", "/opt/other/thing.sh" in _entries(_h))
+
 for name,p in [("claude","~/.claude/settings.json"),("codex","~/.codex/hooks.json")]:
     fp=os.path.expanduser(p)
     if os.path.exists(fp):
@@ -805,7 +862,9 @@ if os.path.exists(LIVE_SPOOL):
         if '"notification_type"' in l:
             try: seen.add(json.loads(l).get("payload",json.loads(l)).get("notification_type"))
             except Exception: pass
-check("idle_prompt observed in the wild (the noisy one)", "idle_prompt" in seen, str(sorted(x for x in seen if x)))
+check("idle_prompt observed in the wild (the noisy one)",
+      "idle_prompt" in seen or not seen,   # a spool with no notifications yet proves nothing
+      str(sorted(x for x in seen if x)))
 
 print("\n=== 22. first-click reliability ===")
 isl=open(os.path.join(REPO,"Sources/AgentIsland/Island.swift")).read()

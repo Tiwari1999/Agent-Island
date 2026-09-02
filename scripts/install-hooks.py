@@ -21,6 +21,7 @@ QUESTION   = os.path.join(REPO, "hooks/agentisland-question.py")
 STATUSLINE = os.path.join(REPO, "hooks/agentisland-status.sh")
 
 MARK = "agentisland"          # how we recognise our own entries
+STATE = os.path.expanduser("~/.agentisland")
 
 
 def backup(path):
@@ -97,7 +98,14 @@ def install(name, path, plan, statusline=False):
         cfg["statusLine"] = {"type": "command", "command": want_status}   # ours, but stale path
         changed += 1
     elif statusline and MARK not in have_status:
-        # Wrap, do not replace: the wrapper runs the user's own statusline inside it.
+        # Wrap, do not replace: remember whatever was there so the wrapper can run it and the
+        # uninstaller can hand it back exactly. Only the conventional path survived before this.
+        if isinstance(cfg.get("statusLine"), dict) and cfg["statusLine"].get("command"):
+            os.makedirs(STATE, exist_ok=True)
+            with open(os.path.join(STATE, "prev-statusline.json"), "w") as f:
+                json.dump(cfg["statusLine"], f)
+            with open(os.path.join(STATE, "prev-statusline"), "w") as f:
+                f.write(cfg["statusLine"]["command"])   # plain text: the wrapper runs it as-is
         cfg["statusLine"] = {"type": "command", "command": f"bash {STATUSLINE}"}
         changed += 1
 
