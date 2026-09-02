@@ -8,31 +8,53 @@ private func proc_pidinfo(_ pid: Int32, _ flavor: Int32, _ arg: UInt64,
 /// The process table via syscalls: pgrep, lsof and ps cost a fork+exec each, every refresh,
 /// forever — sysctl and libproc answer the same questions in microseconds with zero spawns.
 enum Proc {
+    /// pid → parent pid, for walking up from a hook's shell to the agent that ran it.
+    static func parents() -> [Int32: Int32] {
+        var out: [Int32: Int32] = [:]
+        walk { kp in out[kp.kp_proc.p_pid] = kp.kp_eproc.e_ppid }
+        return out
+    }
+
+    /// The nearest ancestor whose name matches, walking up from `pid`.
+    static func ancestor(of pid: Int, named names: Set<String>, maxHops: Int = 8) -> Int? {
+        let comm = all(), parent = parents()
+        var cur = Int32(pid)
+        for _ in 0..<maxHops {
+            if let c = comm[cur], names.contains(c) { return Int(cur) }
+            guard let p = parent[cur], p > 1 else { return nil }
+            cur = p
+        }
+        return nil
+    }
+
     /// pid → comm (the 16-char process name) for every process this user can see.
     static func all() -> [Int32: String] {
+        var out: [Int32: String] = [:]
+        walk { kp in
+            var comm = kp.kp_proc.p_comm
+            out[kp.kp_proc.p_pid] = withUnsafeBytes(of: &comm) { b in
+                String(decoding: b.prefix(while: { $0 != 0 }), as: UTF8.self)
+            }
+        }
+        return out
+    }
+
+    private static func walk(_ each: (kinfo_proc) -> Void) {
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
         var size = 0
-        guard sysctl(&mib, 4, nil, &size, nil, 0) == 0, size > 0 else { return [:] }
+        guard sysctl(&mib, 4, nil, &size, nil, 0) == 0, size > 0 else { return }
         // The table can grow between the size call and the fetch; leave headroom.
         size += size / 8
         var buf = [UInt8](repeating: 0, count: size)
-        guard sysctl(&mib, 4, &buf, &size, nil, 0) == 0 else { return [:] }
-
-        var out: [Int32: String] = [:]
+        guard sysctl(&mib, 4, &buf, &size, nil, 0) == 0 else { return }
         let stride = MemoryLayout<kinfo_proc>.stride
         buf.withUnsafeBytes { raw in
             for off in Swift.stride(from: 0, to: size - stride + 1, by: stride) {
                 let kp = raw.load(fromByteOffset: off, as: kinfo_proc.self)
-                let pid = kp.kp_proc.p_pid
-                guard pid > 0 else { continue }
-                var comm = kp.kp_proc.p_comm
-                let name = withUnsafeBytes(of: &comm) { b in
-                    String(decoding: b.prefix(while: { $0 != 0 }), as: UTF8.self)
-                }
-                out[pid] = name
+                guard kp.kp_proc.p_pid > 0 else { continue }
+                each(kp)
             }
         }
-        return out
     }
 
     /// Pids whose process name matches exactly — pgrep -x, without the fork.

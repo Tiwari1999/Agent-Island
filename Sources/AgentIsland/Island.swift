@@ -3,7 +3,10 @@ import Carbon.HIToolbox
 import SwiftUI
 
 private final class Panel: NSPanel {
-    override var canBecomeKey: Bool { true }
+    /// Never key. A panel that can become key spends the first click becoming it instead of
+    /// delivering it to the row underneath — the "I had to click twice" bug. Nothing here needs
+    /// keyboard focus: every shortcut is a global hotkey.
+    override var canBecomeKey: Bool { false }
 }
 
 /// A nonactivating panel is never the key window, so AppKit spends the first click activating it

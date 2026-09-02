@@ -8,7 +8,7 @@ struct Agent: Identifiable, Decodable {
     let cwd: String?
     let state: String?
     let status: String?
-    let pid: Int?
+    var pid: Int?
 
     /// Which tool is running this session. Absent when decoded from Claude's JSON, which
     /// predates multi-vendor support and does not report one.
@@ -325,8 +325,12 @@ final class AgentStore: ObservableObject {
         }
     }
 
+    /// Snapshot of hook-reported pids, read on the actor before the work goes off it.
+    private var hookPids: [String: Int] = [:]
+
     /// Resolving Warp URLs shells out per agent, so it happens off the main actor.
     private func rebuild(_ agents: [Agent]) {
+        hookPids = hooks.pids
         DispatchQueue.global(qos: .utility).async {
             // One ps call for every pid we have not seen, instead of two per agent per cycle.
             let pids = agents.compactMap(\.pid)
@@ -341,6 +345,16 @@ final class AgentStore: ObservableObject {
             Transcript.retain(ids)
             Titles.retain(ids)
             Narration.retain(ids)
+            // A session started without `--resume` carries its id nowhere in argv, so discovery
+            // cannot bind it. Its own hooks can: they report the process that ran them.
+            let fromHooks = self.hookPids
+            let agents = agents.map { a -> Agent in
+                guard a.pid == nil, let p = fromHooks[a.sessionId],
+                      Proc.all()[Int32(p)] != nil else { return a }
+                var b = a
+                b.pid = p
+                return b
+            }
             let resolved: [(Agent, String?, Date?, HostTerminal)] = agents.map { a in
                 (a, a.pid.flatMap { WarpJump.focusURL(pid: $0) },
                  a.lastActiveOverride ?? Transcript.lastActive(a),

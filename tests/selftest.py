@@ -74,7 +74,11 @@ if os.path.exists(hook):
           f"{os.path.getsize(tmp) if os.path.exists(tmp) else 0} bytes")
     if wrote:
         back=json.loads(open(tmp).read().strip().split("\n")[0])
-        check("written event round-trips as JSON", back.get("session_id")==sample["session_id"])
+        # The hook wraps the payload to carry its parent pid; the island unwraps either shape.
+        inner=back.get("payload", back)
+        check("written event round-trips as JSON", inner.get("session_id")==sample["session_id"])
+        check("the envelope carries a real parent pid", isinstance(back.get("ai_ppid"), int)
+              and back["ai_ppid"] > 1, str(back.get("ai_ppid")))
 
     live=LIVE_SPOOL   # read-only check, never written by the suite
     check("live session events are reaching the spool",
@@ -488,6 +492,24 @@ check("the primary agent is chosen by how many rows are its own",
       "counts[r.agent.vendor, default: 0] += 1" in vw4)
 check("cursor is not given a limit it does not publish",
       "case .cursor: return nil" in vw4)
+
+print("\n=== 9l. one click, and sessions that argv cannot name ===")
+isl5=open(os.path.join(REPO,"Sources/AgentIsland/Island.swift")).read()
+check("the panel never becomes key (a key panel eats the first click)",
+      "override var canBecomeKey: Bool { false }" in isl5)
+check("the hosting view still accepts first mouse", "acceptsFirstMouse" in isl5)
+hk=open(os.path.join(REPO,"hooks/agentisland-hook.sh")).read()
+check("the event hook reports its parent, with no extra process",
+      '"ai_ppid":%s' in hk and "$PPID" in hk)
+pr=open(os.path.join(REPO,"Sources/AgentIsland/Proc.swift")).read()
+check("ancestry is walked in-process", "static func ancestor(of" in pr and "parents()" in pr)
+hs2=open(os.path.join(REPO,"Sources/AgentIsland/HookStream.swift")).read()
+check("hook-reported pids are resolved once per session",
+      "resolvedPPID" in hs2 and "Proc.ancestor(of: ppid" in hs2)
+st5=open(os.path.join(REPO,"Sources/AgentIsland/AgentStore.swift")).read()
+check("discovery falls back to the hook binding only when argv could not bind",
+      "guard a.pid == nil, let p = fromHooks[a.sessionId]" in st5)
+check("a hook-reported pid is checked to still exist", "Proc.all()[Int32(p)] != nil" in st5)
 
 check("blocked badge matches the jobs actually blocked on disk",
       shown_blocked<=disk_blocked, f"{shown_blocked} shown, {disk_blocked} on disk")

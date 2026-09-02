@@ -60,6 +60,11 @@ final class HookStream: ObservableObject {
     private var source: DispatchSourceFileSystemObject?
     /// Owned by the drain queue alone; never touched from the main thread.
     private var carried: [String: LiveState] = [:]
+
+    /// session id -> the agent process that ran the hook. This is the only exact way to bind a
+    /// session started without `--resume`, whose id appears nowhere in its own argv.
+    @Published private(set) var pids: [String: Int] = [:]
+    private var resolvedPPID: [String: Int] = [:]
     private var handle: FileHandle?
     private var offset: UInt64 = 0
 
@@ -88,6 +93,7 @@ final class HookStream: ObservableObject {
 
         var updates: [String: LiveState] = [:]
         var planUpdates: [String: Plan] = [:]
+        var pidUpdates: [String: Int] = [:]
         var attention: [(String, String, Bool)] = []
         var approvals: [Approval] = []
         var questions: [Question] = []
@@ -110,6 +116,18 @@ final class HookStream: ObservableObject {
                 continue
             }
 
+            // The event hook wraps its payload to carry the shell's parent, from which the
+            // agent process is found by walking up the tree.
+            if let ppid = obj["ai_ppid"] as? Int, let payload = obj["payload"] as? [String: Any] {
+                if let sid = payload["session_id"] as? String, resolvedPPID[sid] != ppid {
+                    resolvedPPID[sid] = ppid
+                    if let agent = Proc.ancestor(of: ppid,
+                                                 named: ["claude", "codex", "cursor-agent", "agent"]) {
+                        pidUpdates[sid] = agent
+                    }
+                }
+                obj = payload
+            }
             // The permission hook wraps its payload so it can carry the id it is polling on.
             if let reqID = obj["ap_request_id"] as? String,
                let payload = obj["payload"] as? [String: Any] {
@@ -205,7 +223,7 @@ final class HookStream: ObservableObject {
         }
         guard !updates.isEmpty || !attention.isEmpty || !approvals.isEmpty
                 || !questions.isEmpty || !fails.isEmpty || !revived.isEmpty
-                || !planUpdates.isEmpty else { return }
+                || !planUpdates.isEmpty || !pidUpdates.isEmpty else { return }
         // Carry state forward on the drain queue. Reading the published `live` from here raced
         // the main thread's merge of the same dictionary, which is a crash, not a stale read.
         carried.merge(updates) { _, new in new }
@@ -214,6 +232,7 @@ final class HookStream: ObservableObject {
         DispatchQueue.main.async {
             self.live.merge(updates) { _, new in new }
             self.plans.merge(planUpdates) { _, new in new }
+            self.pids.merge(pidUpdates) { _, new in new }
             for s in revived { self.failures.removeValue(forKey: s) }
             if !fails.isEmpty { self.failures.merge(fails) { _, new in new } }
             for q in questions { self.onQuestion?(q) }
