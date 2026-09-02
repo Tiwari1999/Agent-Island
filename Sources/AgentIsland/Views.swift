@@ -9,6 +9,8 @@ struct CollapsedView: View {
     /// True while the pointer is on the notch. At rest the bar stays narrow so the menu bar
     /// beside the notch keeps working; pointing at it widens the bar to show what is running.
     var revealed: Bool = false
+    /// Nothing running, nothing waiting, pointer elsewhere: say the least the bar can say.
+    var quiet: Bool = false
 
     /// Content is never allowed nearer the notch than this — text sliding under the camera
     /// housing is the one thing that makes the bar look broken.
@@ -17,7 +19,12 @@ struct CollapsedView: View {
     /// and hiding it behind a hover made the island useless at a glance.
     static let sideWidth: CGFloat = 148
 
-    static func side(revealed: Bool) -> CGFloat { sideWidth }
+    /// At rest with nothing running the bar shrinks, so a permanent idle state cannot crowd
+    /// the menu bar beside the notch. Hover or any activity restores the full cluster.
+    static let restingSide: CGFloat = 30
+    static func side(revealed: Bool, quiet: Bool = false) -> CGFloat {
+        quiet ? restingSide : sideWidth
+    }
 
     private var lead: AgentRow? {
         store.rows.first { $0.waiting } ?? store.rows.first { $0.isWorking }
@@ -29,11 +36,13 @@ struct CollapsedView: View {
             HStack(spacing: 6) {
                 // Leading edge, ahead of the Spacer: this group is trailing-aligned and clipped,
                 // so anything placed after a greedy Text is the first thing cut off.
-                if let row = lead, row.workKind != .idle {
+                if !quiet, let row = lead, row.workKind != .idle {
                     RunningPulse(kind: row.workKind)
                 }
                 Spacer(minLength: 0)
-                if let row = lead {
+                if quiet {
+                    Circle().fill(Theme.faint.opacity(0.6)).frame(width: 4, height: 4)
+                } else if let row = lead {
                     AgentAvatar(seed: row.agent.sessionId, size: 13, active: true)
                     Text(row.activity ?? row.displayName)
                         .font(Theme.mono(9.5))
@@ -45,7 +54,7 @@ struct CollapsedView: View {
                     Text("idle").font(Theme.mono(9.5)).foregroundColor(Theme.faint)
                 }
             }
-            .frame(width: Self.side(revealed: revealed), alignment: .trailing)
+            .frame(width: Self.side(revealed: revealed, quiet: quiet), alignment: .trailing)
             .padding(.trailing, Self.notchMargin)
             .clipped()
 
@@ -53,7 +62,9 @@ struct CollapsedView: View {
 
             // RIGHT — counts and quota pressure, at a glance.
             HStack(spacing: 7) {
-                if store.workingCount > 0 {
+                if quiet {
+                    Text("idle").font(Theme.mono(8.5)).foregroundColor(Theme.faint.opacity(0.8))
+                } else if store.workingCount > 0 {
                     HStack(spacing: 4) {
                         Text("\(store.workingCount)")
                             .font(Theme.label(9.5)).foregroundColor(Theme.working)
@@ -61,11 +72,11 @@ struct CollapsedView: View {
                             .animation(.snappy(duration: 0.25), value: store.workingCount)
                     }
                 }
-                if store.blockedCount > 0 && store.waitingCount == 0 {
+                if !quiet, store.blockedCount > 0, store.waitingCount == 0 {
                     Text("\(store.blockedCount)")
                         .font(Theme.mono(9)).foregroundColor(Theme.faint)
                 }
-                if store.waitingCount > 0 {
+                if !quiet, store.waitingCount > 0 {
                     HStack(spacing: 3) {
                         Image(systemName: "bell.fill")
                             .font(.system(size: 7.5)).foregroundColor(Theme.waiting)
@@ -76,7 +87,7 @@ struct CollapsedView: View {
                             .animation(.snappy(duration: 0.25), value: store.waitingCount)
                     }
                 }
-                if let pct = status.quota.fiveHourPct {
+                if !quiet, let pct = status.quota.fiveHourPct {
                     Text("\(pct)%")
                         .font(Theme.mono(9)).foregroundColor(Quota.tint(pct))
                         .contentTransition(.numericText(value: Double(pct)))
@@ -84,7 +95,7 @@ struct CollapsedView: View {
                 }
                 Spacer(minLength: 0)
             }
-            .frame(width: Self.side(revealed: revealed), alignment: .leading)
+            .frame(width: Self.side(revealed: revealed, quiet: quiet), alignment: .leading)
             .padding(.leading, Self.notchMargin)
             .clipped()
         }

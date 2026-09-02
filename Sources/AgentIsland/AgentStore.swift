@@ -108,7 +108,14 @@ struct AgentRow: Identifiable {
     /// A hook that says the turn ended is exact. The transcript-mtime guess behind
     /// `agent.isWorking` is not: finishing a turn writes to the transcript, so it reported
     /// "busy" for two minutes after every agent went quiet.
-    var isWorking: Bool { live?.active ?? agent.isWorking }
+    ///
+    /// Hook state can also outlive the process that produced it — a session that ends without a
+    /// final Stop leaves its last event saying "active" — so a row with no live process is never
+    /// working, whatever the spool remembers. Under-reporting beats claiming work that is over.
+    var isWorking: Bool {
+        guard agent.pid != nil || agent.remoteHost != nil else { return false }
+        return live?.active ?? agent.isWorking
+    }
 
     /// What the agent is actually doing right now, from the tool it last announced. The bar
     /// animates this, so "thinking" and "editing files" no longer look identical.
@@ -365,7 +372,8 @@ final class AgentStore: ObservableObject {
              "title": r.displayName, "cwd": r.agent.cwd ?? "",
              "lastActive": r.lastActive.map { ISO8601DateFormatter().string(from: $0) } ?? "",
              "blocked": r.dormantBlocked, "working": r.isWorking,
-             "context": r.contextPct ?? -1, "remote": r.agent.remoteHost ?? ""]
+             "context": r.contextPct ?? -1, "remote": r.agent.remoteHost ?? "",
+             "pid": r.agent.pid ?? -1]
         }
         guard let data = try? JSONSerialization.data(withJSONObject: items) else { return }
         // Row titles are the user's own prompts and /tmp is world-readable, so the file is

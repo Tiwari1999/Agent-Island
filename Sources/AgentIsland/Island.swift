@@ -499,21 +499,21 @@ private struct RootView: View {
     @ObservedObject var store: AgentStore
     @ObservedObject var status: StatusStore
 
-    /// Visible on hover, while a toast shows, and whenever an agent is actually live —
-    /// status you have to hunt for is not status.
-    private var visible: Bool {
-        if island.state == .expanded || island.revealed { return true }
-        if case .peek = island.state { return true }
-        if case .approval = island.state { return true }
-        if case .question = island.state { return true }
-        return store.workingCount > 0 || store.waitingCount > 0
+    /// The bar is always on screen; with nothing running it shrinks to a quiet "idle" rather
+    /// than fading to nothing, so the notch reads as calm instead of dead.
+    private var visible: Bool { true }
+
+    /// Nothing running, nothing waiting, pointer elsewhere.
+    private var quiet: Bool {
+        store.workingCount == 0 && store.waitingCount == 0 && !island.revealed
     }
 
     private var shellWidth: CGFloat {
         switch island.state {
         case .collapsed:
             return island.notchWidth
-                + 2 * (CollapsedView.side(revealed: island.revealed) + CollapsedView.notchMargin)
+                + 2 * (CollapsedView.side(revealed: island.revealed, quiet: quiet)
+                       + CollapsedView.notchMargin)
         case .peek:      return 380
         case .approval(let a):  return (a.plan != nil || island.approvalContext != nil) ? 640 : 560
         case .question:  return 600
@@ -557,7 +557,7 @@ private struct RootView: View {
                 switch island.state {
                 case .collapsed:
                     CollapsedView(store: store, status: status, notchWidth: island.notchWidth,
-                                  revealed: island.revealed)
+                                  revealed: island.revealed, quiet: quiet)
                 case .peek(let p):
                     PeekView(title: p.title, message: p.message,
                              needsInput: p.needsInput, notchWidth: island.notchWidth)

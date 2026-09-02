@@ -33,6 +33,7 @@ struct CodexSource: AgentSource {
 
         var agents: [Agent] = []
         var skipStale = 0, skipMeta = 0, skipCwd = 0
+        var claimed = Set<Int>()
         let running = Self.runningSessions()
 
         for path in paths {
@@ -43,15 +44,21 @@ struct CodexSource: AgentSource {
 
             let cwd = meta.cwd
             if let c = cwd, !FileManager.default.fileExists(atPath: c) { skipCwd += 1; continue }
-            let live = cwd.flatMap { running[$0] }
+            // A pid belongs to one session: several rollouts share a directory, and handing the
+            // same process to all of them made every one of them claim to be working.
+            var live = cwd.flatMap { running[$0] }
+            if let p = live, claimed.contains(p) { live = nil }
+            if let p = live { claimed.insert(p) }
             let roll = Self.rollout(path: path, mtime: mtime)
             agents.append(Agent(
                 sessionId: meta.id,
                 name: nil,                       // Codex writes no title; the prompt becomes the label
                 cwd: cwd,
-                // A live process is working. Reporting it idle meant a running Codex session
-                // never counted toward the header's working total.
-                state: live != nil ? "busy" : nil,
+                // A live process means the session is open, not that it is working. Codex
+                // appends to its rollout while it works, so recency is the evidence; without
+                // this every open Codex tab claimed to be busy forever.
+                state: live == nil ? nil
+                    : (Date().timeIntervalSince(mtime) < 90 ? "busy" : "idle"),
                 status: nil,
                 pid: live,
                 vendor: .codex,
