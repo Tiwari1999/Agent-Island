@@ -475,6 +475,18 @@ check("reduced motion and idle hold still", "accessibilityReduceMotion" in th an
 st4=open(os.path.join(REPO,"Sources/AgentIsland/AgentStore.swift")).read()
 check("work kind is derived from the live tool", "var workKind: WorkKind" in st4)
 
+print("\n=== 9k. per-vendor limits ===")
+cx=open(os.path.join(REPO,"Sources/AgentIsland/CodexSource.swift")).read()
+check("codex rate limits are parsed from the rollout stream",
+      '"rate_limits"' in cx and "used_percent" in cx and "static var quota" in cx)
+vw4=open(os.path.join(REPO,"Sources/AgentIsland/Views.swift")).read()
+check("the panel header shows codex's limit beside claude's",
+      "CodexSource.quota.fiveHourPct" in vw4)
+check("the resting bar shows the tightest limit, not just 'idle'",
+      "tightestLimit" in vw4 and 'Text("idle")' in vw4)
+check("cursor is not given a limit it does not publish",
+      "cursor" not in vw4.split("tightestLimit")[1].split("}")[0])
+
 check("blocked badge matches the jobs actually blocked on disk",
       shown_blocked<=disk_blocked, f"{shown_blocked} shown, {disk_blocked} on disk")
 

@@ -21,9 +21,17 @@ struct CollapsedView: View {
 
     /// At rest with nothing running the bar shrinks, so a permanent idle state cannot crowd
     /// the menu bar beside the notch. Hover or any activity restores the full cluster.
-    static let restingSide: CGFloat = 30
+    static let restingSide: CGFloat = 72
     static func side(revealed: Bool, quiet: Bool = false) -> CGFloat {
         quiet ? restingSide : sideWidth
+    }
+
+    /// The limit closest to biting, across the agents that publish one. Cursor publishes none.
+    private var tightestLimit: (String, Int)? {
+        var all: [(String, Int)] = []
+        if let p = status.quota.fiveHourPct { all.append(("claude", p)) }
+        if let p = CodexSource.quota.fiveHourPct { all.append(("codex", p)) }
+        return all.max { $0.1 < $1.1 }
     }
 
     private var lead: AgentRow? {
@@ -63,7 +71,14 @@ struct CollapsedView: View {
             // RIGHT — counts and quota pressure, at a glance.
             HStack(spacing: 7) {
                 if quiet {
-                    Text("idle").font(Theme.mono(8.5)).foregroundColor(Theme.faint.opacity(0.8))
+                    // Idle is not news; how close the account is to a limit is.
+                    if let (name, pct) = tightestLimit {
+                        Text("\(name) \(pct)%")
+                            .font(Theme.mono(8.5)).foregroundColor(Quota.tint(pct))
+                            .lineLimit(1).fixedSize()
+                    } else {
+                        Text("idle").font(Theme.mono(8.5)).foregroundColor(Theme.faint.opacity(0.8))
+                    }
                 } else if store.workingCount > 0 {
                     HStack(spacing: 4) {
                         Text("\(store.workingCount)")
@@ -312,6 +327,14 @@ struct PanelView: View {
                 }
                 Text("|").font(Theme.mono(9)).foregroundColor(Theme.hairline)
                 window("7d", status.quota.sevenDayPct, status.quota.sevenDayResets)
+                // Codex reports its own limits in the rollout stream; Cursor reports none.
+                if let cx = CodexSource.quota.fiveHourPct {
+                    Text("|").font(Theme.mono(9)).foregroundColor(Theme.hairline)
+                    HStack(spacing: 4) {
+                        Text("codex").font(Theme.mono(9)).foregroundColor(Theme.faint)
+                        Text("\(cx)%").font(Theme.label(10)).foregroundColor(Quota.tint(cx))
+                    }
+                }
                 Spacer()
                 if !hooksReady {
                     HStack(spacing: 4) {

@@ -34,6 +34,7 @@ struct CodexSource: AgentSource {
         var agents: [Agent] = []
         var skipStale = 0, skipMeta = 0, skipCwd = 0
         var claimed = Set<Int>()
+        var newestSeen: Date?
         let running = Self.runningSessions()
 
         for path in paths {
@@ -50,6 +51,11 @@ struct CodexSource: AgentSource {
             if let p = live, claimed.contains(p) { live = nil }
             if let p = live { claimed.insert(p) }
             let roll = Self.rollout(path: path, mtime: mtime)
+            if Self.quota.fiveHourPct == nil || newestSeen == nil {
+                newestSeen = mtime
+                Self.quota = Quota(fiveHourPct: roll.limitPct, sevenDayPct: roll.weekPct,
+                                   fiveHourResets: roll.limitResets)
+            }
             agents.append(Agent(
                 sessionId: meta.id,
                 name: nil,                       // Codex writes no title; the prompt becomes the label
@@ -87,7 +93,15 @@ struct CodexSource: AgentSource {
         var firstPrompt: String?
         var lastPrompt: String?
         var contextPct: Int?
+        /// Codex publishes its own quota beside the token counts: primary is the 5h window,
+        /// secondary the weekly one — the same shape Claude's status line reports.
+        var limitPct: Int?
+        var weekPct: Int?
+        var limitResets: Date?
     }
+
+    /// The newest session's quota, for the panel and the resting bar.
+    private(set) static var quota = Quota()
 
     private static var cache: [String: (mtime: Date, value: Rollout)] = [:]
 
@@ -119,6 +133,17 @@ struct CodexSource: AgentSource {
                 if wantsPrompt, let t = promptText(payload) {
                     if r.firstPrompt == nil { r.firstPrompt = String(t.prefix(60)) }
                     r.lastPrompt = t.count > 120 ? String(t.prefix(120)) + "…" : t
+                }
+                if wantsUsage, let rl = payload["rate_limits"] as? [String: Any] {
+                    if let p = rl["primary"] as? [String: Any] {
+                        r.limitPct = (p["used_percent"] as? NSNumber)?.intValue
+                        if let t = (p["resets_at"] as? NSNumber)?.doubleValue {
+                            r.limitResets = Date(timeIntervalSince1970: t)
+                        }
+                    }
+                    if let sec = rl["secondary"] as? [String: Any] {
+                        r.weekPct = (sec["used_percent"] as? NSNumber)?.intValue
+                    }
                 }
                 if wantsUsage {
                     // The accounting sits under `info`, and the cumulative total counts every turn
