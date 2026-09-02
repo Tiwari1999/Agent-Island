@@ -143,6 +143,17 @@ enum PromptCheck {
             FileHandle.standardError.write("FAIL without a description the command shows\n"
                                            .data(using: .utf8)!)
         }
+        // A deferred question must still say what is being asked.
+        let asked = HookStream.activity(from: [
+            "tool_name": "AskUserQuestion",
+            "tool_input": ["questions": [["question": "How do you want to unblock it?",
+                                          "options": [["label": "a"], ["label": "b"]]]]]])?.detail
+        if asked != "How do you want to unblock it?" {
+            failed += 1
+            FileHandle.standardError.write(
+                "FAIL question text should be the status: \(asked ?? "nil")\n"
+                    .data(using: .utf8)!)
+        }
         for (obj, want, why) in hooks {
             let got = HookStream.activity(from: obj)?.detail
             if got != want {
@@ -268,8 +279,8 @@ enum PromptCheck {
             }
         }
         print("pure-logic checks: "
-              + "\(cases.count + hooks.count + kinds.count + working.count + 11 - failed)/"
-              + "\(cases.count + hooks.count + kinds.count + working.count + 11) cases")
+              + "\(cases.count + hooks.count + kinds.count + working.count + 12 - failed)/"
+              + "\(cases.count + hooks.count + kinds.count + working.count + 12) cases")
         return failed == 0 ? 0 : 1
     }
 }

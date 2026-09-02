@@ -167,6 +167,8 @@ final class HookStream: ObservableObject {
                 // reading the fields literally blanked the row for the whole run. An event we
                 // cannot read leaves the last known activity alone rather than erasing it.
                 state.active = true
+                // Blocked on a person, whichever path answers it.
+                if obj["tool_name"] as? String == "AskUserQuestion" { state.waiting = true }
                 if let a = Self.activity(from: obj) {
                     state.tool = a.tool
                     state.detail = a.detail
@@ -253,6 +255,15 @@ final class HookStream: ObservableObject {
     /// an event we cannot read leaves the last known activity in place, which reads better than
     /// blanking the row mid-run.
     static func activity(from obj: [String: Any]) -> (tool: String?, detail: String?)? {
+        // An agent asking a question is blocked on a person, so the question itself is the
+        // status. When the island is not up to raise a card the hook defers to the terminal,
+        // and without this the bar could only manage a generic "needs your permission".
+        if obj["tool_name"] as? String == "AskUserQuestion",
+           let input = obj["tool_input"] as? [String: Any],
+           let qs = input["questions"] as? [[String: Any]],
+           let q = qs.first?["question"] as? String, !q.isEmpty {
+            return ("AskUserQuestion", q.count > 60 ? String(q.prefix(60)) + "…" : q)
+        }
         if let name = obj["tool_name"] as? String {
             return (name, describe(tool: name, input: obj["tool_input"]))
         }
