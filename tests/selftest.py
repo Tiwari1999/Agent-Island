@@ -469,9 +469,8 @@ check("the resting-bar pulse is CoreAnimation, not a SwiftUI repeatForever",
       and "repeatForever" not in th.split("struct RunningPulse")[1])
 check("the pulse has an explicit frame (an NSView has no intrinsic size)",
       "PulseLayer(kind:" in th and ".frame(width: width, height: dot)" in th)
-check("motion carries the state, hue stays semantic",
-      "case .waiting:  return Theme.waiting" in th and "Theme.working" in th
-      and th.count("return Theme.") <= 6)
+check("only 'needs you' changes hue; every working state shares one colour",
+      "kind == .waiting ? Theme.waiting : Theme.working" in th)
 check("reduced motion and idle hold still", "accessibilityReduceMotion" in th and "still" in th)
 st4=open(os.path.join(REPO,"Sources/AgentIsland/AgentStore.swift")).read()
 check("work kind is derived from the live tool", "var workKind: WorkKind" in st4)

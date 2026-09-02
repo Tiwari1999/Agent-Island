@@ -232,13 +232,11 @@ private struct PulseLayer: NSViewRepresentable {
         ball.add(a, forKey: "pulse")
     }
 
+    /// Every working state is one colour, because thinking IS working — greying it out made the
+    /// most common state read as "nothing is happening", and at 5pt a desaturated dot on this
+    /// background just looks black. Only "needs you" changes hue; speed says the rest.
     private var color: Color {
-        switch kind {
-        case .waiting:  return Theme.waiting
-        case .idle:     return Theme.faint
-        case .thinking: return Theme.muted
-        default:        return Theme.working
-        }
+        kind == .waiting ? Theme.waiting : Theme.working
     }
 
     /// Seconds for one sweep. Deliberation is slow, scanning is quick.
