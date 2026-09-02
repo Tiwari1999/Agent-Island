@@ -28,10 +28,12 @@ struct CollapsedView: View {
     /// without the bar growing at all; hover buys it more.
     /// Sized to what there is to say. A fixed 210 left a wide empty gap whenever the activity
     /// line was short, which reads as a bar that is mostly nothing.
-    static func sides(revealed: Bool, quiet: Bool, text: String? = nil)
+    static func sides(revealed: Bool, quiet: Bool, text: String? = nil, usage: String? = nil)
         -> (left: CGFloat, right: CGFloat) {
-        // Resting is asymmetric too: a dot on one side, the usage line on the other.
-        if quiet { return (30, 158) }
+        // Resting is asymmetric too: a dot on one side, the usage line on the other. The usage
+        // line grows with the day -- a fixed 158 fit today's numbers with 6pt to spare and cut
+        // the moment spend reached six digits, so it follows its own text.
+        if quiet { return (30, max(158, min(240, 16 + CGFloat((usage ?? "").count) * 5.3))) }
         if revealed { return (300, 86) }
         // pulse + avatar + gaps, then roughly one glyph width per character of activity.
         let needed = 46 + CGFloat(min((text ?? "").count, 30)) * 5.8
@@ -61,6 +63,14 @@ struct CollapsedView: View {
 
     /// What the bar is actually going to print, which is what its width should follow.
     var leadText: String? { lead.map { $0.activity ?? $0.displayName } }
+
+    /// The resting line, assembled once so the width and the rendered text cannot disagree.
+    var quietUsageLine: String? {
+        guard quiet else { return nil }
+        let parts = [primaryLimit.map { "\($0.0) \($0.1)%" }, usageToday]
+            .compactMap { $0 }
+        return parts.isEmpty ? "idle" : parts.joined(separator: " · ")
+    }
 
     /// Spend and tokens for the agent the panel is reporting on, today.
     private var usageToday: String? {
@@ -129,7 +139,7 @@ struct CollapsedView: View {
                                 .foregroundColor(Theme.faint.opacity(0.8))
                         }
                     }
-                    .lineLimit(1).fixedSize()
+                    .lineLimit(1)
                 } else if store.workingCount > 0 {
                     HStack(spacing: 4) {
                         Text("\(store.workingCount)")
@@ -161,7 +171,8 @@ struct CollapsedView: View {
                 }
                 Spacer(minLength: 0)
             }
-            .frame(width: Self.sides(revealed: revealed, quiet: quiet, text: leadText).right,
+            .frame(width: Self.sides(revealed: revealed, quiet: quiet, text: leadText,
+                                     usage: quietUsageLine).right,
                    alignment: .leading)
             .padding(.leading, Self.notchMargin)
             .clipped()

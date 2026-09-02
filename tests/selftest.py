@@ -311,6 +311,18 @@ check("drain never reads the published live map off the main thread",
 
 # The load test points discovery at a fixture; production must be unaffected when it is unset.
 proto=open(os.path.join(REPO,"Sources/AgentIsland/AgentSource.swift")).read()
+vw = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
+# The resting line is clipped, not truncated, so overflow disappears with no ellipsis to show
+# for it. Measure the real strings in the real font against the box the real formula gives.
+_m = re.search(r'if quiet \{ return \(30, max\(([\d.]+), min\(([\d.]+), '
+               r'([\d.]+) \+ CGFloat\(\(usage \?\? ""\)\.count\) \* ([\d.]+)\)\)\) \}', vw)
+check("resting width formula is where the test expects it", _m is not None)
+if _m:
+    _r = subprocess.run(["swift", os.path.join(REPO, "tests/restwidth.swift")] + list(_m.groups()),
+                        capture_output=True, text=True, timeout=300).stdout.strip()
+    check("the resting usage line always fits its box", _r == "ok", _r)
+check("resting line is not hard-clipped without truncation", ".lineLimit(1).fixedSize()" not in vw)
+
 st = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
 # Opening the panel froze the row order from rows that could be a whole idleInterval old, so
 # whatever led three minutes ago stayed pinned to the top for as long as the panel was open.
@@ -571,7 +583,8 @@ check("the resting bar reports spend and tokens, not just a percentage",
       "private var usageToday" in vw7 and "Costs.tokens(today, for: v)" in vw7)
 check("tokens counted include cache, which is what was processed",
       "$1.input + $1.output + $1.cacheRead + $1.cacheWrite" in cs3)
-check("usage follows the selected agent", "store.effectiveVendor" in vw7.split("usageToday")[1][:400])
+check("usage follows the selected agent",          # anchored on the declaration, not a mention
+      "store.effectiveVendor" in vw7.split("private var usageToday")[1][:400])
 check("costs refresh while idle, on a slow clock",
       "refreshCosts(minInterval: 300)" in st7 and "workingCount == 0" in st7)
 check("a day with no usage says idle rather than a fake zero",
