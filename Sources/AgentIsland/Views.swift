@@ -302,14 +302,16 @@ struct PanelView: View {
             Rectangle().fill(Theme.hairline).frame(height: 0.7)
 
             if case .costs = mode {
-                CostsView(table: store.costTable) { mode = .sessions }
+                CostsView(table: store.costTable) { back() }
                     .frame(height: PanelView.listHeight)
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
             } else if case .plan(let session, let title) = mode {
                 PlanReader(title: title,
                            markdown: store.hooks.plans[session]?.markdown ?? "plan no longer available") {
-                    mode = .sessions
+                    back()
                 }
                 .frame(height: PanelView.listHeight)
+                .transition(.opacity.combined(with: .move(edge: .trailing)))
             } else if store.rows.isEmpty {
                 VStack(spacing: 5) {
                     // An app that has never refreshed and one with nothing to show used to look
@@ -328,8 +330,10 @@ struct PanelView: View {
                         ForEach(store.rows) { row in
                             AgentRowView(row: row, model: status.quota.model,
                                          onPlan: store.hooks.plans[row.agent.sessionId].map { _ in
-                                             { mode = .plan(session: row.agent.sessionId,
-                                                            title: row.displayName) }
+                                             { withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) {
+                                                   mode = .plan(session: row.agent.sessionId,
+                                                                title: row.displayName)
+                                               } }
                                          }) { store.jump(row) }
                         }
                     }
@@ -360,6 +364,10 @@ struct PanelView: View {
         }
     }
 
+    private func back() {
+        withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) { mode = .sessions }
+    }
+
     private var costChip: some View {
         let today = Costs.today(store.costTable).values.reduce(0) { $0 + $1.cost }
         return HStack(spacing: 3) {
@@ -372,7 +380,10 @@ struct PanelView: View {
         .background(Capsule().fill(Theme.raised))
         .contentShape(Capsule())
         .onTapGesture {
-            if case .costs = mode { mode = .sessions } else { mode = .costs; store.refreshCosts() }
+            withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) {
+                if case .costs = mode { mode = .sessions } else { mode = .costs }
+            }
+            if case .costs = mode { store.refreshCosts() }
         }
     }
 

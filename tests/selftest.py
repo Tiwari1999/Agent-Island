@@ -428,6 +428,25 @@ spawn_sites=[l for l in blob2.splitlines() if "Shell.runSync" in l or "Shell.run
 check("every remaining spawn site is user-action, not refresh",
       len(spawn_sites) <= 6, f"{len(spawn_sites)} sites")
 
+print("\n=== 9h. smooth: frozen order, springed modes, a meter not a guess ===")
+st=open(os.path.join(REPO,"Sources/AgentIsland/AgentStore.swift")).read()
+check("row order is frozen while the panel is open",
+      "frozenOrder" in st and "applyOrder" in st and st.count("applyOrder(") >= 3)
+check("the freeze is captured at open and dropped at close",
+      "frozenOrder = Dictionary" in st and "frozenOrder = [:]" in st)
+vw2=open(os.path.join(REPO,"Sources/AgentIsland/Views.swift")).read()
+check("mode switches ride the same spring as the state machine",
+      vw2.count("withAnimation(.spring(response: 0.30") >= 3)
+fm=open(os.path.join(REPO,"Sources/AgentIsland/FrameMeter.swift")).read()
+check("frame meter exists, gated off in normal runs",
+      "AGENTISLAND_FRAMEPROBE" in fm and "p95" in fm)
+probe=[l for l in open("/tmp/agentisland.log")] if os.path.exists("/tmp/agentisland.log") else []
+fr=[l for l in probe if "frames:" in l]
+if fr:
+    m=re.search(r"p95 ([\d.]+)ms", fr[-1])
+    check("measured p95 frame gap is under 12ms", m and float(m.group(1)) < 12.0,
+          fr[-1].split("frames:")[-1].strip())
+
 check("blocked badge matches the jobs actually blocked on disk",
       shown_blocked<=disk_blocked, f"{shown_blocked} shown, {disk_blocked} on disk")
 

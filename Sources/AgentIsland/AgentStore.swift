@@ -176,10 +176,29 @@ final class AgentStore: ObservableObject {
     }
     private var panelVisible = false
 
+    /// While the panel is open, rows keep the order they were opened with: re-sorting a live
+    /// list under the cursor turns the row you are about to click into a different session.
+    /// New sessions still appear — appended, not interleaved.
+    private var frozenOrder: [String: Int] = [:]
+
+    private func applyOrder(_ rows: [AgentRow]) -> [AgentRow] {
+        let sorted = rows.sorted { ($0.lastActive ?? .distantPast) > ($1.lastActive ?? .distantPast) }
+        guard panelVisible, !frozenOrder.isEmpty else { return sorted }
+        return sorted.sorted {
+            (frozenOrder[$0.agent.sessionId] ?? Int.max) < (frozenOrder[$1.agent.sessionId] ?? Int.max)
+        }
+    }
+
     func setPanelVisible(_ visible: Bool) {
         guard visible != panelVisible else { return }
         panelVisible = visible
-        if visible { refresh(); refreshCosts() }   // current state at once, money lazily
+        if visible {
+            frozenOrder = Dictionary(uniqueKeysWithValues:
+                rows.enumerated().map { ($0.element.agent.sessionId, $0.offset) })
+            refresh(); refreshCosts()   // current state at once, money lazily
+        } else {
+            frozenOrder = [:]
+        }
         reschedule()
     }
 
@@ -283,7 +302,7 @@ final class AgentStore: ObservableObject {
             }
             Task { @MainActor in
                 let now = Date()
-                self.rows = resolved
+                let built = resolved
                     .filter { agent, _, lastActive, _ in
                         if agent.isWorking { return true }
                         // A blocked agent is waiting on a human. Hiding it for being old is how
@@ -303,9 +322,8 @@ final class AgentStore: ObservableObject {
                                     status: SessionStatuses.get($0.0.sessionId),
                                     tasks: Tasks.progress(for: $0.0.sessionId),
                                     died: self.hooks.failures[$0.0.sessionId]) }
-                    // Purely by recency: anything working is writing to its transcript now,
-                    // so it rises on its own without a state bucket pinning idle rows down.
-                    .sorted { ($0.lastActive ?? .distantPast) > ($1.lastActive ?? .distantPast) }
+                // Recency by default; frozen to the opening order while the panel is visible.
+                self.rows = self.applyOrder(built)
                 self.refreshing = false
                 Self.publishManifest(self.rows)
             }
@@ -353,7 +371,7 @@ final class AgentStore: ObservableObject {
             }
             return r
         }
-        .sorted { ($0.lastActive ?? .distantPast) > ($1.lastActive ?? .distantPast) }
+        rows = applyOrder(rows)
     }
 
     /// The name a human recognises, resolved the same way everywhere: a renamed Warp tab, then

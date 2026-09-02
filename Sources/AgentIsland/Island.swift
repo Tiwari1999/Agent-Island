@@ -35,6 +35,7 @@ final class Island: NSObject, ObservableObject {
     /// the hook is told about (via the hold file), so collapsing back would lie to it.
     @Published var approvalContext: ApprovalContext?
     private let hold = ApprovalHold()
+    private let frames = FrameMeter()
     @Published var revealed = false
     @Published var notchWidth: CGFloat = 0
     @Published var notchHeight: CGFloat = 32
@@ -284,6 +285,7 @@ final class Island: NSObject, ObservableObject {
 
     func expand() {
         guard state != .expanded else { return }
+        if let v = window?.contentView { frames.start(on: v) }
         withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) { state = .expanded }
         store.setPanelVisible(true)
         repoll()
@@ -304,7 +306,13 @@ final class Island: NSObject, ObservableObject {
         clickInside = NSEvent.addLocalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
             guard let self, self.state == .expanded else { return event }
-            if self.panelRect.contains(NSEvent.mouseLocation) { return event }
+            let m = NSEvent.mouseLocation
+            if ProcessInfo.processInfo.environment["AGENTISLAND_FRAMEPROBE"] == "1" {
+                Diagnostics.log(String(format: "click probe: (%.0f,%.0f) panelRect=%@ inside=%d",
+                                       m.x, m.y, NSStringFromRect(self.panelRect),
+                                       self.panelRect.contains(m) ? 1 : 0))
+            }
+            if self.panelRect.contains(m) { return event }
             self.collapse()
             return nil
         }
@@ -317,6 +325,7 @@ final class Island: NSObject, ObservableObject {
 
     func collapse() {
         guard state != .collapsed else { return }
+        frames.stopAndReport()
         dwell?.cancel()
         removeClickMonitors()
         outsideTicks = 0
