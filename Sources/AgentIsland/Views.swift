@@ -34,12 +34,25 @@ struct CollapsedView: View {
         sides(revealed: revealed, quiet: quiet).left
     }
 
-    /// The limit closest to biting, across the agents that publish one. Cursor publishes none.
-    private var tightestLimit: (String, Int)? {
-        var all: [(String, Int)] = []
-        if let p = status.quota.fiveHourPct { all.append(("claude", p)) }
-        if let p = CodexSource.quota.fiveHourPct { all.append(("codex", p)) }
-        return all.max { $0.1 < $1.1 }
+    /// The limit belonging to the agent this person actually uses, measured by how much of the
+    /// panel is theirs. Showing the largest number instead surfaced a tool with six sessions
+    /// over the one with twenty-one, which is a statistic rather than a status.
+    private var primaryLimit: (String, Int)? {
+        func limit(_ v: Vendor) -> (String, Int)? {
+            switch v {
+            case .claude: return status.quota.fiveHourPct.map { ("claude", $0) }
+            case .codex:  return CodexSource.quota.fiveHourPct.map { ("codex", $0) }
+            case .cursor: return nil        // publishes no quota; never invent one
+            }
+        }
+        var counts: [Vendor: Int] = [:]
+        for r in store.rows { counts[r.agent.vendor, default: 0] += 1 }
+        let byUse = counts.sorted { $0.value > $1.value }.map(\.key)
+        // The most-used agent first; if it publishes nothing, whoever else does.
+        for v in byUse + [.claude, .codex] {
+            if let hit = limit(v) { return hit }
+        }
+        return nil
     }
 
     private var lead: AgentRow? {
@@ -81,7 +94,7 @@ struct CollapsedView: View {
             HStack(spacing: 7) {
                 if quiet {
                     // Idle is not news; how close the account is to a limit is.
-                    if let (name, pct) = tightestLimit {
+                    if let (name, pct) = primaryLimit {
                         Text("\(name) \(pct)%")
                             .font(Theme.mono(8.5)).foregroundColor(Quota.tint(pct))
                             .lineLimit(1).fixedSize()

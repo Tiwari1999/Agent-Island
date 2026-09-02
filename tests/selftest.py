@@ -482,10 +482,12 @@ check("codex rate limits are parsed from the rollout stream",
 vw4=open(os.path.join(REPO,"Sources/AgentIsland/Views.swift")).read()
 check("the panel header shows codex's limit beside claude's",
       "CodexSource.quota.fiveHourPct" in vw4)
-check("the resting bar shows the tightest limit, not just 'idle'",
-      "tightestLimit" in vw4 and 'Text("idle")' in vw4)
+check("the resting bar shows the most-used agent's limit, not just 'idle'",
+      "primaryLimit" in vw4 and 'Text("idle")' in vw4)
+check("the primary agent is chosen by how many rows are its own",
+      "counts[r.agent.vendor, default: 0] += 1" in vw4)
 check("cursor is not given a limit it does not publish",
-      "cursor" not in vw4.split("tightestLimit")[1].split("}")[0])
+      "case .cursor: return nil" in vw4)
 
 check("blocked badge matches the jobs actually blocked on disk",
       shown_blocked<=disk_blocked, f"{shown_blocked} shown, {disk_blocked} on disk")
