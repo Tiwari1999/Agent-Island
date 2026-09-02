@@ -226,6 +226,13 @@ final class AgentStore: ObservableObject {
     /// New sessions still appear — appended, not interleaved.
     private var frozenOrder: [String: Int] = [:]
 
+    /// Take the freeze from the first sorted result after the panel opens.
+    private func freezeOrderIfNeeded() {
+        guard panelVisible, frozenOrder.isEmpty else { return }
+        frozenOrder = Dictionary(uniqueKeysWithValues:
+            rows.enumerated().map { ($0.element.agent.sessionId, $0.offset) })
+    }
+
     private func applyOrder(_ rows: [AgentRow]) -> [AgentRow] {
         let sorted = rows.sorted { ($0.lastActive ?? .distantPast) > ($1.lastActive ?? .distantPast) }
         guard panelVisible, !frozenOrder.isEmpty else { return sorted }
@@ -238,8 +245,10 @@ final class AgentStore: ObservableObject {
         guard visible != panelVisible else { return }
         panelVisible = visible
         if visible {
-            frozenOrder = Dictionary(uniqueKeysWithValues:
-                rows.enumerated().map { ($0.element.agent.sessionId, $0.offset) })
+            // Freeze on what the refresh below returns, not on rows that idled for up to
+            // idleInterval: pinning a stale snapshot kept whichever session led three minutes
+            // ago at the top for as long as the panel stayed open.
+            frozenOrder = [:]
             refresh(); refreshCosts()   // current state at once, money lazily
         } else {
             frozenOrder = [:]
@@ -414,6 +423,7 @@ final class AgentStore: ObservableObject {
                                         : nil) }
                 // Recency by default; frozen to the opening order while the panel is visible.
                 self.rows = self.applyOrder(built)
+                self.freezeOrderIfNeeded()
                 self.refreshing = false
                 if self.workingCount == 0 { self.refreshCosts(minInterval: 300) }
                 Self.publishManifest(self.rows)

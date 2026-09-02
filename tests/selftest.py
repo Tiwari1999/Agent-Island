@@ -311,6 +311,16 @@ check("drain never reads the published live map off the main thread",
 
 # The load test points discovery at a fixture; production must be unaffected when it is unset.
 proto=open(os.path.join(REPO,"Sources/AgentIsland/AgentSource.swift")).read()
+st = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
+# Opening the panel froze the row order from rows that could be a whole idleInterval old, so
+# whatever led three minutes ago stayed pinned to the top for as long as the panel was open.
+check("opening the panel does not freeze a stale order",
+      "frozenOrder = [:]\n            refresh()" in st)
+check("the freeze is taken from a sorted result",
+      st.index("self.rows = self.applyOrder(built)") < st.index("self.freezeOrderIfNeeded()"))
+check("freezing only ever happens while the panel is open",
+      "guard panelVisible, frozenOrder.isEmpty else { return }" in st)
+
 check("home seam falls back to the real home",
       'environment["AGENTISLAND_HOME"] ?? NSHomeDirectory()' in proto)
 # Discovery must go through the seam. Looking up the claude binary legitimately does not —
