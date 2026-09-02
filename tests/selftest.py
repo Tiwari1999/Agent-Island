@@ -4,6 +4,14 @@ import glob, json, os, re, subprocess, sys, time
 
 # Resolve paths from the repo itself so the suite runs anywhere, not just my machine.
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Fixtures are namespaced per run: two suites sharing one decisions directory answered each
+# other's requests, which looked like a product failure and was a harness collision.
+RUN = f"/tmp/ai-st-{os.getpid()}"
+import atexit, glob as _glob, shutil as _shutil
+@atexit.register
+def _sweep():
+    for p in _glob.glob(RUN + "*"):
+        _shutil.rmtree(p, ignore_errors=True) if os.path.isdir(p) else os.remove(p)
 CLAUDE = os.environ.get("CLAUDE_BIN", "/opt/homebrew/bin/claude")
 # The suite must never write to the spool the app reads: a "selftest-1" row appearing in the
 # panel beside real sessions is a defect, not test noise.
@@ -62,7 +70,7 @@ check("hook payload has fields the UI needs",
 print("\n=== 5. hook script contract ===")
 hook=os.path.join(REPO,"hooks/agentisland-hook.sh")
 if os.path.exists(hook):
-    tmp="/tmp/ai-selftest-spool.jsonl"
+    tmp=f"{RUN}-selftest-spool.jsonl"
     if os.path.exists(tmp): os.remove(tmp)
     env=dict(os.environ, AGENTISLAND_SPOOL=tmp)
     p=subprocess.run([hook,"PreToolUse"],input=json.dumps(sample),capture_output=True,
@@ -125,32 +133,32 @@ check("no island -> falls through fast, no output", r.returncode==0 and not r.st
       f"{time.time()-t0:.2f}s")
 
 # island up but unanswered -> bounded timeout, still no output
-open("/tmp/ai-st-alive","w").close()
+open(f"{RUN}-alive","w").close()
 t0=time.time()
 r=subprocess.run([ph],input=req,capture_output=True,text=True,timeout=20,
-                 env=dict(os.environ,AGENTISLAND_ALIVE="/tmp/ai-st-alive",
+                 env=dict(os.environ,AGENTISLAND_ALIVE=f"{RUN}-alive",
                           AGENTISLAND_TIMEOUT_TENTHS="10",
-                          AGENTISLAND_SPOOL="/tmp/ai-st-spool.jsonl",
-                          AGENTISLAND_DECISIONS="/tmp/ai-st-dec"))
+                          AGENTISLAND_SPOOL=f"{RUN}-spool.jsonl",
+                          AGENTISLAND_DECISIONS=f"{RUN}-dec"))
 el=time.time()-t0
 check("unanswered -> times out, never hangs", r.returncode==0 and not r.stdout.strip() and el<5,
       f"{el:.2f}s")
 
 # answered -> valid schema Claude will accept
 import threading
-os.makedirs("/tmp/ai-st-dec",exist_ok=True)
-for f in os.listdir("/tmp/ai-st-dec"): os.remove(f"/tmp/ai-st-dec/{f}")
-if os.path.exists("/tmp/ai-st-spool.jsonl"): os.remove("/tmp/ai-st-spool.jsonl")
+os.makedirs(f"{RUN}-dec",exist_ok=True)
+for f in os.listdir(f"{RUN}-dec"): os.remove(f"{RUN}-dec/{f}")
+if os.path.exists(f"{RUN}-spool.jsonl"): os.remove(f"{RUN}-spool.jsonl")
 out={}
 def run():
     out["r"]=subprocess.run([ph],input=req,capture_output=True,text=True,timeout=20,
-        env=dict(os.environ,AGENTISLAND_ALIVE="/tmp/ai-st-alive",
+        env=dict(os.environ,AGENTISLAND_ALIVE=f"{RUN}-alive",
                  AGENTISLAND_TIMEOUT_TENTHS="80",
-                 AGENTISLAND_SPOOL="/tmp/ai-st-spool.jsonl",
-                 AGENTISLAND_DECISIONS="/tmp/ai-st-dec"))
+                 AGENTISLAND_SPOOL=f"{RUN}-spool.jsonl",
+                 AGENTISLAND_DECISIONS=f"{RUN}-dec"))
 th=threading.Thread(target=run); th.start(); time.sleep(1.2)
-rid=json.loads(open("/tmp/ai-st-spool.jsonl").readline())["ap_request_id"]
-open(f"/tmp/ai-st-dec/{rid}","w").write("deny")
+rid=json.loads(open(f"{RUN}-spool.jsonl").readline())["ap_request_id"]
+open(f"{RUN}-dec/{rid}","w").write("deny")
 th.join()
 try:
     d=json.loads(out["r"].stdout)["hookSpecificOutput"]
@@ -158,7 +166,7 @@ try:
 except Exception:
     ok=False; d={}
 check("answered -> emits valid permissionDecision", ok, f"decision={d.get('permissionDecision')}")
-check("decision file is consumed (no leak)", not os.path.exists(f"/tmp/ai-st-dec/{rid}"))
+check("decision file is consumed (no leak)", not os.path.exists(f"{RUN}-dec/{rid}"))
 check("heartbeat file exists while app runs", os.path.exists("/tmp/agentisland.alive"))
 
 print("\n=== 9. no protected-path reads, bounded shell-outs, exact geometry ===")
@@ -561,31 +569,31 @@ check("non-question tools are ignored", r.returncode==0 and not r.stdout.strip()
 
 # multi-question prompts must defer rather than answer half of it
 multi=json.loads(QREQ); multi["tool_input"]["questions"] *= 2
-open("/tmp/aq-st-alive","w").close()
+open(f"{RUN}-aqalive","w").close()
 r=subprocess.run([qh],input=json.dumps(multi),capture_output=True,text=True,timeout=10,
-                 env=dict(os.environ,AGENTISLAND_ALIVE="/tmp/aq-st-alive",
+                 env=dict(os.environ,AGENTISLAND_ALIVE=f"{RUN}-aqalive",
                           AGENTISLAND_Q_TIMEOUT="1"))
 check("multi-question prompts defer to Claude", r.returncode==0 and not r.stdout.strip())
 
 t0=time.time()
 r=subprocess.run([qh],input=QREQ,capture_output=True,text=True,timeout=20,
-                 env=dict(os.environ,AGENTISLAND_ALIVE="/tmp/aq-st-alive",AGENTISLAND_Q_TIMEOUT="1.5",
-                          AGENTISLAND_SPOOL="/tmp/aq-st-spool.jsonl",
-                          AGENTISLAND_DECISIONS="/tmp/aq-st-dec"))
+                 env=dict(os.environ,AGENTISLAND_ALIVE=f"{RUN}-aqalive",AGENTISLAND_Q_TIMEOUT="1.5",
+                          AGENTISLAND_SPOOL=f"{RUN}-aqspool.jsonl",
+                          AGENTISLAND_DECISIONS=f"{RUN}-aqdec"))
 check("unanswered question -> times out", r.returncode==0 and not r.stdout.strip(), f"{time.time()-t0:.2f}s")
 
 import threading
-os.makedirs("/tmp/aq-st-dec",exist_ok=True)
-for f in os.listdir("/tmp/aq-st-dec"): os.remove(f"/tmp/aq-st-dec/{f}")
-if os.path.exists("/tmp/aq-st-spool.jsonl"): os.remove("/tmp/aq-st-spool.jsonl")
+os.makedirs(f"{RUN}-aqdec",exist_ok=True)
+for f in os.listdir(f"{RUN}-aqdec"): os.remove(f"{RUN}-aqdec/{f}")
+if os.path.exists(f"{RUN}-aqspool.jsonl"): os.remove(f"{RUN}-aqspool.jsonl")
 out={}
 def runq():
     out["r"]=subprocess.run([qh],input=QREQ,capture_output=True,text=True,timeout=25,
-        env=dict(os.environ,AGENTISLAND_ALIVE="/tmp/aq-st-alive",AGENTISLAND_Q_TIMEOUT="15",
-                 AGENTISLAND_SPOOL="/tmp/aq-st-spool.jsonl",AGENTISLAND_DECISIONS="/tmp/aq-st-dec"))
+        env=dict(os.environ,AGENTISLAND_ALIVE=f"{RUN}-aqalive",AGENTISLAND_Q_TIMEOUT="15",
+                 AGENTISLAND_SPOOL=f"{RUN}-aqspool.jsonl",AGENTISLAND_DECISIONS=f"{RUN}-aqdec"))
 th=threading.Thread(target=runq); th.start(); time.sleep(1.2)
-qid=json.loads(open("/tmp/aq-st-spool.jsonl").readline())["ap_question_id"]
-open(f"/tmp/aq-st-dec/{qid}","w").write("MongoDB")
+qid=json.loads(open(f"{RUN}-aqspool.jsonl").readline())["ap_question_id"]
+open(f"{RUN}-aqdec/{qid}","w").write("MongoDB")
 th.join()
 try:
     d=json.loads(out["r"].stdout)["hookSpecificOutput"]
@@ -597,16 +605,16 @@ check("answered -> injects answers via updatedInput", ok)
 check("original tool input is preserved", bool(d.get("updatedInput",{}).get("questions")))
 
 # a label that was never offered must not be smuggled through
-for f in os.listdir("/tmp/aq-st-dec"): os.remove(f"/tmp/aq-st-dec/{f}")
-os.remove("/tmp/aq-st-spool.jsonl")
+for f in os.listdir(f"{RUN}-aqdec"): os.remove(f"{RUN}-aqdec/{f}")
+os.remove(f"{RUN}-aqspool.jsonl")
 out2={}
 def runq2():
     out2["r"]=subprocess.run([qh],input=QREQ,capture_output=True,text=True,timeout=25,
-        env=dict(os.environ,AGENTISLAND_ALIVE="/tmp/aq-st-alive",AGENTISLAND_Q_TIMEOUT="8",
-                 AGENTISLAND_SPOOL="/tmp/aq-st-spool.jsonl",AGENTISLAND_DECISIONS="/tmp/aq-st-dec"))
+        env=dict(os.environ,AGENTISLAND_ALIVE=f"{RUN}-aqalive",AGENTISLAND_Q_TIMEOUT="8",
+                 AGENTISLAND_SPOOL=f"{RUN}-aqspool.jsonl",AGENTISLAND_DECISIONS=f"{RUN}-aqdec"))
 th2=threading.Thread(target=runq2); th2.start(); time.sleep(1.2)
-qid2=json.loads(open("/tmp/aq-st-spool.jsonl").readline())["ap_question_id"]
-open(f"/tmp/aq-st-dec/{qid2}","w").write("NotAnOption")
+qid2=json.loads(open(f"{RUN}-aqspool.jsonl").readline())["ap_question_id"]
+open(f"{RUN}-aqdec/{qid2}","w").write("NotAnOption")
 th2.join()
 check("an option that was never offered is refused", not out2["r"].stdout.strip())
 
