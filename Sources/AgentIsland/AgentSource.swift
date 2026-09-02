@@ -188,7 +188,9 @@ enum PromptCheck {
         func row(_ tool: String?, waiting: Bool = false, working: Bool = true) -> AgentRow {
             AgentRow(agent: Agent(sessionId: "k", name: nil, cwd: nil,
                                   state: working ? "busy" : "idle", status: nil, pid: 1),
-                     live: LiveState(tool: tool, detail: nil, waiting: waiting))
+                     // active mirrors `working`: a live hook state that says otherwise
+                     // outranks the vendor's own state, which is the point of the field.
+                     live: LiveState(tool: tool, detail: nil, waiting: waiting, active: working))
         }
         let kinds: [(AgentRow, WorkKind, String)] = [
             (row("Edit"), .writing, "editing a file"),
@@ -205,6 +207,24 @@ enum PromptCheck {
             FileHandle.standardError.write(
                 "FAIL kind \(why): got \(r.workKind), want \(want)\n".data(using: .utf8)!)
         }
+        // The transcript's mtime moves when a turn *ends* too (and for metadata writes that are
+        // not conversation at all), so the hook's verdict has to win.
+        let busy = Agent(sessionId: "w", name: nil, cwd: nil, state: "busy", status: nil, pid: 1)
+        let working: [(AgentRow, Bool, String)] = [
+            (AgentRow(agent: busy, live: LiveState(active: false)), false,
+             "a hook that says the turn ended beats a fresh mtime"),
+            (AgentRow(agent: busy, live: LiveState(active: true)), true,
+             "mid-turn stays working"),
+            (AgentRow(agent: busy, live: nil), true,
+             "no hook data falls back to the vendor's own state"),
+            (AgentRow(agent: Agent(sessionId: "i", name: nil, cwd: nil, state: "idle",
+                                   status: nil, pid: 1), live: nil), false,
+             "idle without hooks stays idle"),
+        ]
+        for (r, want, why) in working where r.isWorking != want {
+            failed += 1
+            FileHandle.standardError.write("FAIL working \(why)\n".data(using: .utf8)!)
+        }
         for (input, want, why) in cases {
             let got = PromptText.humanLine(input)
             if got != want {
@@ -214,8 +234,9 @@ enum PromptCheck {
                         .data(using: .utf8)!)
             }
         }
-        print("pure-logic checks: \(cases.count + hooks.count + kinds.count + 7 - failed)/"
-              + "\(cases.count + hooks.count + kinds.count + 7) cases")
+        print("pure-logic checks: "
+              + "\(cases.count + hooks.count + kinds.count + working.count + 7 - failed)/"
+              + "\(cases.count + hooks.count + kinds.count + working.count + 7) cases")
         return failed == 0 ? 0 : 1
     }
 }

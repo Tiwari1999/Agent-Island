@@ -20,7 +20,7 @@ struct CollapsedView: View {
     static func side(revealed: Bool) -> CGFloat { sideWidth }
 
     private var lead: AgentRow? {
-        store.rows.first { $0.waiting } ?? store.rows.first { $0.agent.isWorking }
+        store.rows.first { $0.waiting } ?? store.rows.first { $0.isWorking }
     }
 
     var body: some View {
@@ -144,7 +144,7 @@ struct AgentRowView: View {
 
     private var tint: Color {
         if row.waiting { return Theme.waiting }
-        if row.agent.isWorking { return Theme.working }
+        if row.isWorking { return Theme.working }
         if row.agent.phase == "failed" { return Theme.failed }
         if row.dormantBlocked { return Theme.muted }
         return Theme.idle
@@ -154,8 +154,8 @@ struct AgentRowView: View {
         HStack(alignment: .top, spacing: 10) {
             VStack(spacing: 5) {
                 AgentAvatar(seed: row.agent.sessionId, size: 20,
-                            active: row.agent.isWorking || row.waiting)
-                if row.agent.isWorking { ActivityBars(color: tint, height: 9, active: true) }
+                            active: row.isWorking || row.waiting)
+                if row.isWorking { ActivityBars(color: tint, height: 9, active: true) }
                 else { Dot(color: tint, size: 5, pulse: row.waiting) }
             }
             .frame(width: 22)

@@ -105,11 +105,16 @@ struct AgentRow: Identifiable {
     /// Tool name is rendered separately so it can read as a link, like the reference UI.
     var tool: String? { live?.tool }
 
+    /// A hook that says the turn ended is exact. The transcript-mtime guess behind
+    /// `agent.isWorking` is not: finishing a turn writes to the transcript, so it reported
+    /// "busy" for two minutes after every agent went quiet.
+    var isWorking: Bool { live?.active ?? agent.isWorking }
+
     /// What the agent is actually doing right now, from the tool it last announced. The bar
     /// animates this, so "thinking" and "editing files" no longer look identical.
     var workKind: WorkKind {
         if waiting || dormantBlocked { return .waiting }
-        guard agent.isWorking else { return .idle }
+        guard isWorking else { return .idle }
         switch tool {
         case "Edit", "Write", "NotebookEdit", "MultiEdit", "str_replace_editor":
             return .writing
@@ -153,13 +158,13 @@ final class AgentStore: ObservableObject {
     private var timer: Timer?
     private var bag = Set<AnyCancellable>()
 
-    var workingCount: Int { rows.filter { $0.agent.isWorking }.count }
+    var workingCount: Int { rows.filter { $0.isWorking }.count }
     var waitingCount: Int { rows.filter { $0.waiting }.count }
     var blockedCount: Int { rows.filter { $0.dormantBlocked }.count }
     /// The line worth showing while collapsed: whatever is happening right now.
     var nowLine: String? {
         rows.first(where: { $0.waiting })?.activity
-            ?? rows.first(where: { $0.agent.isWorking && $0.activity != nil })?.activity
+            ?? rows.first(where: { $0.isWorking && $0.activity != nil })?.activity
             ?? rows.first(where: { $0.activity != nil })?.activity
     }
 
@@ -359,7 +364,7 @@ final class AgentStore: ObservableObject {
             ["sessionId": r.agent.sessionId, "vendor": r.agent.vendor.rawValue,
              "title": r.displayName, "cwd": r.agent.cwd ?? "",
              "lastActive": r.lastActive.map { ISO8601DateFormatter().string(from: $0) } ?? "",
-             "blocked": r.dormantBlocked, "working": r.agent.isWorking,
+             "blocked": r.dormantBlocked, "working": r.isWorking,
              "context": r.contextPct ?? -1, "remote": r.agent.remoteHost ?? ""]
         }
         guard let data = try? JSONSerialization.data(withJSONObject: items) else { return }

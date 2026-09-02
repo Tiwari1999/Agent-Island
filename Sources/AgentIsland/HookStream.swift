@@ -36,6 +36,9 @@ struct LiveState {
     var at = Date()
     /// The last few tool calls, newest last — an approval reads differently on a third retry.
     var trail: [String] = []
+    /// Whether the agent is mid-turn. Hooks know this exactly; the transcript's mtime does not,
+    /// because finishing a turn writes to the transcript too.
+    var active = true
 }
 
 /// Tails the hook spool. Hooks append one JSON line per event; the file is the whole IPC.
@@ -145,6 +148,7 @@ final class HookStream: ObservableObject {
                 // Cursor's shell hooks name no tool and put the command at the top level, so
                 // reading the fields literally blanked the row for the whole run. An event we
                 // cannot read leaves the last known activity alone rather than erasing it.
+                state.active = true
                 if let a = Self.activity(from: obj) {
                     state.tool = a.tool
                     state.detail = a.detail
@@ -161,9 +165,11 @@ final class HookStream: ObservableObject {
                 let kind = obj["notification_type"] as? String ?? ""
                 let msg = obj["message"] as? String ?? "needs your input"
                 if kind == "idle_prompt" {
+                    // Sitting at a prompt is the clearest "not working" signal there is.
                     state.waiting = false
                     state.tool = nil
                     state.detail = nil
+                    state.active = false
                 } else {
                     state.waiting = true
                     state.detail = msg
@@ -187,8 +193,10 @@ final class HookStream: ObservableObject {
                 state.waiting = false
                 state.tool = nil
                 state.detail = nil
+                state.active = false
             case "UserPromptSubmit":
                 revived.insert(session)
+                state.active = true
                 state.waiting = false
                 state.detail = "thinking"
             default: break
