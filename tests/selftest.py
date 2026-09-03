@@ -818,6 +818,12 @@ json.dump({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks":
 
 _r1 = _install_into(_h, "/tmp/ai-fake-repo-a")
 _n1 = len([c for c in _entries(_h) if "agentisland" in c])
+_ins = open(os.path.join(REPO, "install.sh")).read()
+# Relaunching while the old instance is still dying makes LaunchServices treat the new one
+# as a duplicate; it exits silently ~10s later and the install ends with no app at all.
+check("install waits for the old instance to exit before relaunching",
+      "pgrep -x AgentIsland" in _ins and _ins.index("pgrep -x AgentIsland") < _ins.index('open "$APP"'))
+
 check("installer registers hooks", _r1.returncode == 0 and _n1 > 0)
 
 _install_into(_h, "/tmp/ai-fake-repo-a")                       # same path again

@@ -9,6 +9,9 @@ swift build -c release --package-path "$REPO"
 
 echo "==> installing to $APP"
 pkill -f "AgentIsland.app/Contents/MacOS/AgentIsland" 2>/dev/null || true
+# Wait for the old instance to actually exit: launching while it is still dying makes
+# LaunchServices treat the new instance as a duplicate, which exits silently seconds later.
+for _ in $(seq 1 25); do pgrep -x AgentIsland >/dev/null || break; sleep 0.2; done
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS"
 cp "$REPO/.build/release/AgentIsland" "$APP/Contents/MacOS/AgentIsland"
 # Scripts the app runs at runtime must live in the bundle: an installed app cannot find the
