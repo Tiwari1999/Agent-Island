@@ -118,10 +118,12 @@ enum ToolCalls {
         return ""
     }
 
-    /// Strip the MCP prefix: "mcp__claude-in-chrome__computer" is a namespace, "computer" is a name.
+    /// Strip the MCP namespace: "mcp__claude-in-chrome__computer" is server plus tool. The
+    /// separator is a double underscore — splitting on single ones turned
+    /// "mcp__harbor-prod__get_job_live_results" into the meaningless word "results".
     private static func short(_ tool: String) -> String {
         guard tool.hasPrefix("mcp__") else { return tool }
-        return tool.split(separator: "_").last.map(String.init) ?? tool
+        return tool.components(separatedBy: "__").last.flatMap { $0.isEmpty ? nil : $0 } ?? tool
     }
 
     /// The first line worth showing. Tool output is frequently minified source or a binary

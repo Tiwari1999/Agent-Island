@@ -345,12 +345,18 @@ enum PromptCheck {
             ev("e", "mcp__claude-in-chrome__computer", #"{"description":"Click login"}"#,
                "2026-09-03T10:04:00.000Z"),
             res("e", "clicked", false, "2026-09-03T10:04:02.000Z"),
+            ev("f", "mcp__harbor-prod__get_job_live_results", #"{"description":"Poll a job"}"#,
+               "2026-09-03T10:05:00.000Z"),
+            res("f", "running", false, "2026-09-03T10:05:01.000Z"),
         ].joined(separator: "\n")
 
         let parsed = ToolCalls.parse(fixture)
         let tc: [(Bool, String)] = [
-            (parsed.count == 5, "every call is found"),
-            (parsed.first?.tool == "computer", "newest first, and the MCP namespace is stripped"),
+            (parsed.count == 6, "every call is found"),
+            (parsed.first?.tool == "get_job_live_results",
+             "an MCP leaf keeps its own underscores"),
+            (parsed.first(where: { $0.id.hasPrefix("e#") })?.tool == "computer",
+             "the MCP namespace is stripped"),
             (parsed.first(where: { $0.id.hasPrefix("a#") })?.why == "Run the suite",
              "the description is the why, not the command"),
             (parsed.first(where: { $0.id.hasPrefix("a#") })?.response == "all green", "the response is kept"),
