@@ -319,7 +319,8 @@ struct AgentRowView: View {
                     } else if row.died == nil {
                         Text(row.tasks?.current
                              ?? row.activity
-                             ?? (row.waiting ? "waiting for your input" : row.agent.phase))
+                             ?? (row.waiting ? "waiting for your input"
+                                 : row.isWorking ? "working" : "idle"))   // never the raw phase
                             .font(Theme.mono(9.5))
                             .foregroundColor(row.waiting ? Theme.waiting : Theme.faint)
                             .lineLimit(1).truncationMode(.middle)

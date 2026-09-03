@@ -135,8 +135,9 @@ struct AgentRow: Identifiable {
             return agent.isWorking
         }
         // No hook data at all, but hooks are wired in: a working agent reports within
-        // seconds, so silence means idle rather than unknown.
-        if agent.vendor == .claude, HookStream.covering { return false }
+        // seconds, so silence means idle rather than unknown. Remote sessions are exempt —
+        // their hooks fire on another machine, so silence here proves nothing.
+        if agent.vendor == .claude, agent.remoteHost == nil, HookStream.covering { return false }
         return agent.isWorking
     }
 
@@ -245,11 +246,28 @@ final class AgentStore: ObservableObject {
             rows.enumerated().map { ($0.element.agent.sessionId, $0.offset) })
     }
 
+    /// Needs-you outranks working outranks idle. State places a row; recency and the freeze
+    /// only ever order rows within the same state, so a working agent can never sit under an
+    /// idle one no matter what the timestamps or the opening order say.
+    nonisolated static func tier(_ r: AgentRow) -> Int {
+        if r.waiting || r.died != nil { return 0 }
+        return r.isWorking ? 1 : 2
+    }
+
     private func applyOrder(_ rows: [AgentRow]) -> [AgentRow] {
-        let sorted = rows.sorted { ($0.lastActive ?? .distantPast) > ($1.lastActive ?? .distantPast) }
-        guard panelVisible, !frozenOrder.isEmpty else { return sorted }
-        return sorted.sorted {
-            (frozenOrder[$0.agent.sessionId] ?? Int.max) < (frozenOrder[$1.agent.sessionId] ?? Int.max)
+        let frozen = panelVisible && !frozenOrder.isEmpty
+        return rows.sorted { a, b in
+            let (ta, tb) = (Self.tier(a), Self.tier(b))
+            if ta != tb { return ta < tb }
+            // Within a tier the open panel keeps its order, so rows never shuffle under the
+            // cursor; crossing tiers is a real state change, which is exactly when a move
+            // carries information.
+            if frozen {
+                let fa = frozenOrder[a.agent.sessionId] ?? Int.max
+                let fb = frozenOrder[b.agent.sessionId] ?? Int.max
+                if fa != fb { return fa < fb }
+            }
+            return (a.lastActive ?? .distantPast) > (b.lastActive ?? .distantPast)
         }
     }
 
@@ -458,7 +476,7 @@ final class AgentStore: ObservableObject {
             ["sessionId": r.agent.sessionId, "vendor": r.agent.vendor.rawValue,
              "title": r.displayName, "cwd": r.agent.cwd ?? "",
              "lastActive": r.lastActive.map { ISO8601DateFormatter().string(from: $0) } ?? "",
-             "blocked": r.dormantBlocked, "working": r.isWorking,
+             "blocked": r.dormantBlocked, "working": r.isWorking, "waiting": r.waiting,
              "context": r.contextPct ?? -1, "remote": r.agent.remoteHost ?? "",
              "pid": r.agent.pid ?? -1]
         }

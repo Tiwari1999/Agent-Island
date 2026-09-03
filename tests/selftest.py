@@ -330,6 +330,15 @@ check("opening the panel does not freeze a stale order",
       "frozenOrder = [:]\n            refresh()" in st)
 check("the freeze is taken from a sorted result",
       st.index("self.rows = self.applyOrder(built)") < st.index("self.freezeOrderIfNeeded()"))
+# The ordering contract, audited on the app's own published manifest when one exists:
+# needs-you rows, then working, then idle — a working agent may never sit under an idle one.
+_mp = "/tmp/agentisland.rows.json"
+if os.path.exists(_mp):
+    _seq = [("wait" if x.get("waiting") else "work" if x.get("working") else "idle")
+            for x in json.load(open(_mp))]
+    _fi = next((i for i, t in enumerate(_seq) if t == "idle"), len(_seq))
+    check("published order never puts work below idle",
+          all(t == "idle" for t in _seq[_fi:]), "->".join(_seq[:8]))
 check("freezing only ever happens while the panel is open",
       "guard panelVisible, frozenOrder.isEmpty else { return }" in st)
 

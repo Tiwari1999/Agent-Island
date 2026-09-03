@@ -275,6 +275,20 @@ enum PromptCheck {
             FileHandle.standardError.write("FAIL finished work must not read as activity\n"
                                            .data(using: .utf8)!)
         }
+        // Ordering is a product rule, not an accident of timestamps: needs-you, then
+        // working, then idle — whatever lastActive or the frozen order says.
+        let idleRow = AgentRow(agent: Agent(sessionId: "t1", name: nil, cwd: nil,
+                                            state: "idle", status: nil, pid: 1), live: nil)
+        let workRow = AgentRow(agent: busy, live: LiveState(active: true))
+        var waitRow = AgentRow(agent: busy, live: LiveState(waiting: true, active: true))
+        waitRow.live?.waiting = true
+        let tiers = [(AgentStore.tier(waitRow), 0, "a blocked agent outranks everything"),
+                     (AgentStore.tier(workRow), 1, "working sits between"),
+                     (AgentStore.tier(idleRow), 2, "idle sinks to the bottom")]
+        for (got, want, why) in tiers where got != want {
+            failed += 1
+            FileHandle.standardError.write("FAIL tier \(why)\n".data(using: .utf8)!)
+        }
         for (r, want, why) in working where r.isWorking != want {
             failed += 1
             FileHandle.standardError.write("FAIL working \(why)\n".data(using: .utf8)!)
