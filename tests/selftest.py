@@ -952,6 +952,52 @@ check("a row label falls back to the folder, never the id",
       'var label: String { name ?? (cwd as NSString?)?.lastPathComponent ?? "session" }' in _as)
 check("an unnameable session is not announced",
       "guard let name = self.store.name(for: session) else { return }" in _is)
+print("\n=== 24. tool call timeline ===")
+_tv = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
+_tc = open(os.path.join(REPO, "Sources/AgentIsland/ToolCalls.swift")).read()
+
+# The whole feature is affordable only because it is lazy: a refresh must never parse calls.
+_store = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
+check("no refresh path parses tool calls", "ToolCalls.recent" not in _store)
+# Parsed calls outlive the row that asked for them unless refresh evicts them.
+check("parsed calls are evicted with their session",
+      "ToolCalls.retain(ids)" in _store and "static func retain" in _tc)
+check("tool calls are parsed only from the row toggle",
+      _tv.count("ToolCalls.recent") == 1 and "private func toggle" in _tv)
+check("the parse runs off the main thread",
+      "DispatchQueue.global(qos: .userInitiated).async" in _tv.split("private func toggle")[1][:600])
+check("a row closed mid-read discards the result",
+      "guard openRow == id else { return }" in _tv)
+check("parsed calls are cached by mtime", "hit.mtime == mtime" in _tc)
+
+# Clicking a row must still jump: expansion is a separate, smaller target.
+check("the chevron has its own hit target, leaving the row's tap alone",
+      ".onTapGesture(perform: onToggle)" in _tv and "onTapGesture { if row.canJump { onJump() } }" in _tv)
+check("only one row can be open at a time", "@State private var openRow: String?" in _tv)
+check("a collapsed row keeps the height it has today",
+      "guard expanded else { return height }" in _tv)
+# A fixed cell clipped the evidence line off every call that had one, so height is summed
+# from each call's own line count rather than assumed.
+check("an expanded row's height is summed from what each call draws",
+      "calls.reduce(0) { $0 + $1.lines }" in _tv
+      and "CGFloat(c.lines) * AgentRowView.callLine" in _tv)
+check("a collapsed row keeps its centring",
+      "alignment: expanded ? .top : .center" in _tv)
+
+# The design's core rule: intent is the headline, output is evidence.
+check("the why is rendered brightest", "foregroundColor(c.isError ? Theme.failed : Theme.text)" in _tv)
+check("the response is rendered faint",
+      "Theme.failed.opacity(0.75) : Theme.faint" in _tv)
+check("no new colours were invented for the timeline",
+      not re.search(r'timeline[\s\S]{0,1800}Color\(red:', _tv))
+check("a subagent call is visually distinct",
+      "c.isAgent ? Theme.waiting : Theme.agentTint" in _tv)
+
+# Output is frequently minified source or a binary scan; it must never be unbounded.
+check("a response preview is hard-bounded", 't.count > 120 ? String(t.prefix(120))' in _tc)
+check("the read window is bounded regardless of file size",
+      "window: UInt64 = 2 * 1024 * 1024" in _tc)
+
 check("blocking cards still name something human",
       _is.count('?? "agent"') >= 4)
 

@@ -317,6 +317,58 @@ enum PromptCheck {
             failed += 1
             FileHandle.standardError.write("FAIL working \(why)\n".data(using: .utf8)!)
         }
+        // Tool-call parsing, against fixtures rather than whatever happens to be on disk:
+        // a normal call, a failure, one still running, a subagent, and an MCP namespace.
+        func ev(_ id: String, _ name: String, _ input: String, _ ts: String) -> String {
+            """
+            {"timestamp":"\(ts)","message":{"content":[{"type":"tool_use","id":"\(id)",\
+            "name":"\(name)","input":\(input)}]}}
+            """
+        }
+        func res(_ id: String, _ text: String, _ err: Bool, _ ts: String) -> String {
+            """
+            {"timestamp":"\(ts)","message":{"content":[{"type":"tool_result",\
+            "tool_use_id":"\(id)","is_error":\(err),"content":"\(text)"}]}}
+            """
+        }
+        let fixture = [
+            ev("a", "Bash", #"{"description":"Run the suite","command":"swift test"}"#,
+               "2026-09-03T10:00:00.000Z"),
+            res("a", "all green", false, "2026-09-03T10:00:04.000Z"),
+            ev("b", "Bash", #"{"description":"Check config","command":"cat x"}"#,
+               "2026-09-03T10:01:00.000Z"),
+            res("b", "no such file", true, "2026-09-03T10:01:01.000Z"),
+            ev("c", "Read", #"{"file_path":"/a/b/AgentStore.swift"}"#, "2026-09-03T10:02:00.000Z"),
+            res("c", "", false, "2026-09-03T10:02:00.500Z"),
+            ev("d", "Agent", #"{"description":"Review the diff","subagent_type":"code-reviewer"}"#,
+               "2026-09-03T10:03:00.000Z"),
+            ev("e", "mcp__claude-in-chrome__computer", #"{"description":"Click login"}"#,
+               "2026-09-03T10:04:00.000Z"),
+            res("e", "clicked", false, "2026-09-03T10:04:02.000Z"),
+        ].joined(separator: "\n")
+
+        let parsed = ToolCalls.parse(fixture)
+        let tc: [(Bool, String)] = [
+            (parsed.count == 5, "every call is found"),
+            (parsed.first?.tool == "computer", "newest first, and the MCP namespace is stripped"),
+            (parsed.first(where: { $0.id.hasPrefix("a#") })?.why == "Run the suite",
+             "the description is the why, not the command"),
+            (parsed.first(where: { $0.id.hasPrefix("a#") })?.response == "all green", "the response is kept"),
+            (parsed.first(where: { $0.id.hasPrefix("b#") })?.isError == true, "a failure is marked"),
+            (parsed.first(where: { $0.id.hasPrefix("c#") })?.why == "AgentStore.swift",
+             "a file tool falls back to its filename"),
+            (parsed.first(where: { $0.id.hasPrefix("d#") })?.running == true,
+             "a call with no result is still running"),
+            (parsed.first(where: { $0.id.hasPrefix("d#") })?.subagentKind == "code-reviewer",
+             "a subagent launch is recognised"),
+            (parsed.first(where: { $0.id.hasPrefix("a#") })?.duration == "4s", "duration comes from the pair"),
+            (parsed.first(where: { $0.id.hasPrefix("c#") })?.duration == "0.5s", "sub-second keeps a decimal"),
+        ]
+        for (ok, why) in tc where !ok {
+            failed += 1
+            FileHandle.standardError.write("FAIL toolcall \(why)\n".data(using: .utf8)!)
+        }
+
         for (input, want, why) in cases {
             let got = PromptText.humanLine(input)
             if got != want {
@@ -346,7 +398,9 @@ enum Tail {
         let truncated = size > bytes
         try? h.seek(toOffset: truncated ? size - bytes : 0)
         let data = (try? h.readToEnd()) ?? Data()
-        var text = String(data: data, encoding: .utf8) ?? ""
+        // Lossy on purpose: a window that starts mid-sequence used to decode to nothing at
+        // all, blanking the whole read rather than one character.
+        var text = String(decoding: data, as: UTF8.self)
         // Starting mid-file means the first line is a fragment, not JSON.
         if truncated, let first = text.firstIndex(where: \.isNewline) {
             text = String(text[text.index(after: first)...])
@@ -359,7 +413,9 @@ enum Tail {
         guard let h = FileHandle(forReadingAtPath: path) else { return "" }
         defer { try? h.close() }
         let data = h.readData(ofLength: bytes)
-        var text = String(data: data, encoding: .utf8) ?? ""
+        // Lossy on purpose: a window that starts mid-sequence used to decode to nothing at
+        // all, blanking the whole read rather than one character.
+        var text = String(decoding: data, as: UTF8.self)
         // The final line is probably cut in half; a half line is not parseable JSON.
         if data.count == bytes, let last = text.lastIndex(where: \.isNewline) {
             text = String(text[..<last])

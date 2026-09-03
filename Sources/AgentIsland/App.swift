@@ -34,6 +34,19 @@ struct AgentIslandApp {
         if CommandLine.arguments.contains("--check-prompts") { exit(PromptCheck.run()) }
         if CommandLine.arguments.contains("--costs-json") { print(Costs.json()); exit(0) }
         if CommandLine.arguments.contains("--check-proc") { exit(ProcCheck.run()) }
+        // Dump one session's recent tool calls, so the parser can be asserted on real data.
+        if let i = CommandLine.arguments.firstIndex(of: "--tool-calls"),
+           let session = CommandLine.arguments.dropFirst(i + 1).first {
+            let cwd = CommandLine.arguments.dropFirst(i + 2).first
+            for c in ToolCalls.recent(session: session, cwd: cwd, limit: 8) {
+                let state = c.isError ? "ERR" : c.running ? "RUN" : "ok "
+                print("\(state) \(c.tool.padding(toLength: min(14, max(c.tool.count, 14)), withPad: " ", startingAt: 0)) "
+                      + "| \(c.duration ?? "-") | why=\(c.why.prefix(56))"
+                      + (c.isAgent ? " | agent=\(c.subagentKind ?? "")" : "")
+                      + "\n      out=\(c.response?.prefix(60) ?? "<none>")")
+            }
+            exit(0)
+        }
         // Synchronous probe of one remote, for the suite: async polling can't be asserted on.
         if let i = CommandLine.arguments.firstIndex(of: "--probe-remote"),
            let host = CommandLine.arguments.dropFirst(i + 1).first {

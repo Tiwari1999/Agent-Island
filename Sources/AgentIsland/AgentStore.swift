@@ -420,6 +420,7 @@ final class AgentStore: ObservableObject {
             Transcript.retain(ids)
             Titles.retain(ids)
             Narration.retain(ids)
+            ToolCalls.retain(ids)      // parsed calls outlive the row that asked for them
             // A session started without `--resume` carries its id nowhere in argv, so discovery
             // cannot bind it. Its own hooks can: they report the process that ran them.
             let fromHooks = self.hookPids
