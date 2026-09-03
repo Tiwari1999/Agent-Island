@@ -941,6 +941,21 @@ check("a repo path with spaces installs and re-installs cleanly",
 _sh = open(os.path.join(REPO, "hooks/agentisland-status.sh")).read()
 check("session id is sanitised before it becomes a path", "tr -cd" in _sh)
 
+# A finished Cursor background agent announced itself as "81f6c0d5 finished": no row, no
+# title, so the name fell back to the raw session id. Ids are machinery, never a name.
+_as = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
+_is = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+check("a session name is optional rather than an id",
+      "func name(for sessionId: String) -> String?" in _as
+      and "return String(sessionId.prefix(8))" not in _as)
+check("a row label falls back to the folder, never the id",
+      'var label: String { name ?? (cwd as NSString?)?.lastPathComponent ?? "session" }' in _as)
+check("an unnameable session is not announced",
+      "guard let name = self.store.name(for: session) else { return }" in _is)
+check("blocking cards still name something human",
+      _is.count('?? "agent"') >= 4)
+
+
 
 for name,p in [("claude","~/.claude/settings.json"),("codex","~/.codex/hooks.json")]:
     fp=os.path.expanduser(p)

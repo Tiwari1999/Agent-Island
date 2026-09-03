@@ -43,7 +43,9 @@ struct Agent: Identifiable {
     }
 
     var id: String { sessionId }
-    var label: String { name ?? String(sessionId.prefix(8)) }
+    /// The folder is a worse name than a real one and a far better one than an id: nobody
+    /// recognises "81f6c0d5", and everybody recognises the repo they are working in.
+    var label: String { name ?? (cwd as NSString?)?.lastPathComponent ?? "session" }
     var project: String { (cwd as NSString?)?.lastPathComponent ?? "—" }
     /// Background sessions report `state`, interactive ones `status`.
     var phase: String { state ?? status ?? "unknown" }
@@ -524,10 +526,12 @@ final class AgentStore: ObservableObject {
 
     /// The name a human recognises, resolved the same way everywhere: a renamed Warp tab, then
     /// Claude's own title for the session, and only then the generated handle.
-    func displayName(for sessionId: String) -> String {
+    /// A name we would actually say out loud, or nil. The raw id is machinery: announcing
+    /// "81f6c0d5 finished" tells a person nothing and looks like a bug, because it is one.
+    func name(for sessionId: String) -> String? {
         if let row = rows.first(where: { $0.agent.sessionId == sessionId }) { return row.displayName }
         if let t = Titles.title(for: sessionId, cwd: nil), !t.isEmpty { return t }
-        return String(sessionId.prefix(8))
+        return nil
     }
 
     func jump(_ row: AgentRow) {

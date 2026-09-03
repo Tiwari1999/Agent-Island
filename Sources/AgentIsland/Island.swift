@@ -131,7 +131,7 @@ final class Island: NSObject, ObservableObject {
         store.hooks.onApproval = { [weak self] approval in
             guard let self else { return }
             self.present(approval)
-            let name = self.store.displayName(for: approval.session)
+            let name = self.store.name(for: approval.session) ?? "agent"
             Notifier.notify(title: "\(name) needs permission",
                             body: "\(approval.tool): \(approval.detail)", key: approval.session)
         }
@@ -139,13 +139,16 @@ final class Island: NSObject, ObservableObject {
         store.hooks.onQuestion = { [weak self] question in
             guard let self else { return }
             self.ask(question)
-            let name = self.store.displayName(for: question.session)
+            let name = self.store.name(for: question.session) ?? "agent"
             Notifier.notify(title: name, body: question.text, key: question.session)
         }
 
         store.hooks.onAttention = { [weak self] session, message, needsInput in
             guard let self else { return }
-            let name = self.store.displayName(for: session)
+            // A session we cannot name is one we never show as a row either -- background
+            // agents spawned by another agent, which are deliberately excluded. Announcing
+            // their finishes both leaked a raw id and reported work the user never started.
+            guard let name = self.store.name(for: session) else { return }
             self.peek(PeekPayload(session: session, title: name,
                                   message: needsInput ? message : "finished",
                                   needsInput: needsInput))
@@ -572,7 +575,7 @@ private struct RootView: View {
                 case .approval(let a):
                     ApprovalCard(
                         approval: a,
-                        agentName: store.displayName(for: a.session),
+                        agentName: store.name(for: a.session) ?? "agent",
                         context: island.approvalContext,
                         onExpand: { island.expandApproval() },
                         onAllow: { island.answer(a, allow: true) },
@@ -582,7 +585,7 @@ private struct RootView: View {
                 case .question(let q):
                     QuestionCard(
                         question: q,
-                        agentName: store.displayName(for: q.session),
+                        agentName: store.name(for: q.session) ?? "agent",
                         onChoose: { island.choose(q, option: $0) })
                         .frame(maxHeight: .infinity, alignment: .bottom)
                         .padding(.bottom, 6)
