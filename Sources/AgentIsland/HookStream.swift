@@ -73,14 +73,21 @@ final class HookStream: ObservableObject {
     private var resolvedPPID: [String: Int] = [:]
     private var handle: FileHandle?
     private var offset: UInt64 = 0
+    /// Sole owner of handle/offset/carried: start-replay, tail drains and delete-recovery all
+    /// ran on different queues before, which was a use-after-close waiting for its moment.
+    private let spoolQueue = DispatchQueue(label: "agentisland.spool", qos: .utility)
 
     func start() {
+        Self.covering = Setup.hooksInstalled()
+        spoolQueue.async { self.open() }
+    }
+
+    private func open() {
         if !FileManager.default.fileExists(atPath: Self.spool) {
             FileManager.default.createFile(atPath: Self.spool, contents: nil)
         }
         guard let h = FileHandle(forReadingAtPath: Self.spool) else { return }
         handle = h
-        Self.covering = Setup.hooksInstalled()
         // Replay the recent spool instead of starting blind: seeking to the end forgot every
         // pid binding and Stop on restart, so idle sessions fell back to the mtime guess and
         // showed as running until their next real event.
@@ -90,27 +97,24 @@ final class HookStream: ObservableObject {
 
         let src = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: h.fileDescriptor, eventMask: [.extend, .write, .delete, .rename],
-            queue: DispatchQueue.global(qos: .utility))
+            queue: spoolQueue)
+        src.setCancelHandler { try? h.close() }
         src.setEventHandler { [weak self] in
             guard let self else { return }
             // If the spool is deleted or replaced, hooks recreate it as a new inode; keep
             // watching the old fd and no event would ever arrive again. Reopen instead.
             if self.source?.data.contains(.delete) == true
                 || self.source?.data.contains(.rename) == true {
-                DispatchQueue.main.async { self.restart() }
+                self.source?.cancel(); self.source = nil
+                self.handle = nil
+                self.offset = 0
+                self.open()
             } else {
                 self.drain()
             }
         }
         src.resume()
         source = src
-    }
-
-    private func restart() {
-        source?.cancel(); source = nil
-        try? handle?.close(); handle = nil
-        offset = 0
-        start()
     }
 
     private func drain(replay: Bool = false) {
@@ -200,8 +204,6 @@ final class HookStream: ObservableObject {
                 // reading the fields literally blanked the row for the whole run. An event we
                 // cannot read leaves the last known activity alone rather than erasing it.
                 state.active = true
-                // Blocked on a person, whichever path answers it.
-                if obj["tool_name"] as? String == "AskUserQuestion" { state.waiting = true }
                 if let a = Self.activity(from: obj) {
                     state.tool = a.tool
                     state.detail = a.detail
@@ -210,7 +212,11 @@ final class HookStream: ObservableObject {
                         if state.trail.count > 6 { state.trail.removeFirst() }
                     }
                 }
-                state.waiting = false
+                // Blocked on a person, whichever path answers it. Set last, because the
+                // reset this replaced erased it every time; and only on the Pre event —
+                // PostToolUse for the same tool means the answer already came back.
+                state.waiting = event == "PreToolUse"
+                    && obj["tool_name"] as? String == "AskUserQuestion"
             case "Notification", "PermissionRequest":
                 // `idle_prompt` just means the session finished its turn and is sitting at a
                 // prompt — it fires constantly for every session and is not a request for you.
@@ -280,6 +286,16 @@ final class HookStream: ObservableObject {
             for a in approvals { self.onApproval?(a) }
             for (s, m, needs) in attention { self.onAttention?(s, m, needs) }
         }
+    }
+
+    /// Forget entries that went quiet an hour ago, mirroring the drain's own carry cutoff.
+    /// Open tools are kept: their staleness is judged by process liveness, not by the clock.
+    func prune(before cutoff: Date) {
+        // Open tools are exempt from the hour — a build can outlast it — but not forever:
+        // six hours is longer than any real tool call and stops killed sessions accreting.
+        let hard = cutoff.addingTimeInterval(-5 * 3600)
+        let kept = live.filter { $0.value.at > ($0.value.inTool ? hard : cutoff) }
+        if kept.count != live.count { live = kept }
     }
 
     /// Map every vendor's spelling onto one vocabulary.

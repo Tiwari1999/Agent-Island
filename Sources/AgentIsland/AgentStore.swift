@@ -126,8 +126,9 @@ struct AgentRow: Identifiable {
             // transcript's mtime does afterwards (compaction, a queued prompt).
             guard l.active else { return false }
             // An open tool call is work for as long as it runs: a build or test suite can go
-            // minutes with no hook event and no transcript growth at all.
-            if l.inTool { return true }
+            // minutes with no hook event and no transcript growth at all. But only while the
+            // process exists — kill -9 sends no Stop, and this flag must die with the pid.
+            if l.inTool { return agent.pid.map(Proc.alive) ?? true }
             if Date().timeIntervalSince(l.at) < 90 { return true }
             // A turn that began and has not stopped can stream for minutes between tool
             // calls with no hook event at all — this session doing exactly that was shown
@@ -163,7 +164,8 @@ struct AgentRow: Identifiable {
         }
     }
     /// Needs you *right now*: a hook fired inside the live window. This is what earns an alarm.
-    var waiting: Bool { live?.waiting ?? false }
+    // A pending ask from a killed process is moot; without this the badge outlived the CLI.
+    var waiting: Bool { (live?.waiting ?? false) && (agent.pid.map(Proc.alive) ?? true) }
     /// Blocked on a question asked long ago. Real work, but not urgent — counting it as
     /// "waiting" made the header claim attention was needed when nothing had just happened.
     var dormantBlocked: Bool { blockedQuestion != nil && !(live?.waiting ?? false) }
@@ -419,9 +421,13 @@ final class AgentStore: ObservableObject {
             // A session started without `--resume` carries its id nowhere in argv, so discovery
             // cannot bind it. Its own hooks can: they report the process that ran them.
             let fromHooks = self.hookPids
+            let comms = Proc.all()
             let agents = agents.map { a -> Agent in
+                // Existence alone is not identity: pids get reused, and binding a session to
+                // whatever now wears the number pointed jumps at innocent processes.
                 guard a.pid == nil, let p = fromHooks[a.sessionId],
-                      Proc.all()[Int32(p)] != nil else { return a }
+                      let c = comms[Int32(p)],
+                      ["claude", "codex", "cursor-agent", "agent"].contains(c) else { return a }
                 var b = a
                 b.pid = p
                 return b
@@ -464,6 +470,7 @@ final class AgentStore: ObservableObject {
                 self.rows = self.applyOrder(built)
                 self.freezeOrderIfNeeded()
                 self.refreshing = false
+                self.hooks.prune(before: Date().addingTimeInterval(-3600))
                 if self.workingCount == 0 { self.refreshCosts(minInterval: 300) }
                 Self.publishManifest(self.rows)
             }

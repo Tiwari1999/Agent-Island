@@ -285,6 +285,22 @@ enum PromptCheck {
         let tiers = [(AgentStore.tier(waitRow), 0, "a blocked agent outranks everything"),
                      (AgentStore.tier(workRow), 1, "working sits between"),
                      (AgentStore.tier(idleRow), 2, "idle sinks to the bottom")]
+        // kill -9 mid-tool sends no Stop and no PostToolUse, so the open-tool flag is the
+        // only thing still claiming work. It must not outlive the process it describes.
+        let killedMidTool = AgentRow(
+            agent: Agent(sessionId: "k", name: nil, cwd: nil, state: "busy", status: nil,
+                         pid: 999_999),
+            live: LiveState(at: Date(timeIntervalSinceNow: -600), active: true, inTool: true))
+        if killedMidTool.isWorking {
+            failed += 1
+            FileHandle.standardError.write("FAIL an open tool on a dead pid is not work\n"
+                                           .data(using: .utf8)!)
+        }
+        if killedMidTool.waiting {
+            failed += 1
+            FileHandle.standardError.write("FAIL a dead pid cannot be waiting on you\n"
+                                           .data(using: .utf8)!)
+        }
         let diedMidTool = AgentRow(agent: busy,
                                    live: LiveState(at: Date(timeIntervalSinceNow: -300),
                                                    active: false, inTool: true))

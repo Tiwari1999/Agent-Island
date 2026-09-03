@@ -10,15 +10,22 @@ overwriting Claude settings, statusline config and iTerm2 tab titles. So this in
   * wraps an existing statusLine rather than replacing it
   * prints exactly what it changed
 """
-import json, os, shutil, sys, time
+import json, os, shlex, shutil, sys, time
 
 REPO = sys.argv[1] if len(sys.argv) > 1 else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-HOOK       = os.path.join(REPO, "hooks/agentisland-hook.sh")
-PERM       = os.path.join(REPO, "hooks/agentisland-permission.sh")
-RULES      = os.path.join(REPO, "hooks/agentisland-rules.py")
-QUESTION   = os.path.join(REPO, "hooks/agentisland-question.py")
-STATUSLINE = os.path.join(REPO, "hooks/agentisland-status.sh")
+# Every agent CLI runs a hook command through a shell, so a repo cloned to a path with a
+# space in it registered a command that split into two words and never ran. shlex.quote is a
+# no-op for ordinary paths, so existing installs are unchanged.
+def _cmd(name):
+    return shlex.quote(os.path.join(REPO, "hooks/" + name))
+
+
+HOOK       = _cmd("agentisland-hook.sh")
+PERM       = _cmd("agentisland-permission.sh")
+RULES      = _cmd("agentisland-rules.py")
+QUESTION   = _cmd("agentisland-question.py")
+STATUSLINE = os.path.join(REPO, "hooks/agentisland-status.sh")   # quoted where it is used
 
 MARK = "agentisland"          # how we recognise our own entries
 STATE = os.path.expanduser("~/.agentisland")
@@ -30,6 +37,14 @@ def backup(path):
     dst = f"{path}.backup.agentisland.{time.strftime('%Y-%m-%dT%H-%M-%SZ', time.gmtime())}"
     shutil.copy2(path, dst)
     return dst
+
+
+def save(path, cfg):
+    """Write-then-rename: a kill or full disk mid-write must never leave settings truncated."""
+    tmp = path + ".agentisland.tmp"
+    with open(tmp, "w") as f:
+        json.dump(cfg, f, indent=2)
+    os.replace(tmp, path)
 
 
 def load(path):
@@ -49,7 +64,9 @@ def add_hook(cfg, event, command, *, first=False, matcher=None, timeout=None):
     # Drop our own entries for this script that point somewhere else. Matching on the exact
     # command string meant a moved or re-cloned repo registered a second copy beside the first,
     # so every hook fired twice and dead paths accumulated.
-    script = os.path.basename(command.split()[-1])
+    # shlex.split, not split: a quoted path (one containing a space) would otherwise
+    # keep its closing quote and match nothing, resurrecting the duplicate-entry bug.
+    script = os.path.basename(shlex.split(command)[-1])
     kept = [e for e in entries
             if not (MARK in json.dumps(e) and script in json.dumps(e)
                     and command not in json.dumps(e))]
@@ -69,6 +86,10 @@ def add_hook(cfg, event, command, *, first=False, matcher=None, timeout=None):
 
 
 def install(name, path, plan, statusline=False):
+    probe = load(path)
+    if probe is not None and not isinstance(probe.get("hooks", {}), dict):
+        print(f"  {name}: 'hooks' is not an object — leaving this file alone")
+        return
     cfg = load(path)
     if cfg is None:
         return
@@ -92,7 +113,7 @@ def install(name, path, plan, statusline=False):
         if not entries:
             del cfg["hooks"][event]
 
-    want_status = f"bash {STATUSLINE}"
+    want_status = f"bash {shlex.quote(STATUSLINE)}"
     have_status = json.dumps(cfg.get("statusLine", {}))
     if statusline and MARK in have_status and want_status not in have_status:
         cfg["statusLine"] = {"type": "command", "command": want_status}   # ours, but stale path
@@ -100,13 +121,15 @@ def install(name, path, plan, statusline=False):
     elif statusline and MARK not in have_status:
         # Wrap, do not replace: remember whatever was there so the wrapper can run it and the
         # uninstaller can hand it back exactly. Only the conventional path survived before this.
+        if isinstance(cfg.get("statusLine"), str) and cfg["statusLine"].strip():
+            cfg["statusLine"] = {"type": "command", "command": cfg["statusLine"]}
         if isinstance(cfg.get("statusLine"), dict) and cfg["statusLine"].get("command"):
             os.makedirs(STATE, exist_ok=True)
             with open(os.path.join(STATE, "prev-statusline.json"), "w") as f:
                 json.dump(cfg["statusLine"], f)
             with open(os.path.join(STATE, "prev-statusline"), "w") as f:
                 f.write(cfg["statusLine"]["command"])   # plain text: the wrapper runs it as-is
-        cfg["statusLine"] = {"type": "command", "command": f"bash {STATUSLINE}"}
+        cfg["statusLine"] = {"type": "command", "command": f"bash {shlex.quote(STATUSLINE)}"}
         changed += 1
 
     if json.dumps(cfg, sort_keys=True) == before:
@@ -115,8 +138,7 @@ def install(name, path, plan, statusline=False):
 
     b = backup(path)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(cfg, f, indent=2)
+    save(path, cfg)
     print(f"  {name}: added {changed} entr{'y' if changed == 1 else 'ies'}"
           f"  ({foreign} other tools' hooks preserved)")
     if b:
@@ -168,8 +190,7 @@ if os.path.isdir(os.path.expanduser("~/.cursor")):
             added += 1
         if added:
             b = backup(cursor_path)
-            with open(cursor_path, "w") as f:
-                json.dump(cfg, f, indent=2)
+            save(cursor_path, cfg)
             print(f"  Cursor: added {added} entries  ({foreign} other tools' hooks preserved)")
             if b:
                 print(f"    backup: {b}")

@@ -552,7 +552,9 @@ check("hook-reported pids are resolved once per session",
 st5=open(os.path.join(REPO,"Sources/AgentIsland/AgentStore.swift")).read()
 check("discovery falls back to the hook binding only when argv could not bind",
       "guard a.pid == nil, let p = fromHooks[a.sessionId]" in st5)
-check("a hook-reported pid is checked to still exist", "Proc.all()[Int32(p)] != nil" in st5)
+# Existence is not identity — a reused pid must not inherit a dead session's binding.
+check("a hook-reported pid is checked to still BE an agent",
+      '["claude", "codex", "cursor-agent", "agent"].contains(c)' in st5)
 
 print("\n=== 9m. pick the agent the header reports on ===")
 vw5=open(os.path.join(REPO,"Sources/AgentIsland/Views.swift")).read()
@@ -867,6 +869,78 @@ check("a sandboxed uninstall left the live spool alone",
       os.path.exists("/tmp/agentisland-events.jsonl") or True)  # spool may legitimately be absent
 un2 = open(os.path.join(REPO, "scripts/uninstall-hooks.py")).read()
 check("runtime cleanup is skippable for test harnesses", "AGENTISLAND_KEEP_RUNTIME" in un2)
+
+# Hostile and unusual configs, found by an adversarial review of the installer surface.
+def _fresh_home(settings):
+    h = RUN + "-hostile-" + str(abs(hash(json.dumps(settings))) % 99999)
+    os.makedirs(h + "/.claude", exist_ok=True)
+    with open(h + "/.claude/settings.json", "w") as f:
+        json.dump(settings, f)
+    return h
+
+def _run(script, home, *args):
+    return subprocess.run([sys.executable, os.path.join(REPO, "scripts", script), *args],
+                          capture_output=True, text=True, timeout=60,
+                          env=dict(os.environ, HOME=home, AGENTISLAND_KEEP_RUNTIME="1"))
+
+# A 'hooks' key that is not an object must abort that file, not crash or eat the config.
+_hh = _fresh_home({"hooks": "not-an-object"})
+_r = _run("install-hooks.py", _hh, REPO)
+check("a non-object hooks key is refused, not crashed on",
+      _r.returncode == 0 and "Traceback" not in _r.stderr
+      and json.load(open(_hh + "/.claude/settings.json")) == {"hooks": "not-an-object"})
+
+# A statusLine given as a bare string is still someone's config.
+_hs = _fresh_home({"statusLine": "bash /opt/mine/status.sh"})
+_run("install-hooks.py", _hs, REPO)
+check("a string statusLine is preserved, not overwritten",
+      open(_hs + "/.agentisland/prev-statusline").read() == "bash /opt/mine/status.sh")
+_run("uninstall-hooks.py", _hs)
+check("a string statusLine is handed back on uninstall",
+      json.load(open(_hs + "/.claude/settings.json")).get("statusLine", {}).get("command")
+      == "bash /opt/mine/status.sh")
+
+# Uninstall must not delete foreign entries just because they carry no hooks array.
+_hm = _fresh_home({"hooks": {"PreToolUse": [{"matcher": "Bash"}]}})
+_run("install-hooks.py", _hm, REPO)
+_ru = _run("uninstall-hooks.py", _hm)
+_left = json.load(open(_hm + "/.claude/settings.json")).get("hooks", {}).get("PreToolUse", [])
+check("uninstall keeps a foreign entry that has no hooks array",
+      _ru.returncode == 0 and {"matcher": "Bash"} in _left)
+check("uninstall removes every one of ours", "agentisland" not in json.dumps(_left))
+
+# Config writes are atomic: a truncated settings.json needs a manual restore to recover.
+_ins2 = open(os.path.join(REPO, "scripts/install-hooks.py")).read()
+_un3 = open(os.path.join(REPO, "scripts/uninstall-hooks.py")).read()
+check("configs are written by rename, never truncate-in-place",
+      "os.replace(tmp, path)" in _ins2 and "os.replace(tmp, path)" in _un3
+      and 'open(path, "w")' not in _ins2 and 'open(path, "w")' not in _un3)
+
+# A repo path containing a space produced a hook command that split into two words.
+check("hook commands are shell-quoted", "shlex.quote" in _ins2)
+
+# Quoting the paths broke the stale-entry match that reads the command back, so a repo under
+# a path with a space registered duplicates again. Both halves have to work together.
+import shutil as _sh2
+_sp1, _sp2 = RUN + "-sp one", RUN + "-sp two"
+for _d in (_sp1, _sp2):
+    os.makedirs(_d, exist_ok=True)
+    for _sub in ("hooks", "scripts"):
+        _sh2.copytree(os.path.join(REPO, _sub), os.path.join(_d, _sub), dirs_exist_ok=True)
+_sph = _fresh_home({})
+_run("install-hooks.py", _sph, _sp1)
+_run("install-hooks.py", _sph, _sp2)
+_spc = [h["command"] for _e, _i in
+        json.load(open(_sph + "/.claude/settings.json")).get("hooks", {}).items()
+        for _it in _i for h in _it.get("hooks", []) if "agentisland" in h.get("command", "")]
+check("a repo path with spaces installs and re-installs cleanly",
+      len(_spc) == 12 and not any(_sp1 in c for c in _spc), f"{len(_spc)} entries")
+
+
+# A session id becomes a filename; a path inside it escaped the status directory.
+_sh = open(os.path.join(REPO, "hooks/agentisland-status.sh")).read()
+check("session id is sanitised before it becomes a path", "tr -cd" in _sh)
+
 
 for name,p in [("claude","~/.claude/settings.json"),("codex","~/.codex/hooks.json")]:
     fp=os.path.expanduser(p)

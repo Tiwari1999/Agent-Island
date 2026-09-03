@@ -10,6 +10,14 @@ import json, os, shutil, time
 MARK = "agentisland"
 
 
+def save(path, cfg):
+    """Write-then-rename: a kill or full disk mid-write must never leave settings truncated."""
+    tmp = path + ".agentisland.tmp"
+    with open(tmp, "w") as f:
+        json.dump(cfg, f, indent=2)
+    os.replace(tmp, path)
+
+
 def clean(name, path):
     if not os.path.exists(path):
         print(f"  {name}: no config, nothing to do")
@@ -25,6 +33,9 @@ def clean(name, path):
     for event, entries in cfg.get("hooks", {}).items():
         survivors = []
         for entry in entries:
+            if not isinstance(entry, dict) or "hooks" not in entry:
+                survivors.append(entry)   # not ours, whatever shape it is — keep it
+                continue
             hooks = [h for h in entry.get("hooks", []) if MARK not in json.dumps(h)]
             removed += len(entry.get("hooks", [])) - len(hooks)
             if hooks:
@@ -54,8 +65,7 @@ def clean(name, path):
     shutil.copy2(path, f"{path}.backup.agentisland-uninstall."
                        f"{time.strftime('%Y-%m-%dT%H-%M-%SZ', time.gmtime())}")
     cfg["hooks"] = kept
-    with open(path, "w") as f:
-        json.dump(cfg, f, indent=2)
+    save(path, cfg)
     print(f"  {name}: removed {removed} hook(s)"
           + (", restored statusLine" if sl else "")
           + f"; {sum(len(e.get('hooks', [])) for ev in kept.values() for e in ev)} other hooks left intact")
@@ -89,8 +99,7 @@ def clean_cursor(path):
     shutil.copy2(path, f"{path}.backup.agentisland-uninstall."
                        f"{time.strftime('%Y-%m-%dT%H-%M-%SZ', time.gmtime())}")
     cfg["hooks"] = kept
-    with open(path, "w") as f:
-        json.dump(cfg, f, indent=2)
+    save(path, cfg)
     print(f"  Cursor: removed {removed} hook(s); "
           f"{sum(len(v) for v in kept.values())} other hooks left intact")
 

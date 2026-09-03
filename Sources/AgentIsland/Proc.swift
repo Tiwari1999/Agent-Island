@@ -8,6 +8,12 @@ private func proc_pidinfo(_ pid: Int32, _ flavor: Int32, _ arg: UInt64,
 /// The process table via syscalls: pgrep, lsof and ps cost a fork+exec each, every refresh,
 /// forever — sysctl and libproc answer the same questions in microseconds with zero spawns.
 enum Proc {
+    /// Does this pid still exist? signal 0 tests existence without delivering anything.
+    /// EPERM means it exists and belongs to someone else — only ESRCH means gone.
+    static func alive(_ pid: Int) -> Bool {
+        kill(Int32(pid), 0) == 0 || errno == EPERM
+    }
+
     /// pid → parent pid, for walking up from a hook's shell to the agent that ran it.
     static func parents() -> [Int32: Int32] {
         var out: [Int32: Int32] = [:]

@@ -5,6 +5,7 @@ PAYLOAD=$(cat)
 DIR="${AGENTISLAND_STATUS_DIR:-/tmp/agentisland-status}"
 mkdir -p "$DIR" 2>/dev/null
 SID=$(printf '%s' "$PAYLOAD" | /usr/bin/sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+SID=$(printf '%s' "$SID" | /usr/bin/tr -cd 'A-Za-z0-9_-')   # a filename, never a path
 [ -n "$SID" ] && printf '%s' "$PAYLOAD" > "$DIR/$SID.json" 2>/dev/null
 printf '%s' "$PAYLOAD" > /tmp/agentisland-status.json 2>/dev/null
 # Chain to whatever statusline was configured before us, saved verbatim at install time.
