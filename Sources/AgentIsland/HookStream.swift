@@ -44,6 +44,9 @@ struct LiveState {
 /// Tails the hook spool. Hooks append one JSON line per event; the file is the whole IPC.
 final class HookStream: ObservableObject {
     static let spool = "/tmp/agentisland-events.jsonl"
+    private static let replayBytes: UInt64 = 1 << 20
+    /// Hooks are wired in, so silence from a session means idle, not unknown.
+    static private(set) var covering = false
 
     @Published private(set) var live: [String: LiveState] = [:]
     /// Sessions that DIED rather than finished — a rate-limited run currently looks identical
@@ -74,7 +77,13 @@ final class HookStream: ObservableObject {
         }
         guard let h = FileHandle(forReadingAtPath: Self.spool) else { return }
         handle = h
-        offset = (try? h.seekToEnd()) ?? 0
+        Self.covering = Setup.hooksInstalled()
+        // Replay the recent spool instead of starting blind: seeking to the end forgot every
+        // pid binding and Stop on restart, so idle sessions fell back to the mtime guess and
+        // showed as running until their next real event.
+        let end = (try? h.seekToEnd()) ?? 0
+        offset = end > Self.replayBytes ? end - Self.replayBytes : 0
+        drain(replay: true)
 
         let src = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: h.fileDescriptor, eventMask: [.extend, .write],
@@ -84,7 +93,7 @@ final class HookStream: ObservableObject {
         source = src
     }
 
-    private func drain() {
+    private func drain(replay: Bool = false) {
         guard let h = handle else { return }
         h.seek(toFileOffset: offset)
         let data = h.readDataToEndOfFile()
@@ -103,6 +112,9 @@ final class HookStream: ObservableObject {
             guard let d = line.data(using: .utf8),
                   var obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any]
             else { continue }
+
+            let stamp = (obj["ai_ts"] as? NSNumber).map {
+                Date(timeIntervalSince1970: $0.doubleValue) }
 
             if let qid = obj["ap_question_id"] as? String,
                let opts = obj["options"] as? [String], !opts.isEmpty {
@@ -158,7 +170,7 @@ final class HookStream: ObservableObject {
                 planUpdates[session] = Plan(markdown: p, at: Date())
             }
             var state = updates[session] ?? carried[session] ?? LiveState()
-            state.at = Date()
+            state.at = stamp ?? (replay ? .distantPast : Date())
 
             switch event {
             case "PreToolUse", "PostToolUse":
@@ -223,6 +235,7 @@ final class HookStream: ObservableObject {
             }
             updates[session] = state
         }
+        if replay { attention = []; approvals = []; questions = [] }
         guard !updates.isEmpty || !attention.isEmpty || !approvals.isEmpty
                 || !questions.isEmpty || !fails.isEmpty || !revived.isEmpty
                 || !planUpdates.isEmpty || !pidUpdates.isEmpty else { return }

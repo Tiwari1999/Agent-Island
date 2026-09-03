@@ -251,16 +251,26 @@ enum PromptCheck {
                                    status: nil, pid: 1), live: nil), false,
              "idle without hooks stays idle"),
         ]
-        // A stale "active" is a turn that ended without a Stop, not work in progress.
-        let stale = AgentRow(agent: busy,
-                             live: LiveState(tool: "Bash", detail: "x", waiting: false,
-                                             at: Date(timeIntervalSinceNow: -200), active: true))
-        if stale.isWorking {
+        // A stale "active" cuts two ways, and the transcript is the disambiguator: still
+        // growing means a long generation between tool calls (shown idle mid-run before);
+        // gone quiet means a turn that ended without its Stop.
+        let staleLive = LiveState(tool: "Bash", detail: "x", waiting: false,
+                                  at: Date(timeIntervalSinceNow: -200), active: true)
+        let generating = AgentRow(agent: busy, live: staleLive)
+        if !generating.isWorking {
             failed += 1
-            FileHandle.standardError.write("FAIL a 200s-old active claim must not count\n"
+            FileHandle.standardError.write("FAIL an open turn with a live transcript is work\n"
                                            .data(using: .utf8)!)
         }
-        if stale.activity != nil {
+        let abandoned = AgentRow(agent: Agent(sessionId: "a", name: nil, cwd: nil,
+                                              state: "idle", status: nil, pid: 1),
+                                 live: staleLive)
+        if abandoned.isWorking {
+            failed += 1
+            FileHandle.standardError.write("FAIL an open turn with a dead transcript is not\n"
+                                           .data(using: .utf8)!)
+        }
+        if abandoned.activity != nil {
             failed += 1
             FileHandle.standardError.write("FAIL finished work must not read as activity\n"
                                            .data(using: .utf8)!)

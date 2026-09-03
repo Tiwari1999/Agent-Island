@@ -501,6 +501,7 @@ struct PanelView: View {
             Image(systemName: "bolt.horizontal.fill")
                 .font(.system(size: 9)).foregroundColor(Theme.agentTint)
             Text(v.label).font(Theme.label(10)).foregroundColor(Theme.text)
+                .lineLimit(1).fixedSize(horizontal: true, vertical: false)   // never wrap the name
             if many {
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 7)).foregroundColor(Theme.faint)

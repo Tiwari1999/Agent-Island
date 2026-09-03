@@ -124,7 +124,19 @@ struct AgentRow: Identifiable {
         // every few seconds: a claim this old is a turn that ended without a final Stop, not
         // work still running. Only a session with no hook data at all falls back to the
         // vendor's own guess, which for Claude is the transcript's mtime.
-        if let l = live { return l.active && Date().timeIntervalSince(l.at) < 90 }
+        if let l = live {
+            // Stop and idle_prompt are authoritative: a finished turn is idle, whatever the
+            // transcript's mtime does afterwards (compaction, a queued prompt).
+            guard l.active else { return false }
+            if Date().timeIntervalSince(l.at) < 90 { return true }
+            // A turn that began and has not stopped can stream for minutes between tool
+            // calls with no hook event at all — this session doing exactly that was shown
+            // idle mid-run. While the turn is open, the transcript still growing is work.
+            return agent.isWorking
+        }
+        // No hook data at all, but hooks are wired in: a working agent reports within
+        // seconds, so silence means idle rather than unknown.
+        if agent.vendor == .claude, HookStream.covering { return false }
         return agent.isWorking
     }
 
@@ -289,7 +301,15 @@ final class AgentStore: ObservableObject {
         guard Date().timeIntervalSince(costsAt) > minInterval else { return }
         costsAt = Date()
         DispatchQueue.global(qos: .utility).async { [weak self] in
+            let began = Date()
             let t = Costs.scan()
+            let today = Costs.today(t)
+            Diagnostics.log(String(format: "costs: %@ %.2fs $%.2f %d tok across %d model(s)",
+                                   Costs.day(of: Date()), Date().timeIntervalSince(began),
+                                   today.values.reduce(0) { $0 + $1.cost },
+                                   today.values.reduce(0) { $0 + $1.input + $1.output
+                                                              + $1.cacheRead + $1.cacheWrite },
+                                   today.count))
             Task { @MainActor in self?.costTable = t }
         }
     }

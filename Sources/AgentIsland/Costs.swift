@@ -45,8 +45,20 @@ enum Costs {
                   + Double(l.cacheRead) * p.cr + Double(l.cacheWrite) * p.cw) / 1_000_000
     }
 
-    // Per-file results survive between scans; an unchanged transcript cannot change its totals.
-    private static var cache: [String: (mtime: Date, days: Table)] = [:]
+    // Per-file results survive between scans; an unchanged transcript cannot change its totals,
+    // and a changed one only ever grew, so `consumed` marks how far we have already read.
+    private static var cache: [String: (mtime: Date, consumed: Int, days: Table)] = [:]
+
+    /// The bytes appended since the last scan, cut at the final newline so a half-written entry
+    /// waits for the next pass instead of being parsed in two halves.
+    private static func appended(path: String, from: Int) -> (text: String, consumed: Int)? {
+        guard let fh = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? fh.close() }
+        if from > 0 { try? fh.seek(toOffset: UInt64(from)) }
+        guard let data = try? fh.readToEnd(), let nl = data.lastIndex(of: 0x0A) else { return nil }
+        let whole = data[..<data.index(after: nl)]
+        return (String(decoding: whole, as: UTF8.self), from + whole.count)
+    }
     private static let lock = NSLock()
 
     /// Everything since the first of the current month, by day and model.
@@ -57,18 +69,7 @@ enum Costs {
         var out = Table()
         var seen = Set<String>()
 
-        func fold(_ path: String, _ parse: (String) -> Table) {
-            guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
-                  let mtime = attrs[.modificationDate] as? Date, mtime >= monthStart
-            else { return }
-            seen.insert(path)
-            let days: Table
-            if let hit = cache[path], hit.mtime == mtime {
-                days = hit.days
-            } else {
-                days = parse(path)
-                cache[path] = (mtime, days)
-            }
+        func merge(_ days: Table) {
             for (day, models) in days {
                 for (model, line) in models {
                     out[day, default: [:]][model, default: Line()].add(line)
@@ -76,17 +77,54 @@ enum Costs {
             }
         }
 
+        func stat(_ path: String) -> (Date, Int)? {
+            guard let a = try? FileManager.default.attributesOfItem(atPath: path),
+                  let mtime = a[.modificationDate] as? Date, mtime >= monthStart else { return nil }
+            return (mtime, (a[.size] as? NSNumber)?.intValue ?? 0)
+        }
+
+        // Claude: append-only, and every entry carries its own usage, so the totals of the bytes
+        // already read can never change. Re-reading whole transcripts cost 8s a scan.
+        func foldClaude(_ path: String) {
+            guard let (mtime, size) = stat(path) else { return }
+            seen.insert(path)
+            var days = cache[path]?.days ?? Table()
+            var from = cache[path]?.consumed ?? 0
+            if size < from { days = Table(); from = 0 }        // rewritten rather than appended
+            if size > from, let add = appended(path: path, from: from) {
+                for (day, models) in claudeDays(text: add.text) {
+                    for (model, line) in models {
+                        days[day, default: [:]][model, default: Line()].add(line)
+                    }
+                }
+                from = add.consumed
+            }
+            cache[path] = (mtime, from, days)
+            merge(days)
+        }
+
+        // Codex publishes one running total per session rather than per-turn deltas, so its file
+        // has to be read as a whole. It is already bounded to a few hundred KB.
+        func foldCodex(_ path: String) {
+            guard let (mtime, _) = stat(path) else { return }
+            seen.insert(path)
+            if let hit = cache[path], hit.mtime == mtime { merge(hit.days); return }
+            let days = codexDays(path: path)
+            cache[path] = (mtime, 0, days)
+            merge(days)
+        }
+
         let fm = FileManager.default
         let projects = Home.path + "/.claude/projects"
         for dir in (try? fm.contentsOfDirectory(atPath: projects)) ?? [] {
             for f in (try? fm.contentsOfDirectory(atPath: "\(projects)/\(dir)")) ?? []
             where f.hasSuffix(".jsonl") {
-                fold("\(projects)/\(dir)/\(f)", claudeDays)
+                foldClaude("\(projects)/\(dir)/\(f)")
             }
         }
         if let e = fm.enumerator(atPath: Home.path + "/.codex/sessions") {
             for case let f as String in e where f.hasSuffix(".jsonl") {
-                fold(Home.path + "/.codex/sessions/" + f, codexDays)
+                foldCodex(Home.path + "/.codex/sessions/" + f)
             }
         }
         cache = cache.filter { seen.contains($0.key) }
@@ -94,9 +132,8 @@ enum Costs {
     }
 
     /// One Claude transcript. Every assistant turn carries its own usage and model.
-    private static func claudeDays(path: String) -> Table {
+    private static func claudeDays(text: String) -> Table {
         var out = Table()
-        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return out }
         for line in text.split(whereSeparator: \.isNewline) {
             guard line.contains("\"usage\""), line.contains("\"model\""),
                   let data = line.data(using: .utf8),

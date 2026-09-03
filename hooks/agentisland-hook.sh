@@ -5,5 +5,5 @@ IFS= read -r -d '' INPUT
 [ -z "$INPUT" ] && exit 0
 # $PPID is a shell builtin: the island walks up from it to find the agent process, which is
 # the only way to bind a brand-new session (one started without --resume) to its terminal.
-printf '{"ai_ppid":%s,"payload":%s}\n' "$PPID" "${INPUT//$'\n'/}" >> "$SPOOL" 2>/dev/null
+printf '{"ai_ppid":%s,"ai_ts":%s,"payload":%s}\n' "$PPID" "$(date +%s)" "${INPUT//$'\n'/}" >> "$SPOOL" 2>/dev/null
 exit 0
