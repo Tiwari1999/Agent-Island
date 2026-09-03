@@ -39,6 +39,9 @@ struct LiveState {
     /// Whether the agent is mid-turn. Hooks know this exactly; the transcript's mtime does not,
     /// because finishing a turn writes to the transcript too.
     var active = true
+    /// A PreToolUse with no PostToolUse yet: the tool is still executing, however long it
+    /// takes, and neither hooks nor the transcript will say anything more until it returns.
+    var inTool = false
 }
 
 /// Tails the hook spool. Hooks append one JSON line per event; the file is the whole IPC.
@@ -192,6 +195,7 @@ final class HookStream: ObservableObject {
             switch event {
             case "PreToolUse", "PostToolUse":
                 revived.insert(session)
+                state.inTool = event == "PreToolUse"
                 // Cursor's shell hooks name no tool and put the command at the top level, so
                 // reading the fields literally blanked the row for the whole run. An event we
                 // cannot read leaves the last known activity alone rather than erasing it.
@@ -216,6 +220,7 @@ final class HookStream: ObservableObject {
                 if kind == "idle_prompt" {
                     // Sitting at a prompt is the clearest "not working" signal there is.
                     state.waiting = false
+                    state.inTool = false
                     state.tool = nil
                     state.detail = nil
                     state.active = false
@@ -228,24 +233,28 @@ final class HookStream: ObservableObject {
                 // StopFailure also fires on ordinary non-clean stops (an interrupt, for example)
                 // with no error_type at all. Only a named failure — rate_limit, overloaded,
                 // billing_error — actually means the session died.
+                state.inTool = false        // however it stopped, no tool is running now
                 guard let why = obj["error_type"] as? String, !why.isEmpty else {
                     state.waiting = false
                     break
                 }
                 fails[session] = why
                 state.waiting = false
+                state.active = false        // a dead session is not mid-turn
                 state.detail = "died: \(why)"
                 attention.append((session, "died: \(why)", true))
             case "Stop", "SessionEnd":
                 // Only announce a finish that followed real work, not an idle re-stop.
                 if state.tool != nil { attention.append((session, "finished", false)) }
                 state.waiting = false
+                state.inTool = false
                 state.tool = nil
                 state.detail = nil
                 state.active = false
             case "UserPromptSubmit":
                 revived.insert(session)
                 state.active = true
+                state.inTool = false        // a new turn begins with no tool open
                 state.waiting = false
                 state.detail = "thinking"
             default: break

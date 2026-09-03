@@ -17,11 +17,6 @@ struct CollapsedView: View {
     static let notchMargin: CGFloat = 14
     /// Live agent activity stays visible at rest — that ambient view is the point of the bar,
     /// and hiding it behind a hover made the island useless at a glance.
-    static let sideWidth: CGFloat = 148
-
-    /// At rest with nothing running the bar shrinks, so a permanent idle state cannot crowd
-    /// the menu bar beside the notch. Hover or any activity restores the full cluster.
-    static let restingSide: CGFloat = 72
 
     /// The two sides are not equal: the right holds three short numbers, the left holds a
     /// sentence. Splitting the same total 210/86 instead of 148/148 buys the sentence room
@@ -38,9 +33,6 @@ struct CollapsedView: View {
         // pulse + avatar + gaps, then roughly one glyph width per character of activity.
         let needed = 46 + CGFloat(min((text ?? "").count, 30)) * 5.8
         return (max(112, min(210, needed)), 86)
-    }
-    static func side(revealed: Bool, quiet: Bool = false) -> CGFloat {
-        sides(revealed: revealed, quiet: quiet).left
     }
 
     /// The limit belonging to the agent this person actually uses, measured by how much of the

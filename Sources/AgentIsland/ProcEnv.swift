@@ -8,7 +8,6 @@ enum ProcEnv {
     /// The environment facts that identify where an agent is running and how to reach it.
     struct Info {
         var focusURL: String?          // Warp
-        var sessionUUID: String?       // Warp
         var itermSession: String?      // iTerm2
         var appleSession: String?      // Terminal.app
         var kittyWindow: String?       // kitty
@@ -20,7 +19,6 @@ enum ProcEnv {
         /// From argv (`claude --resume <id>`): the exact session this process is running.
         var resumeSession: String?
     }
-    typealias Warp = Info
 
     private static var cache: [Int: Info] = [:]
     private static let lock = NSLock()
@@ -42,7 +40,6 @@ enum ProcEnv {
                 if a == "--resume" || a == "-r" { wantsResume = true }
             }
             i.focusURL = ae.env["WARP_FOCUS_URL"]
-            i.sessionUUID = ae.env["WARP_TERMINAL_SESSION_UUID"]
             i.itermSession = ae.env["ITERM_SESSION_ID"]
             i.appleSession = ae.env["TERM_SESSION_ID"]
             i.kittyWindow = ae.env["KITTY_WINDOW_ID"]

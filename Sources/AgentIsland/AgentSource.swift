@@ -285,6 +285,14 @@ enum PromptCheck {
         let tiers = [(AgentStore.tier(waitRow), 0, "a blocked agent outranks everything"),
                      (AgentStore.tier(workRow), 1, "working sits between"),
                      (AgentStore.tier(idleRow), 2, "idle sinks to the bottom")]
+        let diedMidTool = AgentRow(agent: busy,
+                                   live: LiveState(at: Date(timeIntervalSinceNow: -300),
+                                                   active: false, inTool: true))
+        if diedMidTool.isWorking {
+            failed += 1
+            FileHandle.standardError.write("FAIL a dead session with a stuck tool is not work\n"
+                                           .data(using: .utf8)!)
+        }
         for (got, want, why) in tiers where got != want {
             failed += 1
             FileHandle.standardError.write("FAIL tier \(why)\n".data(using: .utf8)!)

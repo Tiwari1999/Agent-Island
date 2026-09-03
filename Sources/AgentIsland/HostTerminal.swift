@@ -60,10 +60,7 @@ enum HostTerminal: Equatable {
         }
     }
 
-    var canReach: Bool {
-        if case .unknown = self { return false }
-        return true
-    }
+    var canReach: Bool { self != .unknown }
 
     static func resolve(pid: Int) -> HostTerminal {
         let i = ProcEnv.info(pid: pid)

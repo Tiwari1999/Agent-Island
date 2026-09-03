@@ -13,12 +13,11 @@ import CoreServices
 final class SourceWatcher {
     private var stream: FSEventStreamRef?
     private let paths: [String]
-    private let latency: TimeInterval
+    private let latency: TimeInterval = 2.0
     private let onChange: () -> Void
 
-    init(paths: [String], latency: TimeInterval = 2.0, onChange: @escaping () -> Void) {
+    init(paths: [String], onChange: @escaping () -> Void) {
         self.paths = paths.filter { FileManager.default.fileExists(atPath: $0) }
-        self.latency = latency
         self.onChange = onChange
     }
 

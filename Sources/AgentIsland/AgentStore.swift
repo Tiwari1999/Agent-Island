@@ -2,7 +2,7 @@ import AppKit
 import Combine
 import Foundation
 
-struct Agent: Identifiable, Decodable {
+struct Agent: Identifiable {
     let sessionId: String
     let name: String?
     let cwd: String?
@@ -23,9 +23,6 @@ struct Agent: Identifiable, Decodable {
     /// Set when this session lives on a machine reached over ssh.
     var remoteHost: String?
 
-    enum CodingKeys: String, CodingKey {
-        case sessionId, name, cwd, state, status, pid
-    }
 
     init(sessionId: String, name: String?, cwd: String?, state: String?, status: String?,
          pid: Int?, vendor: Vendor = .claude, lastActiveOverride: Date? = nil,
@@ -128,6 +125,9 @@ struct AgentRow: Identifiable {
             // Stop and idle_prompt are authoritative: a finished turn is idle, whatever the
             // transcript's mtime does afterwards (compaction, a queued prompt).
             guard l.active else { return false }
+            // An open tool call is work for as long as it runs: a build or test suite can go
+            // minutes with no hook event and no transcript growth at all.
+            if l.inTool { return true }
             if Date().timeIntervalSince(l.at) < 90 { return true }
             // A turn that began and has not stopped can stream for minutes between tool
             // calls with no hook event at all — this session doing exactly that was shown
@@ -444,7 +444,8 @@ final class AgentStore: ObservableObject {
                     }
                     .map { AgentRow(agent: $0.0,
                                     live: self.hooks.live[$0.0.sessionId].flatMap {
-                                        Date().timeIntervalSince($0.at) < Self.liveWindow ? $0 : nil },
+                                        $0.inTool || Date().timeIntervalSince($0.at) < Self.liveWindow
+                                            ? $0 : nil },
                                     warpURL: $0.1, host: $0.3, lastActive: $0.2,
                                     aiTitle: $0.0.titleOverride
                                         ?? Titles.title(for: $0.0.sessionId, cwd: $0.0.cwd),
@@ -503,7 +504,7 @@ final class AgentStore: ObservableObject {
         rows = rows.map { row in
             var r = row
             if let l = hooks.live[row.agent.sessionId],
-               now.timeIntervalSince(l.at) < Self.liveWindow {
+               l.inTool || now.timeIntervalSince(l.at) < Self.liveWindow {
                 r.live = l
                 if l.at > (r.lastActive ?? .distantPast) { r.lastActive = l.at }
             } else {

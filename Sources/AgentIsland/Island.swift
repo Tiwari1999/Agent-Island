@@ -242,11 +242,14 @@ final class Island: NSObject, ObservableObject {
             return
         }
         let mouse = NSEvent.mouseLocation
-        var live = hotRect
-        if state == .expanded { live = panelRect.union(hotRect) }
-        if case .peek = state { live = peekRect.union(hotRect) }
-        if case .approval = state { live = approvalRect.union(hotRect) }
-        if case .question = state { live = questionRect.union(hotRect) }
+        let live: NSRect
+        switch state {
+        case .collapsed: return   // handled above; keeps the switch total
+        case .expanded: live = panelRect.union(hotRect)
+        case .peek:     live = peekRect.union(hotRect)
+        case .approval: live = approvalRect.union(hotRect)
+        case .question: live = questionRect.union(hotRect)
+        }
         window.ignoresMouseEvents = !live.insetBy(dx: -4, dy: -4).contains(mouse)
     }
 
@@ -502,9 +505,6 @@ private struct RootView: View {
     @ObservedObject var store: AgentStore
     @ObservedObject var status: StatusStore
 
-    /// The bar is always on screen; with nothing running it shrinks to a quiet "idle" rather
-    /// than fading to nothing, so the notch reads as calm instead of dead.
-    private var visible: Bool { true }
 
     /// Nothing running, nothing waiting, pointer elsewhere.
     private var quiet: Bool {
@@ -594,8 +594,6 @@ private struct RootView: View {
                 }
             }
             .frame(width: shellWidth, height: shellHeight)
-            .opacity(visible ? 1 : 0)
-            .animation(.easeOut(duration: 0.16), value: visible)
             .contentShape(NotchShape(radius: corner))
 
             Spacer(minLength: 0)
