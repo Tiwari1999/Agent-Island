@@ -86,11 +86,28 @@ final class HookStream: ObservableObject {
         drain(replay: true)
 
         let src = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: h.fileDescriptor, eventMask: [.extend, .write],
+            fileDescriptor: h.fileDescriptor, eventMask: [.extend, .write, .delete, .rename],
             queue: DispatchQueue.global(qos: .utility))
-        src.setEventHandler { [weak self] in self?.drain() }
+        src.setEventHandler { [weak self] in
+            guard let self else { return }
+            // If the spool is deleted or replaced, hooks recreate it as a new inode; keep
+            // watching the old fd and no event would ever arrive again. Reopen instead.
+            if self.source?.data.contains(.delete) == true
+                || self.source?.data.contains(.rename) == true {
+                DispatchQueue.main.async { self.restart() }
+            } else {
+                self.drain()
+            }
+        }
         src.resume()
         source = src
+    }
+
+    private func restart() {
+        source?.cancel(); source = nil
+        try? handle?.close(); handle = nil
+        offset = 0
+        start()
     }
 
     private func drain(replay: Bool = false) {

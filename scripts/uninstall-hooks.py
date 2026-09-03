@@ -97,12 +97,17 @@ def clean_cursor(path):
 
 clean_cursor(os.path.expanduser("~/.cursor/hooks.json"))
 
-for p in ["/tmp/agentisland-events.jsonl", "/tmp/agentisland.alive", "/tmp/agentisland.log",
-          "/tmp/agentisland-status.json"]:
-    if os.path.exists(p):
-        os.remove(p)
-for d in ["/tmp/agentisland-decisions", "/tmp/agentisland-status"]:
-    shutil.rmtree(d, ignore_errors=True)
-print("  removed runtime files from /tmp")
+# The runtime files are shared, absolute paths — a sandboxed test uninstalling against its
+# own HOME must not wipe the spool the user's running app is built on.
+if os.environ.get("AGENTISLAND_KEEP_RUNTIME"):
+    print("  kept runtime files (AGENTISLAND_KEEP_RUNTIME)")
+else:
+    for p in ["/tmp/agentisland-events.jsonl", "/tmp/agentisland.alive", "/tmp/agentisland.log",
+              "/tmp/agentisland-status.json"]:
+        if os.path.exists(p):
+            os.remove(p)
+    for d in ["/tmp/agentisland-decisions", "/tmp/agentisland-status"]:
+        shutil.rmtree(d, ignore_errors=True)
+    print("  removed runtime files from /tmp")
 print("\n  Left in place (yours, not ours): ~/.agentisland/rules.json")
 print("  Remove the app with: rm -rf ~/Applications/AgentIsland.app")

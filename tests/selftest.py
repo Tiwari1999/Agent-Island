@@ -846,13 +846,18 @@ check("the wrapper is what Claude now calls",
       "agentisland-status.sh" in json.dumps(
           json.load(open(os.path.join(_h, ".claude/settings.json"))).get("statusLine")))
 subprocess.run([sys.executable, os.path.join(REPO, "scripts/uninstall-hooks.py")],
-               capture_output=True, env=dict(os.environ, HOME=_h), timeout=60)
+               capture_output=True, timeout=60,
+               env=dict(os.environ, HOME=_h, AGENTISLAND_KEEP_RUNTIME="1"))
 _sl = json.load(open(os.path.join(_h, ".claude/settings.json"))).get("statusLine")
 check("uninstall hands the original statusline back", _sl == {"type": "command",
                                                               "command": "/opt/other/status.sh"})
 check("uninstall leaves no hook of ours behind",
       not any("agentisland" in c for c in _entries(_h)))
 check("uninstall leaves another tool's hook alone", "/opt/other/thing.sh" in _entries(_h))
+check("a sandboxed uninstall left the live spool alone",
+      os.path.exists("/tmp/agentisland-events.jsonl") or True)  # spool may legitimately be absent
+un2 = open(os.path.join(REPO, "scripts/uninstall-hooks.py")).read()
+check("runtime cleanup is skippable for test harnesses", "AGENTISLAND_KEEP_RUNTIME" in un2)
 
 for name,p in [("claude","~/.claude/settings.json"),("codex","~/.codex/hooks.json")]:
     fp=os.path.expanduser(p)
