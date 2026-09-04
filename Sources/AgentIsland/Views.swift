@@ -801,6 +801,12 @@ struct QuestionCard: View {
                     Image(systemName: "questionmark")
                         .font(.system(size: 11, weight: .bold)).foregroundColor(Theme.waiting)
                 }
+                // Which session is asking, before what it is asking: answering the wrong
+                // agent's question is worse than answering slowly.
+                if let p = question.project, p != agentName {
+                    Text(p).font(Theme.label(11)).foregroundColor(Theme.text).lineLimit(1)
+                    Text("·").font(Theme.label(11)).foregroundColor(Theme.faint)
+                }
                 Text(agentName).font(Theme.label(11)).foregroundColor(Theme.muted).lineLimit(1)
                 if !question.header.isEmpty {
                     Text(question.header)

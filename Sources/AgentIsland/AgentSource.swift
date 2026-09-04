@@ -262,12 +262,33 @@ enum PromptCheck {
             FileHandle.standardError.write("FAIL an open turn with a live transcript is work\n"
                                            .data(using: .utf8)!)
         }
+        // What ends an open turn is the process going away, not the transcript going quiet:
+        // a long generation writes nothing for minutes and is still very much working.
         let abandoned = AgentRow(agent: Agent(sessionId: "a", name: nil, cwd: nil,
-                                              state: "idle", status: nil, pid: 1),
+                                              state: "idle", status: nil, pid: 999_999),
                                  live: staleLive)
         if abandoned.isWorking {
             failed += 1
-            FileHandle.standardError.write("FAIL an open turn with a dead transcript is not\n"
+            FileHandle.standardError.write("FAIL an open turn on a dead process is not work\n"
+                                           .data(using: .utf8)!)
+        }
+        let quietButAlive = AgentRow(agent: Agent(sessionId: "q", name: nil, cwd: nil,
+                                                  state: "idle", status: nil, pid: 1),
+                                     live: staleLive)
+        if !quietButAlive.isWorking {
+            failed += 1
+            FileHandle.standardError.write("FAIL a long generation still counts as work\n"
+                                           .data(using: .utf8)!)
+        }
+        // An informational notification is news, not a question.
+        for kind in ["auth_success", "auth_failure", "update_success"] where !HookStream.informational(kind) {
+            failed += 1
+            FileHandle.standardError.write("FAIL \(kind) should not read as an ask\n"
+                                           .data(using: .utf8)!)
+        }
+        if HookStream.informational("permission_request") {
+            failed += 1
+            FileHandle.standardError.write("FAIL a real ask must not be filtered away\n"
                                            .data(using: .utf8)!)
         }
         if abandoned.activity != nil {

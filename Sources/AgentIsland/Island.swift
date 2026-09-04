@@ -136,10 +136,20 @@ final class Island: NSObject, ObservableObject {
                             body: "\(approval.tool): \(approval.detail)", key: approval.session)
         }
 
+        // A row that is blocked on a question answers it; jumping to the terminal would be
+        // answering the wrong way round.
+        store.onRowActivate = { [weak self] row in
+            guard let self else { return false }
+            guard let q = self.store.hooks.pendingQuestions[row.agent.sessionId],
+                  q.deadline > Date() else { return false }
+            self.ask(q)
+            return true
+        }
         store.hooks.onQuestion = { [weak self] question in
             guard let self else { return }
             self.ask(question)
-            let name = self.store.name(for: question.session) ?? "agent"
+            let name = self.store.name(for: question.session)
+                ?? question.project ?? "agent"
             Notifier.notify(title: name, body: question.text, key: question.session)
         }
 
@@ -467,10 +477,14 @@ final class Island: NSObject, ObservableObject {
             (Hotkeys.digits[i], Hotkeys.cmdOpt, { [weak self] in self?.choose(question, option: opt) })
         })
         withAnimation(.spring(response: 0.34, dampingFraction: 0.80)) { state = .question(question) }
+        // Keep the hook waiting while the card is on screen: it used to expire underneath the
+        // reader after 45 seconds, taking the only way to answer with it.
+        hold.begin(id: question.id)
         refreshHitRegion()
         let work = DispatchWorkItem { [weak self] in
             guard let self, case .question(let q) = self.state, q.id == question.id else { return }
             Hotkeys.shared.unbind()
+            self.hold.end()
             self.presentNext()
         }
         questionWork = work
@@ -480,6 +494,8 @@ final class Island: NSObject, ObservableObject {
 
     func choose(_ question: Question, option: String) {
         questionWork?.cancel()
+        hold.end()
+        store.hooks.clearQuestion(question.id)
         Hotkeys.shared.unbind()
         Approvals.answer(question, choice: option)
         presentNext()

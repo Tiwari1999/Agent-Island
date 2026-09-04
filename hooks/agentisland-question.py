@@ -19,6 +19,16 @@ def bail():
     sys.exit(0)
 
 
+def _held(hold, started, hard):
+    """A hold refreshed in the last 10s extends the wait, up to an absolute ceiling."""
+    if time.time() - started > hard:
+        return False
+    try:
+        return time.time() - os.path.getmtime(hold) < 10
+    except OSError:
+        return False
+
+
 def main():
     try:
         payload = json.load(sys.stdin)
@@ -74,8 +84,13 @@ def main():
         bail()
 
     path = os.path.join(DECISIONS, req_id)
-    deadline = time.time() + TIMEOUT
-    while time.time() < deadline:
+    hold = path + ".hold"
+    # The island refreshes <id>.hold while the card is on screen. Without this the question
+    # expired after TIMEOUT even with the user mid-read, and the card simply vanished.
+    HARD = float(os.environ.get("AGENTISLAND_Q_HOLD_HARD", "300"))
+    started = time.time()
+    deadline = started + TIMEOUT
+    while time.time() < deadline or _held(hold, started, HARD):
         if os.path.exists(path):
             try:
                 choice = open(path).read().strip()
@@ -94,6 +109,10 @@ def main():
             }}))
             sys.exit(0)
         time.sleep(0.12)
+    try:
+        os.remove(hold)
+    except OSError:
+        pass
     bail()   # timed out — Claude asks normally
 
 

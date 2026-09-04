@@ -952,6 +952,36 @@ check("a row label falls back to the folder, never the id",
       'var label: String { name ?? (cwd as NSString?)?.lastPathComponent ?? "session" }' in _as)
 check("an unnameable session is not announced",
       "guard let name = self.store.name(for: session) else { return }" in _is)
+print("\n=== 23e. what counts as working, and what counts as an ask ===")
+_hs2 = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()
+_as2 = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
+_is2 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_qh = open(os.path.join(REPO, "hooks/agentisland-question.py")).read()
+
+# A long generation writes neither a hook event nor a byte of transcript for minutes, so a
+# freshness window kept calling working agents idle.
+check("an open turn is working without consulting a clock",
+      "guard l.active else { return false }" in _as2
+      and "Date().timeIntervalSince(l.at) < 90" not in _as2)
+check("an open turn is still bounded by the process existing",
+      "return agent.pid.map(Proc.alive) ?? true" in _as2)
+# An event that says nothing about work must not invent a running agent.
+check("mid-turn is not the default state", "var active = false" in _hs2)
+
+# /login fired auth_success and every row that saw one claimed to need the user.
+check("status notifications are not treated as asks",
+      "static func informational" in _hs2 and 'Self.informational(kind) { break }' in _hs2)
+
+# The card used to expire under the reader, taking the only way to answer with it.
+check("a question card holds its hook open", "hold.begin(id: question.id)" in _is2)
+check("the question hook honours a hold", "_held(hold, started, HARD)" in _qh)
+check("an unanswered question survives its card",
+      "pendingQuestions" in _hs2 and "func clearQuestion" in _hs2)
+check("clicking a blocked row answers it instead of jumping",
+      "onRowActivate" in _as2 and "self.ask(q)" in _is2)
+check("a question names the session it came from",
+      "var project: String?" in _hs2 and "question.project" in _is2)
+
 print("\n=== 24. tool call timeline ===")
 _tv = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
 _tc = open(os.path.join(REPO, "Sources/AgentIsland/ToolCalls.swift")).read()

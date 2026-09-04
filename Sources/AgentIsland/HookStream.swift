@@ -26,6 +26,9 @@ struct Question: Identifiable, Equatable {
     let text: String
     let options: [String]
     let deadline: Date
+    /// Where it was asked. A card that cannot name its session leaves you answering blind.
+    var cwd: String?
+    var project: String? { (cwd as NSString?)?.lastPathComponent }
 }
 
 /// One agent's most recent hook-reported activity.
@@ -37,8 +40,9 @@ struct LiveState {
     /// The last few tool calls, newest last — an approval reads differently on a third retry.
     var trail: [String] = []
     /// Whether the agent is mid-turn. Hooks know this exactly; the transcript's mtime does not,
-    /// because finishing a turn writes to the transcript too.
-    var active = true
+    /// because finishing a turn writes to the transcript too. Defaults to false: an event that
+    /// says nothing about work (a login succeeding, say) must not invent a running agent.
+    var active = false
     /// A PreToolUse with no PostToolUse yet: the tool is still executing, however long it
     /// takes, and neither hooks nor the transcript will say anything more until it returns.
     var inTool = false
@@ -55,6 +59,13 @@ final class HookStream: ObservableObject {
     /// Sessions that DIED rather than finished — a rate-limited run currently looks identical
     /// to a completed one, which is how a stalled fleet goes unnoticed.
     @Published private(set) var failures: [String: String] = [:]
+    /// Questions still awaiting an answer, by session. The card is transient; the block is not,
+    /// so a card that timed out on screen can be reopened from its row.
+    @Published private(set) var pendingQuestions: [String: Question] = [:]
+    func clearQuestion(_ id: String) {
+        pendingQuestions = pendingQuestions.filter { $0.value.id != id }
+    }
+
     /// The last plan each session proposed, kept after approval so it can be re-read.
     @Published private(set) var plans: [String: Plan] = [:]
     /// (sessionId, message, needsInput) — fires once per attention-worthy transition.
@@ -132,6 +143,7 @@ final class HookStream: ObservableObject {
         var questions: [Question] = []
         var fails: [String: String] = [:]
         var revived: Set<String> = []
+        var answered: Set<String> = []
         for line in text.split(separator: "\n") {
             guard let d = line.data(using: .utf8),
                   var obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any]
@@ -148,7 +160,8 @@ final class HookStream: ObservableObject {
                     header: obj["header"] as? String ?? "",
                     text: obj["question"] as? String ?? "",
                     options: opts,
-                    deadline: Date().addingTimeInterval(43)))
+                    deadline: Date().addingTimeInterval(43),
+                    cwd: obj["cwd"] as? String))
                 continue
             }
 
@@ -199,6 +212,7 @@ final class HookStream: ObservableObject {
             switch event {
             case "PreToolUse", "PostToolUse":
                 revived.insert(session)
+                answered.insert(session)      // the turn moved on; no question is outstanding
                 state.inTool = event == "PreToolUse"
                 // Cursor's shell hooks name no tool and put the command at the top level, so
                 // reading the fields literally blanked the row for the whole run. An event we
@@ -223,6 +237,10 @@ final class HookStream: ObservableObject {
                 // Only a genuine ask should raise a card, a badge, or a desktop alert.
                 let kind = obj["notification_type"] as? String ?? ""
                 let msg = obj["message"] as? String ?? "needs your input"
+                // Status, not a question: "Claude Code login successful" is news, not a block.
+                // Real asks arrive as PermissionRequest or AskUserQuestion, which have their
+                // own paths, so treating an unknown status as an ask only ever cries wolf.
+                if event == "Notification", Self.informational(kind) { break }
                 if kind == "idle_prompt" {
                     // Sitting at a prompt is the clearest "not working" signal there is.
                     state.waiting = false
@@ -270,7 +288,7 @@ final class HookStream: ObservableObject {
         if replay { attention = []; approvals = []; questions = [] }
         guard !updates.isEmpty || !attention.isEmpty || !approvals.isEmpty
                 || !questions.isEmpty || !fails.isEmpty || !revived.isEmpty
-                || !planUpdates.isEmpty || !pidUpdates.isEmpty else { return }
+                || !planUpdates.isEmpty || !pidUpdates.isEmpty || !answered.isEmpty else { return }
         // Carry state forward on the drain queue. Reading the published `live` from here raced
         // the main thread's merge of the same dictionary, which is a crash, not a stale read.
         carried.merge(updates) { _, new in new }
@@ -281,8 +299,12 @@ final class HookStream: ObservableObject {
             self.plans.merge(planUpdates) { _, new in new }
             self.pids.merge(pidUpdates) { _, new in new }
             for s in revived { self.failures.removeValue(forKey: s) }
+            for s in answered { self.pendingQuestions.removeValue(forKey: s) }
             if !fails.isEmpty { self.failures.merge(fails) { _, new in new } }
-            for q in questions { self.onQuestion?(q) }
+            for q in questions {
+                self.pendingQuestions[q.session] = q
+                self.onQuestion?(q)
+            }
             for a in approvals { self.onApproval?(a) }
             for (s, m, needs) in attention { self.onAttention?(s, m, needs) }
         }
@@ -296,6 +318,11 @@ final class HookStream: ObservableObject {
         let hard = cutoff.addingTimeInterval(-5 * 3600)
         let kept = live.filter { $0.value.at > ($0.value.inTool ? hard : cutoff) }
         if kept.count != live.count { live = kept }
+    }
+
+    /// Notifications that report an outcome rather than ask for one.
+    static func informational(_ kind: String) -> Bool {
+        kind.hasSuffix("_success") || kind.hasSuffix("_failure") || kind.hasPrefix("auth")
     }
 
     /// Map every vendor's spelling onto one vocabulary.

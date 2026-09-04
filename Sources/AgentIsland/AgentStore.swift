@@ -124,18 +124,13 @@ struct AgentRow: Identifiable {
         // work still running. Only a session with no hook data at all falls back to the
         // vendor's own guess, which for Claude is the transcript's mtime.
         if let l = live {
-            // Stop and idle_prompt are authoritative: a finished turn is idle, whatever the
-            // transcript's mtime does afterwards (compaction, a queued prompt).
+            // Hooks bracket a turn exactly: it opens on a prompt or a tool call and closes on
+            // Stop or idle_prompt. Nothing in between needs a clock — a long generation can go
+            // minutes writing neither a hook event nor a byte of transcript, which is why a
+            // 90-second window kept calling working agents idle. The turn is the truth; the
+            // process still existing is the only bound it needs, since kill -9 sends no Stop.
             guard l.active else { return false }
-            // An open tool call is work for as long as it runs: a build or test suite can go
-            // minutes with no hook event and no transcript growth at all. But only while the
-            // process exists — kill -9 sends no Stop, and this flag must die with the pid.
-            if l.inTool { return agent.pid.map(Proc.alive) ?? true }
-            if Date().timeIntervalSince(l.at) < 90 { return true }
-            // A turn that began and has not stopped can stream for minutes between tool
-            // calls with no hook event at all — this session doing exactly that was shown
-            // idle mid-run. While the turn is open, the transcript still growing is work.
-            return agent.isWorking
+            return agent.pid.map(Proc.alive) ?? true
         }
         // No hook data at all, but hooks are wired in: a working agent reports within
         // seconds, so silence means idle rather than unknown. Remote sessions are exempt —
@@ -535,7 +530,11 @@ final class AgentStore: ObservableObject {
         return nil
     }
 
+    /// Given a row, does something better than jumping exist? Returns true if it handled it.
+    var onRowActivate: ((AgentRow) -> Bool)?
+
     func jump(_ row: AgentRow) {
+        if onRowActivate?(row) == true { return }
         // Whatever host it runs in — Warp, iTerm2, Terminal, an IDE — try that first.
         if row.host.jump() { return }
         // Could not land precisely: hand over the working directory rather than guessing.
