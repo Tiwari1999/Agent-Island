@@ -39,10 +39,12 @@ struct LiveState {
     var at = Date()
     /// The last few tool calls, newest last — an approval reads differently on a third retry.
     var trail: [String] = []
-    /// Whether the agent is mid-turn. Hooks know this exactly; the transcript's mtime does not,
-    /// because finishing a turn writes to the transcript too. Defaults to false: an event that
-    /// says nothing about work (a login succeeding, say) must not invent a running agent.
-    var active = false
+    /// Whether the agent is mid-turn: true from a prompt or a tool call, false from Stop or
+    /// idle_prompt, and nil until one of those is seen. The third state matters — defaulting
+    /// to false makes a session whose only event was a SessionStart look finished, and
+    /// defaulting to true makes a login notification look like work. Neither is a claim we
+    /// have earned, so an unopened turn falls back to the vendor's own state.
+    var active: Bool?
     /// A PreToolUse with no PostToolUse yet: the tool is still executing, however long it
     /// takes, and neither hooks nor the transcript will say anything more until it returns.
     var inTool = false

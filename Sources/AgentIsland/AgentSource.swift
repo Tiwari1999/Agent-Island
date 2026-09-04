@@ -280,6 +280,22 @@ enum PromptCheck {
             FileHandle.standardError.write("FAIL a long generation still counts as work\n"
                                            .data(using: .utf8)!)
         }
+        // Hooks that never opened a turn say nothing about work; the vendor's state decides.
+        let noBoundary = AgentRow(agent: busy, live: LiveState(at: Date(), active: nil))
+        if !noBoundary.isWorking {
+            failed += 1
+            FileHandle.standardError.write("FAIL an unopened turn defers to the vendor\n"
+                                           .data(using: .utf8)!)
+        }
+        let noBoundaryIdle = AgentRow(agent: Agent(sessionId: "n", name: nil, cwd: nil,
+                                                   state: "idle", status: nil, pid: 1),
+                                      live: LiveState(at: Date(), active: nil))
+        if noBoundaryIdle.isWorking {
+            failed += 1
+            FileHandle.standardError.write("FAIL an unopened turn must not invent work\n"
+                                           .data(using: .utf8)!)
+        }
+
         // An informational notification is news, not a question.
         for kind in ["auth_success", "auth_failure", "update_success"] where !HookStream.informational(kind) {
             failed += 1

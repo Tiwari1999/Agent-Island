@@ -129,8 +129,14 @@ struct AgentRow: Identifiable {
             // minutes writing neither a hook event nor a byte of transcript, which is why a
             // 90-second window kept calling working agents idle. The turn is the truth; the
             // process still existing is the only bound it needs, since kill -9 sends no Stop.
-            guard l.active else { return false }
-            return agent.pid.map(Proc.alive) ?? true
+            if let open = l.active {
+                guard open else { return false }
+                return agent.pid.map(Proc.alive) ?? true
+            }
+            // Hooks know this session but have not shown a turn boundary yet — a resumed
+            // session, or one whose only event so far is a SessionStart. Guessing either way
+            // invents a state, so defer to the vendor.
+            return agent.isWorking
         }
         // No hook data at all, but hooks are wired in: a working agent reports within
         // seconds, so silence means idle rather than unknown. Remote sessions are exempt —

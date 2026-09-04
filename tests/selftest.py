@@ -961,12 +961,16 @@ _qh = open(os.path.join(REPO, "hooks/agentisland-question.py")).read()
 # A long generation writes neither a hook event nor a byte of transcript for minutes, so a
 # freshness window kept calling working agents idle.
 check("an open turn is working without consulting a clock",
-      "guard l.active else { return false }" in _as2
+      "guard open else { return false }" in _as2
       and "Date().timeIntervalSince(l.at) < 90" not in _as2)
 check("an open turn is still bounded by the process existing",
       "return agent.pid.map(Proc.alive) ?? true" in _as2)
 # An event that says nothing about work must not invent a running agent.
-check("mid-turn is not the default state", "var active = false" in _hs2)
+# Two-valued turn state was wrong in both directions: false made a session whose only event
+# was a SessionStart look finished, true made a login notification look like work.
+check("turn state distinguishes ended from never-opened", "var active: Bool?" in _hs2)
+check("an unopened turn defers to the vendor rather than guessing",
+      "if let open = l.active {" in _as2 and "return agent.isWorking" in _as2)
 
 # /login fired auth_success and every row that saw one claimed to need the user.
 check("status notifications are not treated as asks",
