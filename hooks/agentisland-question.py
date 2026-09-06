@@ -54,31 +54,51 @@ def main():
     if not isinstance(tool_input, dict):
         bail()
     questions = tool_input.get("questions")
-    if not isinstance(questions, list):
-        bail()
-    # Multi-question prompts need a sequence the notch cannot express yet; defer to Claude.
-    if len(questions) != 1:
+    if not isinstance(questions, list) or not questions:
         bail()
 
-    q = questions[0]
-    if not isinstance(q, dict):
-        bail()
-    options = [o.get("label", "") for o in (q.get("options") or [])
-               if isinstance(o, dict) and o.get("label")]
-    if not options:
-        bail()
+    # Every option carries a description and often a preview; forwarding only labels left the
+    # card asking people to choose between words with no reasoning attached.
+    def one(q):
+        if not isinstance(q, dict):
+            return None
+        raw = q.get("options")
+        if not isinstance(raw, list):
+            return None
+        opts = []
+        for o in raw:
+            if not isinstance(o, dict) or not o.get("label"):
+                continue
+            opts.append({
+                "label": o["label"],
+                "description": o.get("description", "") or "",
+                "preview": o.get("preview", "") or "",
+            })
+        if not opts:
+            return None
+        return {
+            "question": q.get("question", ""),
+            "header": q.get("header", ""),
+            "multi": bool(q.get("multiSelect")),
+            "options": opts,
+        }
+
+    items = [i for i in (one(q) for q in questions) if i]
+    if len(items) != len(questions):
+        bail()      # one unreadable question means the whole ask belongs in the terminal
 
     req_id = f"aq-{os.getpid()}-{int(time.time())}"
-    os.makedirs(DECISIONS, exist_ok=True)
+    try:
+        os.makedirs(DECISIONS, exist_ok=True)
+    except OSError:
+        bail()
     try:
         with open(SPOOL, "a") as f:
             f.write(json.dumps({
                 "ap_question_id": req_id,
                 "session_id": payload.get("session_id", ""),
-                "question": q.get("question", ""),
-                "header": q.get("header", ""),
-                "options": options,
-                "multi": bool(q.get("multiSelect")),
+                "cwd": payload.get("cwd", ""),
+                "items": items,
             }) + "\n")
     except OSError:
         bail()
@@ -87,7 +107,10 @@ def main():
     hold = path + ".hold"
     # The island refreshes <id>.hold while the card is on screen. Without this the question
     # expired after TIMEOUT even with the user mid-read, and the card simply vanished.
-    HARD = float(os.environ.get("AGENTISLAND_Q_HOLD_HARD", "300"))
+    try:
+        HARD = float(os.environ.get("AGENTISLAND_Q_HOLD_HARD", "300"))
+    except ValueError:
+        HARD = 300.0
     started = time.time()
     deadline = started + TIMEOUT
     while time.time() < deadline or _held(hold, started, HARD):
@@ -97,14 +120,37 @@ def main():
                 os.remove(path)
             except OSError:
                 bail()
-            if not choice or choice not in options:
+            # One JSON object mapping each question to its chosen label, so a four-question
+            # ask comes back in one write instead of four round trips.
+            try:
+                picked = json.loads(choice)
+            except Exception:
                 bail()
+            if not isinstance(picked, dict) or not picked:
+                bail()
+            # Rebuild rather than pass through: an answer must contain exactly the questions
+            # that were asked, in the shape each one allows, with only offered labels.
+            answers = {}
+            for item in items:
+                want = picked.get(item["question"])
+                labels = [o["label"] for o in item["options"]]
+                if item["multi"]:
+                    if not isinstance(want, list) or not want:
+                        bail()
+                    seen = [w for i, w in enumerate(want) if w not in want[:i]]
+                    if any(w not in labels for w in seen):
+                        bail()
+                    answers[item["question"]] = seen
+                else:
+                    if not isinstance(want, str) or want not in labels:
+                        bail()
+                    answers[item["question"]] = want
             updated = dict(tool_input)
-            updated["answers"] = {q.get("question", ""): choice}
+            updated["answers"] = answers
             print(json.dumps({"hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "allow",
-                "permissionDecisionReason": f"AgentIsland: user chose {choice}",
+                "permissionDecisionReason": f"AgentIsland: answered {len(answers)} question(s) from the notch",
                 "updatedInput": updated,
             }}))
             sys.exit(0)

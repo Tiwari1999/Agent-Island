@@ -17,10 +17,19 @@ enum Approvals {
     }
 
     /// Answer a question by writing the chosen label where the hook is polling.
-    static func answer(_ question: Question, choice: String) {
+    /// One write for the whole ask: question text to the chosen label, or labels when the
+    /// question allows several. The hook validates every entry against what it offered.
+    static func answer(_ question: Question, picks: [String: [String]]) {
         ensureDir()
+        var body: [String: Any] = [:]
+        for item in question.items {
+            guard let chosen = picks[item.text], !chosen.isEmpty else { continue }
+            body[item.text] = item.multi ? chosen : chosen[0]
+        }
+        guard body.count == question.items.count,
+              let data = try? JSONSerialization.data(withJSONObject: body) else { return }
         let path = (decisionsDir as NSString).appendingPathComponent(question.id)
-        try? choice.write(toFile: path, atomically: true, encoding: .utf8)
+        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
     }
 
     static func decide(_ approval: Approval, allow: Bool) {

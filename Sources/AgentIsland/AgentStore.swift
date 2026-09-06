@@ -449,6 +449,11 @@ final class AgentStore: ObservableObject {
                         // A blocked agent is waiting on a human. Hiding it for being old is how
                         // two real work items sat unanswered for months.
                         if agent.phase == "blocked" { return true }
+                        // A local directory that no longer exists cannot be opened or
+                        // resumed, so the row is a dead end. CursorSource already refuses
+                        // these; scratch directories are the common case.
+                        if agent.remoteHost == nil, let c = agent.cwd, !c.isEmpty,
+                           !FileManager.default.fileExists(atPath: c) { return false }
                         guard let lastActive else { return false }
                         return now.timeIntervalSince(lastActive) <= Self.maxAge
                     }

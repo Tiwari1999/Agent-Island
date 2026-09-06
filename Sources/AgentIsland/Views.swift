@@ -790,57 +790,152 @@ struct ApprovalCard: View {
 struct QuestionCard: View {
     let question: Question
     let agentName: String
-    let onChoose: (String) -> Void
+    /// Which of the ask's questions is on screen, and what has been chosen so far.
+    let step: Int
+    let picks: [String: [String]]
+    let onPick: (String) -> Void
+    let onConfirm: () -> Void
     @State private var hot: String?
+
+    private var item: QuestionItem { question.items[min(step, question.items.count - 1)] }
+    private var chosen: [String] { picks[item.text] ?? [] }
+    /// The focused option decides what the preview shows; hover wins, else the first choice.
+    private var focused: QuestionOption? {
+        item.options.first { $0.label == hot } ?? item.options.first { chosen.contains($0.label) }
+            ?? item.options.first
+    }
+    private var showsPreview: Bool { !(focused?.preview ?? "").isEmpty }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                ZStack {
-                    Circle().fill(Theme.waiting.opacity(0.16)).frame(width: 24, height: 24)
-                    Image(systemName: "questionmark")
-                        .font(.system(size: 11, weight: .bold)).foregroundColor(Theme.waiting)
-                }
-                // Which session is asking, before what it is asking: answering the wrong
-                // agent's question is worse than answering slowly.
-                if let p = question.project, p != agentName {
-                    Text(p).font(Theme.label(11)).foregroundColor(Theme.text).lineLimit(1)
-                    Text("·").font(Theme.label(11)).foregroundColor(Theme.faint)
-                }
-                Text(agentName).font(Theme.label(11)).foregroundColor(Theme.muted).lineLimit(1)
-                if !question.header.isEmpty {
-                    Text(question.header)
-                        .font(Theme.mono(8.5)).foregroundColor(Theme.waiting)
-                        .padding(.horizontal, 5).padding(.vertical, 1.5)
-                        .background(Capsule().fill(Theme.waiting.opacity(0.14)))
-                }
-                Spacer(minLength: 0)
+            header
+            HStack(alignment: .top, spacing: 0) {
+                options
+                if showsPreview { preview }
             }
-            Text(question.text)
-                .font(Theme.name(12.5)).foregroundColor(Theme.text)
-                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+            if item.multi { confirmRow }
+        }
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 
-            // Numbered so the choice is scannable, and wrapped so long labels stay readable.
-            HStack(spacing: 6) {
-                ForEach(Array(question.options.prefix(4).enumerated()), id: \.offset) { i, opt in
-                    let on = hot == opt
-                    HStack(spacing: 5) {
-                        Text("⌘⌥\(i + 1)").font(Theme.mono(8))
-                            .foregroundColor(on ? Theme.bg.opacity(0.7) : Theme.faint)
-                        Text(opt).font(Theme.label(10.5)).lineLimit(1)
-                            .foregroundColor(on ? Theme.bg : Theme.text)
+    // MARK: - parts
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            ZStack {
+                Circle().fill(Theme.waiting.opacity(0.16)).frame(width: 24, height: 24)
+                Image(systemName: "questionmark")
+                    .font(.system(size: 11, weight: .bold)).foregroundColor(Theme.waiting)
+            }
+            // Which session is asking, before what it is asking.
+            if let p = question.project, p != agentName {
+                Text(p).font(Theme.label(11)).foregroundColor(Theme.text).lineLimit(1)
+                Text("·").font(Theme.label(11)).foregroundColor(Theme.faint)
+            }
+            Text(agentName).font(Theme.label(11)).foregroundColor(Theme.muted).lineLimit(1)
+            if !item.header.isEmpty {
+                Text(item.header)
+                    .font(Theme.mono(8.5)).foregroundColor(Theme.waiting)
+                    .padding(.horizontal, 5).padding(.vertical, 1.5)
+                    .background(Capsule().fill(Theme.waiting.opacity(0.14)))
+            }
+            Spacer(minLength: 6)
+            // How many questions there are, before you answer the first one.
+            if question.items.count > 1 {
+                HStack(spacing: 5) {
+                    HStack(spacing: 3) {
+                        ForEach(0..<question.items.count, id: \.self) { i in
+                            Circle()
+                                .fill(i < step ? Theme.working : i == step ? Theme.waiting : Theme.faint)
+                                .opacity(i > step ? 0.4 : 1)
+                                .frame(width: 5, height: 5)
+                        }
                     }
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .background(RoundedRectangle(cornerRadius: 7)
-                        .fill(on ? Theme.waiting : Theme.waiting.opacity(0.12)))
-                    .contentShape(Rectangle())
-                    .onHover { h in withAnimation(.easeOut(duration: 0.1)) { hot = h ? opt : nil } }
-                    .onTapGesture { onChoose(opt) }
+                    Text("\(step + 1) of \(question.items.count)")
+                        .font(Theme.mono(9)).foregroundColor(Theme.faint)
                 }
-                Spacer(minLength: 0)
             }
         }
-        .padding(.horizontal, 16).padding(.vertical, 10)
+        .padding(.horizontal, 16)
+    }
+
+    private var options: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // The whole question, wrapped. Real ones reach 444 characters.
+            Text(item.text)
+                .font(Theme.name(12.5)).foregroundColor(Theme.text)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(Array(item.options.prefix(4).enumerated()), id: \.offset) { i, opt in
+                    let on = chosen.contains(opt.label)
+                    HStack(alignment: .top, spacing: 9) {
+                        Text("\(i + 1)")
+                            .font(Theme.mono(9.5))
+                            .foregroundColor(on ? Theme.waiting : Theme.faint)
+                            .frame(width: 15, height: 15)
+                            .overlay(RoundedRectangle(cornerRadius: 4)
+                                .stroke(on ? Theme.waiting.opacity(0.4) : Theme.hairline))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(opt.label)
+                                .font(Theme.label(11.5)).foregroundColor(Theme.text)
+                                .fixedSize(horizontal: false, vertical: true)
+                            // Every option in every real ask carries one of these.
+                            if !opt.detail.isEmpty {
+                                Text(opt.detail)
+                                    .font(Theme.mono(9.5)).foregroundColor(Theme.faint)
+                                    .lineLimit(3).fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 9).padding(.vertical, 7)
+                    .background(RoundedRectangle(cornerRadius: 8)
+                        .fill(on ? Theme.waiting.opacity(0.10)
+                              : hot == opt.label ? Theme.raised : Color.clear))
+                    .overlay(RoundedRectangle(cornerRadius: 8)
+                        .stroke(on ? Theme.waiting.opacity(0.28) : Color.clear))
+                    .contentShape(Rectangle())
+                    .onHover { h in withAnimation(.easeOut(duration: 0.1)) { hot = h ? opt.label : nil } }
+                    .onTapGesture { onPick(opt.label) }
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var preview: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("PREVIEW")
+                .font(Theme.mono(8)).foregroundColor(Theme.agentTint).tracking(1.2)
+            Text(focused?.preview ?? "")
+                .font(Theme.mono(9)).foregroundColor(Theme.faint)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14).padding(.top, 2)
+        .frame(width: 230, alignment: .leading)
+        .overlay(alignment: .leading) {
+            Rectangle().fill(Theme.hairline).frame(width: 1)
+        }
+    }
+
+    /// Several answers are allowed, so nothing is submitted until the user says so.
+    private var confirmRow: some View {
+        HStack(spacing: 8) {
+            Text("\(chosen.count) selected").font(Theme.mono(9)).foregroundColor(Theme.faint)
+            Spacer(minLength: 0)
+            Text("confirm")
+                .font(Theme.label(10.5))
+                .foregroundColor(chosen.isEmpty ? Theme.faint : Theme.bg)
+                .padding(.horizontal, 11).padding(.vertical, 5)
+                .background(Capsule().fill(chosen.isEmpty ? Theme.raised : Theme.waiting))
+                .contentShape(Capsule())
+                .onTapGesture { if !chosen.isEmpty { onConfirm() } }
+        }
+        .padding(.horizontal, 16)
     }
 }
 

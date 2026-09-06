@@ -280,6 +280,34 @@ enum PromptCheck {
             FileHandle.standardError.write("FAIL a long generation still counts as work\n"
                                            .data(using: .utf8)!)
         }
+        // A card must never be drawn at a size the window did not reserve, and a fixed height
+        // truncated every question longer than two lines.
+        let longQ = String(repeating: "a", count: 440)
+        let bigDetail = String(repeating: "b", count: 300)
+        let plain = QuestionItem(header: "H", text: "short?", multi: false, options: [
+            QuestionOption(label: "One", detail: "", preview: ""),
+            QuestionOption(label: "Two", detail: "", preview: "")])
+        let rich = QuestionItem(header: "H", text: longQ, multi: false, options: [
+            QuestionOption(label: "One", detail: bigDetail, preview: ""),
+            QuestionOption(label: "Two", detail: bigDetail, preview: ""),
+            QuestionOption(label: "Three", detail: bigDetail, preview: "")])
+        let withPreview = QuestionItem(header: "H", text: "short?", multi: false, options: [
+            QuestionOption(label: "One", detail: "d", preview: "a\nb\nc\nd\ne\nf\ng\nh\ni\nj")])
+        let qc: [(Bool, String)] = [
+            (rich.cardHeight(width: 600) > plain.cardHeight(width: 600) + 120,
+             "a long question with reasoning needs far more room than a short one"),
+            (plain.cardHeight(width: 600) > 60, "even the smallest card clears its header"),
+            (!plain.hasPreview && withPreview.hasPreview, "a preview is detected only when present"),
+            (withPreview.cardHeight(width: 830) >= 10 * 13,
+             "a ten-line preview is not clipped by a short question"),
+            (rich.cardHeight(width: 830) < rich.cardHeight(width: 500),
+             "a wider card needs fewer lines for the same text"),
+        ]
+        for (ok, why) in qc where !ok {
+            failed += 1
+            FileHandle.standardError.write("FAIL question \(why)\n".data(using: .utf8)!)
+        }
+
         // Hooks that never opened a turn say nothing about work; the vendor's state decides.
         let noBoundary = AgentRow(agent: busy, live: LiveState(at: Date(), active: nil))
         if !noBoundary.isWorking {

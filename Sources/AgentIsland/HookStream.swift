@@ -19,12 +19,52 @@ struct Approval: Identifiable, Equatable {
 }
 
 /// A multiple-choice question waiting on one click.
+/// One choice, with the reasoning that came with it. Every option in every real ask carries a
+/// description, and 43% carry a preview; a label alone is a word with no argument behind it.
+struct QuestionOption: Equatable, Identifiable {
+    let label: String
+    let detail: String
+    let preview: String
+    var id: String { label }
+}
+
+/// One question of an ask. An ask can carry up to four.
+struct QuestionItem: Equatable, Identifiable {
+    let header: String
+    let text: String
+    let multi: Bool
+    let options: [QuestionOption]
+    var id: String { text }
+
+    var hasPreview: Bool { options.contains { !$0.preview.isEmpty } }
+
+    /// What the card needs to draw this question, so the window is sized by its content rather
+    /// than by a constant. A fixed 98pt truncated a 444-character question to two lines.
+    func cardHeight(width: CGFloat) -> CGFloat {
+        func lines(_ text: String, perLine: Int, cap: Int = 99) -> Int {
+            max(1, min(cap, Int(ceil(Double(text.count) / Double(perLine)))))
+        }
+        let body = width - (hasPreview ? 262 : 32)
+        let cols = max(28, Int(body / 6.6))
+        var h: CGFloat = 24 + 20                                   // header + vertical padding
+        h += CGFloat(lines(text, perLine: cols)) * 17              // the question, wrapped
+        for o in options.prefix(4) {
+            h += 15                                                // label
+            if !o.detail.isEmpty { h += CGFloat(lines(o.detail, perLine: cols, cap: 3)) * 13 }
+            h += 17                                                // option padding + gap
+        }
+        if multi { h += 30 }
+        let preview = hasPreview
+            ? CGFloat(options.map { $0.preview.split(whereSeparator: \.isNewline).count }.max() ?? 0) * 13 + 44
+            : 0
+        return max(h, preview) + 8
+    }
+}
+
 struct Question: Identifiable, Equatable {
     let id: String
     let session: String
-    let header: String
-    let text: String
-    let options: [String]
+    let items: [QuestionItem]
     let deadline: Date
     /// Where it was asked. A card that cannot name its session leaves you answering blind.
     var cwd: String?
@@ -155,14 +195,28 @@ final class HookStream: ObservableObject {
                 Date(timeIntervalSince1970: $0.doubleValue) }
 
             if let qid = obj["ap_question_id"] as? String,
-               let opts = obj["options"] as? [String], !opts.isEmpty {
+               let raw = obj["items"] as? [[String: Any]], !raw.isEmpty {
+                let items: [QuestionItem] = raw.compactMap { r in
+                    let opts = (r["options"] as? [[String: Any]] ?? []).compactMap { o -> QuestionOption? in
+                        guard let l = o["label"] as? String, !l.isEmpty else { return nil }
+                        return QuestionOption(label: l,
+                                              detail: o["description"] as? String ?? "",
+                                              preview: o["preview"] as? String ?? "")
+                    }
+                    guard !opts.isEmpty else { return nil }
+                    return QuestionItem(header: r["header"] as? String ?? "",
+                                        text: r["question"] as? String ?? "",
+                                        multi: r["multi"] as? Bool ?? false,
+                                        options: opts)
+                }
+                guard items.count == raw.count else { continue }
                 questions.append(Question(
                     id: qid,
                     session: obj["session_id"] as? String ?? "",
-                    header: obj["header"] as? String ?? "",
-                    text: obj["question"] as? String ?? "",
-                    options: opts,
-                    deadline: Date().addingTimeInterval(43),
+                    items: items,
+                    // The hook holds while the card is up, so this only bounds an unattended
+                    // card. Four questions need more than one question's worth of time.
+                    deadline: Date().addingTimeInterval(43 + 25 * Double(items.count - 1)),
                     cwd: obj["cwd"] as? String))
                 continue
             }

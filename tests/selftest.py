@@ -250,9 +250,29 @@ for v,ids in truth.items():
         check(f"{v}: every on-disk session reaches the panel",
               ids <= shown[v], f"{len(shown[v])} shown of {len(ids)} on disk")
 
-check("no vendor present on disk is missing entirely",
-      all(shown[v] for v in ("claude","codex","cursor") if truth.get(v) or v!="codex"),
-      ", ".join(f"{v}={len(shown[v])}" for v in shown))
+# Cursor only surfaces human-started chats touched in the last two days, so counting the
+# directory is not counting what should be shown — the old form failed whenever the user had
+# simply not opened Cursor that week.
+def cursor_eligible():
+    import glob
+    cut = time.time() - 2 * 24 * 3600
+    n = 0
+    for d in glob.glob(os.path.expanduser("~/.cursor/chats/*/*")):
+        if not os.path.isdir(d) or os.path.getmtime(d) < cut: continue
+        if not os.path.exists(d + "/prompt_history.json"): continue
+        try: meta = json.load(open(d + "/meta.json"))
+        except Exception: continue
+        if not meta.get("hasConversation"): continue
+        cwd = meta.get("cwd")
+        if cwd and not os.path.isdir(cwd): continue
+        n += 1
+    return n
+
+expect = {"claude": True, "codex": bool(truth.get("codex")), "cursor": cursor_eligible() > 0}
+missing = [v for v, want in expect.items() if want and not shown[v]]
+check("no vendor with eligible sessions is missing entirely", not missing,
+      ", ".join(f"{v}={len(shown[v])}" for v in shown)
+      + f" (cursor eligible: {cursor_eligible()})")
 
 # Nothing fabricated, nothing left over from a test run.
 BAD=("selftest","benchmark","synthetic","fuzz","test-session","ai-st-","placeholder","lorem")
@@ -618,13 +638,57 @@ r=subprocess.run([qh],input=json.dumps({"tool_name":"Bash","tool_input":{"comman
                  capture_output=True,text=True,timeout=10)
 check("non-question tools are ignored", r.returncode==0 and not r.stdout.strip())
 
-# multi-question prompts must defer rather than answer half of it
-multi=json.loads(QREQ); multi["tool_input"]["questions"] *= 2
+# 21% of real asks carry more than one question. They used to be refused outright; now the
+# card sequences them and one write answers the whole ask.
+# The env must be fully scoped: an earlier version of this test wrote to the live spool, so
+# the running app picked the question up and held the hook open for five minutes.
+multi=json.loads(QREQ)
+multi["tool_input"]["questions"]=[
+  {"question":"Which DB?","header":"DB","multiSelect":False,
+   "options":[{"label":"Postgres","description":"r"},{"label":"MongoDB","description":"d"}]},
+  {"question":"Which region?","header":"Region","multiSelect":True,
+   "options":[{"label":"us-east","description":"a"},{"label":"eu-west","description":"b"}]}]
 open(f"{RUN}-aqalive","w").close()
-r=subprocess.run([qh],input=json.dumps(multi),capture_output=True,text=True,timeout=10,
-                 env=dict(os.environ,AGENTISLAND_ALIVE=f"{RUN}-aqalive",
-                          AGENTISLAND_Q_TIMEOUT="1"))
-check("multi-question prompts defer to Claude", r.returncode==0 and not r.stdout.strip())
+os.makedirs(f"{RUN}-mqdec",exist_ok=True)
+mq={}
+def runmulti():
+    mq["r"]=subprocess.run([qh],input=json.dumps(multi),capture_output=True,text=True,timeout=25,
+        env=dict(os.environ,AGENTISLAND_ALIVE=f"{RUN}-aqalive",AGENTISLAND_Q_TIMEOUT="12",
+                 AGENTISLAND_SPOOL=f"{RUN}-mqspool.jsonl",AGENTISLAND_DECISIONS=f"{RUN}-mqdec"))
+th_m=threading.Thread(target=runmulti); th_m.start()
+for _ in range(60):
+    if os.path.exists(f"{RUN}-mqspool.jsonl") and open(f"{RUN}-mqspool.jsonl").read().strip(): break
+    time.sleep(0.2)
+spooled=json.loads(open(f"{RUN}-mqspool.jsonl").readline())
+check("both questions reach the card", len(spooled.get("items",[]))==2,
+      f"{len(spooled.get('items',[]))} items")
+check("each option keeps its reasoning",
+      all(o.get("description") for i in spooled["items"] for o in i["options"]))
+open(f"{RUN}-mqdec/{spooled['ap_question_id']}","w").write(json.dumps(
+    {"Which DB?":"MongoDB","Which region?":["us-east","eu-west"]}))
+th_m.join()
+try:
+    _d=json.loads(mq["r"].stdout)["hookSpecificOutput"]["updatedInput"]["answers"]
+    _ok=_d=={"Which DB?":"MongoDB","Which region?":["us-east","eu-west"]}
+except Exception: _ok=False; _d={}
+check("a multi-question ask answers in one write", _ok, str(_d)[:70])
+
+# An answer naming a question that was never asked must not reach Claude.
+os.makedirs(f"{RUN}-fqdec",exist_ok=True)
+fq={}
+def runforge():
+    fq["r"]=subprocess.run([qh],input=QREQ,capture_output=True,text=True,timeout=25,
+        env=dict(os.environ,AGENTISLAND_ALIVE=f"{RUN}-aqalive",AGENTISLAND_Q_TIMEOUT="6",
+                 AGENTISLAND_SPOOL=f"{RUN}-fqspool.jsonl",AGENTISLAND_DECISIONS=f"{RUN}-fqdec"))
+th_f=threading.Thread(target=runforge); th_f.start()
+for _ in range(40):
+    if os.path.exists(f"{RUN}-fqspool.jsonl") and open(f"{RUN}-fqspool.jsonl").read().strip(): break
+    time.sleep(0.2)
+_fid=json.loads(open(f"{RUN}-fqspool.jsonl").readline())["ap_question_id"]
+open(f"{RUN}-fqdec/{_fid}","w").write(json.dumps({"Which DB?":"Cassandra"}))
+th_f.join()
+check("an option that was never offered is refused",
+      fq["r"].returncode==0 and not fq["r"].stdout.strip())
 
 t0=time.time()
 r=subprocess.run([qh],input=QREQ,capture_output=True,text=True,timeout=20,
@@ -644,7 +708,8 @@ def runq():
                  AGENTISLAND_SPOOL=f"{RUN}-aqspool.jsonl",AGENTISLAND_DECISIONS=f"{RUN}-aqdec"))
 th=threading.Thread(target=runq); th.start(); time.sleep(1.2)
 qid=json.loads(open(f"{RUN}-aqspool.jsonl").readline())["ap_question_id"]
-open(f"{RUN}-aqdec/{qid}","w").write("MongoDB")
+# One JSON object for the whole ask, so a four-question ask answers in one write.
+open(f"{RUN}-aqdec/{qid}","w").write(json.dumps({"Which DB?":"MongoDB"}))
 th.join()
 try:
     d=json.loads(out["r"].stdout)["hookSpecificOutput"]
@@ -985,6 +1050,39 @@ check("clicking a blocked row answers it instead of jumping",
       "onRowActivate" in _as2 and "self.ask(q)" in _is2)
 check("a question names the session it came from",
       "var project: String?" in _hs2 and "question.project" in _is2)
+
+print("\n=== 23f. question cards ===")
+_qh2 = open(os.path.join(REPO, "hooks/agentisland-question.py")).read()
+_hs3 = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()
+_vw3 = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
+_is3 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_ap3 = open(os.path.join(REPO, "Sources/AgentIsland/Approvals.swift")).read()
+
+# 21% of real asks carry more than one question, and the hook used to refuse all of them.
+check("a multi-question ask is no longer refused", "if len(questions) != 1" not in _qh2)
+check("every question is forwarded or none is", "len(items) != len(questions)" in _qh2)
+# Every option in every measured ask carries a description; labels alone are words without argument.
+check("options carry their reasoning", '"description": o.get("description"' in _qh2
+      and "let detail: String" in _hs3)
+check("options carry their preview", '"preview": o.get("preview"' in _qh2)
+check("the card renders the reasoning", "opt.detail" in _vw3)
+check("the card renders a preview beside the options", "focused?.preview" in _vw3)
+
+# An answer must be exactly what was asked, in the shape each question allows.
+check("answers are rebuilt, never passed through", "answers = {}" in _qh2
+      and 'updated["answers"] = answers' in _qh2)
+check("multiSelect shape is enforced both ways",
+      'if item["multi"]:' in _qh2 and "isinstance(want, str) or want not in labels" in _qh2)
+check("a repeated pick cannot be sent twice", "w not in want[:i]" in _qh2)
+check("the island writes one answer for the whole ask", "func answer(_ question: Question, picks:" in _ap3)
+check("an incomplete sequence is never submitted", "body.count == question.items.count" in _ap3)
+
+# A fixed height truncated the question; the window and the view must agree on the new one.
+check("the card is sized by its content", "func cardHeight(width:" in _hs3)
+check("window and view size from one accessor",
+      _is3.count("island.questionSize(q)") == 2 and "func questionSize" in _is3)
+check("the card cannot outgrow the screen", "0.62" in _is3)
+check("number keys reset per question", "func bindKeys" in _is3 and "step: Int" in _is3)
 
 print("\n=== 24. tool call timeline ===")
 _tv = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()

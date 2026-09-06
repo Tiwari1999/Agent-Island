@@ -38,6 +38,9 @@ final class Island: NSObject, ObservableObject {
     /// the hook is told about (via the hold file), so collapsing back would lie to it.
     @Published var approvalContext: ApprovalContext?
     private let hold = ApprovalHold()
+    /// Which question of the ask is on screen, and what has been chosen so far.
+    @Published var questionStep = 0
+    @Published var picks: [String: [String]] = [:]
     private let frames = FrameMeter()
     @Published var revealed = false
     @Published var notchWidth: CGFloat = 0
@@ -150,7 +153,7 @@ final class Island: NSObject, ObservableObject {
             self.ask(question)
             let name = self.store.name(for: question.session)
                 ?? question.project ?? "agent"
-            Notifier.notify(title: name, body: question.text, key: question.session)
+            Notifier.notify(title: name, body: question.items[0].text, key: question.session)
         }
 
         store.hooks.onAttention = { [weak self] session, message, needsInput in
@@ -235,10 +238,26 @@ final class Island: NSObject, ObservableObject {
     }
 
     /// Questions need room for the prompt plus a row of options.
+    /// The question currently on screen, and the size it needs — both the window frame and the
+    /// view read these, so a card can never be drawn at a size the window did not reserve.
+    func questionItem(_ q: Question) -> QuestionItem? {
+        q.items.indices.contains(questionStep) ? q.items[questionStep] : q.items.first
+    }
+
+    func questionSize(_ q: Question) -> CGSize {
+        guard let item = questionItem(q) else { return CGSize(width: 600, height: 98) }
+        let w: CGFloat = item.hasPreview ? 830 : 600
+        let cap = (screen?.frame.height ?? 900) * 0.62
+        return CGSize(width: w, height: min(item.cardHeight(width: w), cap))
+    }
+
     private var questionRect: NSRect {
         guard let screen else { return .zero }
-        let w: CGFloat = 600, h = notchHeight + Self.notchClearance + 98
-        return NSRect(x: screen.frame.midX - w / 2, y: screen.frame.maxY - h, width: w, height: h)
+        guard case .question(let q) = state else { return .zero }
+        let size = questionSize(q)
+        let h = notchHeight + Self.notchClearance + size.height
+        return NSRect(x: screen.frame.midX - size.width / 2, y: screen.frame.maxY - h,
+                      width: size.width, height: h)
     }
 
     /// Recompute which region accepts clicks. Called on every state change as well as on the
@@ -473,9 +492,12 @@ final class Island: NSObject, ObservableObject {
         }
         followActiveScreen()
         peekWork?.cancel(); questionWork?.cancel()
-        Hotkeys.shared.bind(question.options.prefix(4).enumerated().map { i, opt in
-            (Hotkeys.digits[i], Hotkeys.cmdOpt, { [weak self] in self?.choose(question, option: opt) })
-        })
+        if case .question(let cur) = state, cur.id == question.id {} else {
+            questionStep = 0; picks = [:]      // a different ask starts clean
+        }
+        // Keys are bound per question as the sequence advances, so 1-4 always means "this
+        // question's options" rather than a running index across the whole ask.
+        bindKeys(question, step: 0)
         withAnimation(.spring(response: 0.34, dampingFraction: 0.80)) { state = .question(question) }
         // Keep the hook waiting while the card is on screen: it used to expire underneath the
         // reader after 45 seconds, taking the only way to answer with it.
@@ -492,12 +514,47 @@ final class Island: NSObject, ObservableObject {
                                       execute: work)
     }
 
-    func choose(_ question: Question, option: String) {
+    private func bindKeys(_ q: Question, step: Int) {
+        guard step < q.items.count else { return }
+        Hotkeys.shared.bind(q.items[step].options.prefix(4).enumerated().map { i, opt in
+            (Hotkeys.digits[i], Hotkeys.cmdOpt,
+             { [weak self] in self?.pick(q, step: step, option: opt.label) })
+        })
+    }
+
+    /// Record one answer and move on. The card only closes when the last question is answered,
+    /// so a four-question ask is one interaction rather than four separate cards.
+    func pick(_ question: Question, step: Int, option: String) {
+        guard step < question.items.count else { return }
+        let item = question.items[step]
+        if item.multi {
+            var chosen = picks[item.text] ?? []
+            if let i = chosen.firstIndex(of: option) { chosen.remove(at: i) } else { chosen.append(option) }
+            picks[item.text] = chosen
+            return          // multi waits for an explicit confirm
+        }
+        picks[item.text] = [option]
+        advance(question, from: step)
+    }
+
+    /// Confirm a multi-select question, or step past one already answered.
+    func advance(_ question: Question, from step: Int) {
+        let next = step + 1
+        guard next < question.items.count else {
+            choose(question, picks: picks)
+            return
+        }
+        questionStep = next
+        bindKeys(question, step: next)
+        withAnimation(.easeOut(duration: 0.16)) { state = .question(question) }
+    }
+
+    func choose(_ question: Question, picks: [String: [String]]) {
         questionWork?.cancel()
         hold.end()
         store.hooks.clearQuestion(question.id)
         Hotkeys.shared.unbind()
-        Approvals.answer(question, choice: option)
+        Approvals.answer(question, picks: picks)
         presentNext()
     }
 
@@ -539,7 +596,7 @@ private struct RootView: View {
             return island.notchWidth + w.left + w.right + 2 * CollapsedView.notchMargin
         case .peek:      return 380
         case .approval(let a):  return (a.plan != nil || island.approvalContext != nil) ? 640 : 560
-        case .question:  return 600
+        case .question(let q): return island.questionSize(q).width
         case .expanded:  return PanelView.width
         }
     }
@@ -552,7 +609,8 @@ private struct RootView: View {
         case .approval(let a):
             return island.notchHeight + Island.notchClearance
                 + ((a.plan != nil || island.approvalContext != nil) ? 300 : 46)
-        case .question:  return island.notchHeight + Island.notchClearance + 98
+        case .question(let q):
+            return island.notchHeight + Island.notchClearance + island.questionSize(q).height
         case .expanded:  return PanelView.height
         }
     }
@@ -601,8 +659,11 @@ private struct RootView: View {
                 case .question(let q):
                     QuestionCard(
                         question: q,
-                        agentName: store.name(for: q.session) ?? "agent",
-                        onChoose: { island.choose(q, option: $0) })
+                        agentName: store.name(for: q.session) ?? q.project ?? "agent",
+                        step: island.questionStep,
+                        picks: island.picks,
+                        onPick: { island.pick(q, step: island.questionStep, option: $0) },
+                        onConfirm: { island.advance(q, from: island.questionStep) })
                         .frame(maxHeight: .infinity, alignment: .bottom)
                         .padding(.bottom, 6)
                 case .expanded:
