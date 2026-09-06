@@ -1051,6 +1051,44 @@ check("clicking a blocked row answers it instead of jumping",
 check("a question names the session it came from",
       "var project: String?" in _hs2 and "question.project" in _is2)
 
+print("\n=== 23g. hostile spool and decision files ===")
+_ap4 = open(os.path.join(REPO, "Sources/AgentIsland/Approvals.swift")).read()
+_hs4 = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()
+_as4 = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
+_is4 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_qh4 = open(os.path.join(REPO, "hooks/agentisland-question.py")).read()
+_sh4 = open(os.path.join(REPO, "hooks/agentisland-hook.sh")).read()
+
+# Ids arrive off a shared-/tmp spool and become filenames; without a check a crafted line
+# aims a write anywhere the user can reach.
+check("request ids are validated before becoming paths", "static func validID" in _ap4
+      and "guard validID(question.id)" in _ap4 and "guard validID(approval.id)" in _ap4)
+check("a bad id is rejected at the spool, not just at the write",
+      "Approvals.validID(qid)" in _hs4 and "Approvals.validID(reqID)" in _hs4)
+check("a session id cannot traverse out of the transcript directory",
+      "guard Approvals.validID(sessionId) else { return nil }" in _as4)
+# Payloads and answers pass through /tmp, which is shared.
+check("hooks do not publish payloads to every account", "umask 077" in _sh4
+      and "os.umask(0o077)" in _qh4)
+check("the decisions directory is private", "mode=0o700" in _qh4)
+# An upgrade inherits the old build's mode, so creation-time alone is not enough.
+check("an inherited spool is tightened on every start",
+      'setAttributes([.posixPermissions: 0o600], ofItemAtPath: Self.spool)' in _hs4)
+
+# The queue handed the next card to a presenter that saw the old one still on screen.
+check("a queued card is shown, not re-queued",
+      "if !queuedQuestions.isEmpty || !queuedApprovals.isEmpty { state = .collapsed }" in _is4)
+# An ask whose questions share wording cannot be answered by a map keyed on wording.
+check("an answer that cannot be written does not close the card",
+      "guard Approvals.answer(question, picks: picks) else {" in _is4
+      and "@discardableResult" in _ap4)
+check("an empty ask cannot subscript out of range",
+      "guard !q.items.isEmpty else { return nil }" in _is4)
+check("a redelivered ask only resumes if it is the same shape",
+      "cur.items.count == question.items.count" in _is4)
+check("keys rebind to the step actually on screen",
+      "bindKeys(question, step: questionStep)" in _is4)
+
 print("\n=== 23f. question cards ===")
 _qh2 = open(os.path.join(REPO, "hooks/agentisland-question.py")).read()
 _hs3 = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()

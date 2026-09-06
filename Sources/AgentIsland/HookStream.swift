@@ -137,8 +137,14 @@ final class HookStream: ObservableObject {
 
     private func open() {
         if !FileManager.default.fileExists(atPath: Self.spool) {
-            FileManager.default.createFile(atPath: Self.spool, contents: nil)
+            // Tool payloads and prompts pass through here; /tmp is shared, so do not let the
+            // default mode publish them to every account on the machine.
+            FileManager.default.createFile(atPath: Self.spool, contents: nil,
+                                           attributes: [.posixPermissions: 0o600])
         }
+        // An upgrade inherits whatever mode the old build left behind, so tighten every time
+        // rather than only at creation.
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: Self.spool)
         guard let h = FileHandle(forReadingAtPath: Self.spool) else { return }
         handle = h
         // Replay the recent spool instead of starting blind: seeking to the end forgot every
@@ -194,7 +200,7 @@ final class HookStream: ObservableObject {
             let stamp = (obj["ai_ts"] as? NSNumber).map {
                 Date(timeIntervalSince1970: $0.doubleValue) }
 
-            if let qid = obj["ap_question_id"] as? String,
+            if let qid = obj["ap_question_id"] as? String, Approvals.validID(qid),
                let raw = obj["items"] as? [[String: Any]], !raw.isEmpty {
                 let items: [QuestionItem] = raw.compactMap { r in
                     let opts = (r["options"] as? [[String: Any]] ?? []).compactMap { o -> QuestionOption? in
@@ -234,7 +240,7 @@ final class HookStream: ObservableObject {
                 obj = payload
             }
             // The permission hook wraps its payload so it can carry the id it is polling on.
-            if let reqID = obj["ap_request_id"] as? String,
+            if let reqID = obj["ap_request_id"] as? String, Approvals.validID(reqID),
                let payload = obj["payload"] as? [String: Any] {
                 let tool = payload["tool_name"] as? String ?? "tool"
                 var plan: String?

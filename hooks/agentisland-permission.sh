@@ -3,6 +3,7 @@
 #
 # Safety first — a hook that hangs freezes the session, so every failure path exits 0 with no
 # output, which leaves Claude's normal permission prompt untouched.
+umask 077   # tool payloads and prompts pass through /tmp; keep them private
 SPOOL="${AGENTISLAND_SPOOL:-/tmp/agentisland-events.jsonl}"
 DECISIONS="${AGENTISLAND_DECISIONS:-/tmp/agentisland-decisions}"
 ALIVE="${AGENTISLAND_ALIVE:-/tmp/agentisland.alive}"

@@ -9,6 +9,8 @@ Every failure path exits 0 silently, which leaves Claude's own question prompt u
 """
 import json, os, sys, time
 
+os.umask(0o077)   # answers and spool lines are private
+
 SPOOL = os.environ.get("AGENTISLAND_SPOOL", "/tmp/agentisland-events.jsonl")
 DECISIONS = os.environ.get("AGENTISLAND_DECISIONS", "/tmp/agentisland-decisions")
 ALIVE = os.environ.get("AGENTISLAND_ALIVE", "/tmp/agentisland.alive")
@@ -89,7 +91,9 @@ def main():
 
     req_id = f"aq-{os.getpid()}-{int(time.time())}"
     try:
-        os.makedirs(DECISIONS, exist_ok=True)
+        # Answers are private: the default mode leaves them readable by every user on the box.
+        os.makedirs(DECISIONS, mode=0o700, exist_ok=True)
+        os.chmod(DECISIONS, 0o700)
     except OSError:
         bail()
     try:

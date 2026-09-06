@@ -1,5 +1,6 @@
 #!/bin/bash
 # Hooks block Claude Code, so this forks nothing and always exits 0.
+umask 077   # tool payloads and prompts pass through /tmp; keep them private
 SPOOL="${AGENTISLAND_SPOOL:-/tmp/agentisland-events.jsonl}"
 IFS= read -r -d '' INPUT
 [ -z "$INPUT" ] && exit 0

@@ -611,6 +611,9 @@ enum Transcript {
     static func path(for a: Agent) -> String? { path(sessionId: a.sessionId, cwd: a.cwd) }
 
     static func path(sessionId: String, cwd: String?) -> String? {
+        // The id is interpolated into a path. Real ones are UUIDs; anything else is either a
+        // bug or a traversal, and every transcript read in the app comes through here.
+        guard Approvals.validID(sessionId) else { return nil }
         if let hit = pathCache[sessionId] { return hit.isEmpty ? nil : hit }
         let fm = FileManager.default
         let projects = Home.path + "/.claude/projects"

@@ -87,6 +87,7 @@ final class ApprovalHold {
 
     func begin(id: String) {
         end()
+        guard Approvals.validID(id) else { return }
         let p = (Approvals.decisionsDir as NSString).appendingPathComponent(id + ".hold")
         path = p
         FileManager.default.createFile(atPath: p, contents: nil,

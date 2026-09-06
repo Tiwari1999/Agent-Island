@@ -3,6 +3,14 @@ import Foundation
 /// Answers the blocked hook by dropping a file where it is polling, and proves the app is
 /// alive so the hook knows anyone is home to ask.
 enum Approvals {
+    /// Request ids come off the spool and become filenames. They are generated as
+    /// "aq-<pid>-<ts>", so anything else is either a bug or someone aiming a write at a path
+    /// of their choosing — reject rather than sanitise, since there is no valid odd id.
+    static func validID(_ id: String) -> Bool {
+        !id.isEmpty && id.count <= 64
+            && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }
+    }
+
     static let decisionsDir = "/tmp/agentisland-decisions"
     static let aliveFile = "/tmp/agentisland.alive"
 
@@ -19,7 +27,9 @@ enum Approvals {
     /// Answer a question by writing the chosen label where the hook is polling.
     /// One write for the whole ask: question text to the chosen label, or labels when the
     /// question allows several. The hook validates every entry against what it offered.
-    static func answer(_ question: Question, picks: [String: [String]]) {
+    @discardableResult
+    static func answer(_ question: Question, picks: [String: [String]]) -> Bool {
+        guard validID(question.id) else { return false }
         ensureDir()
         var body: [String: Any] = [:]
         for item in question.items {
@@ -27,12 +37,14 @@ enum Approvals {
             body[item.text] = item.multi ? chosen : chosen[0]
         }
         guard body.count == question.items.count,
-              let data = try? JSONSerialization.data(withJSONObject: body) else { return }
+              let data = try? JSONSerialization.data(withJSONObject: body) else { return false }
         let path = (decisionsDir as NSString).appendingPathComponent(question.id)
-        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        do { try data.write(to: URL(fileURLWithPath: path), options: .atomic) } catch { return false }
+        return true
     }
 
     static func decide(_ approval: Approval, allow: Bool) {
+        guard validID(approval.id) else { return }
         ensureDir()
         let path = (decisionsDir as NSString).appendingPathComponent(approval.id)
         try? (allow ? "allow" : "deny").write(toFile: path, atomically: true, encoding: .utf8)

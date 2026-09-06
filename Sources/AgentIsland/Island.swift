@@ -241,7 +241,8 @@ final class Island: NSObject, ObservableObject {
     /// The question currently on screen, and the size it needs — both the window frame and the
     /// view read these, so a card can never be drawn at a size the window did not reserve.
     func questionItem(_ q: Question) -> QuestionItem? {
-        q.items.indices.contains(questionStep) ? q.items[questionStep] : q.items.first
+        guard !q.items.isEmpty else { return nil }
+        return q.items.indices.contains(questionStep) ? q.items[questionStep] : q.items[0]
     }
 
     func questionSize(_ q: Question) -> CGSize {
@@ -415,6 +416,9 @@ final class Island: NSObject, ObservableObject {
         let now = Date()
         queuedQuestions.removeAll { $0.deadline <= now }
         queuedApprovals.removeAll { $0.deadline <= now }
+        // Clear first: ask() and present() both treat a different card still being on screen as
+        // "wait your turn", so handing them the next one mid-state queued it forever.
+        if !queuedQuestions.isEmpty || !queuedApprovals.isEmpty { state = .collapsed }
         if !queuedQuestions.isEmpty { ask(queuedQuestions.removeFirst()); return }
         if !queuedApprovals.isEmpty { present(queuedApprovals.removeFirst()); return }
         withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) { state = .collapsed }
@@ -483,6 +487,7 @@ final class Island: NSObject, ObservableObject {
         // being dropped; another question waits its turn.
         if case .approval(let a) = state, a.deadline > Date() {
             approvalWork?.cancel()
+            approvalContext = nil     // it belonged to that approval, not to the one returning
             if !queuedApprovals.contains(where: { $0.id == a.id }) { queuedApprovals.insert(a, at: 0) }
         } else if case .question(let q) = state, q.id != question.id {
             if !queuedQuestions.contains(where: { $0.id == question.id }) {
@@ -492,12 +497,16 @@ final class Island: NSObject, ObservableObject {
         }
         followActiveScreen()
         peekWork?.cancel(); questionWork?.cancel()
-        if case .question(let cur) = state, cur.id == question.id {} else {
-            questionStep = 0; picks = [:]      // a different ask starts clean
-        }
+        // Resume only a card that is genuinely still the one on screen and still the same
+        // shape; anything else starts clean rather than half-remembered.
+        let resumable: Bool
+        if case .question(let cur) = state,
+           cur.id == question.id, cur.items.count == question.items.count,
+           questionStep < question.items.count { resumable = true } else { resumable = false }
+        if !resumable { questionStep = 0; picks = [:] }
         // Keys are bound per question as the sequence advances, so 1-4 always means "this
         // question's options" rather than a running index across the whole ask.
-        bindKeys(question, step: 0)
+        bindKeys(question, step: questionStep)
         withAnimation(.spring(response: 0.34, dampingFraction: 0.80)) { state = .question(question) }
         // Keep the hook waiting while the card is on screen: it used to expire underneath the
         // reader after 45 seconds, taking the only way to answer with it.
@@ -550,11 +559,21 @@ final class Island: NSObject, ObservableObject {
     }
 
     func choose(_ question: Question, picks: [String: [String]]) {
+        // An ask whose questions share wording cannot be answered as a map keyed by wording:
+        // the second pick overwrites the first and the write is refused. Say so rather than
+        // silently closing a card whose hook is still waiting.
+        guard Approvals.answer(question, picks: picks) else {
+            Diagnostics.log("question \(question.id): could not answer, leaving it to the terminal")
+            questionWork?.cancel(); hold.end()
+            store.hooks.clearQuestion(question.id)
+            Hotkeys.shared.unbind()
+            presentNext()
+            return
+        }
         questionWork?.cancel()
         hold.end()
         store.hooks.clearQuestion(question.id)
         Hotkeys.shared.unbind()
-        Approvals.answer(question, picks: picks)
         presentNext()
     }
 
