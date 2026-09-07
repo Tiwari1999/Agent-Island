@@ -337,8 +337,9 @@ final class Island: NSObject, ObservableObject {
                 Hotkeys.shared.unbind()
                 refreshHitRegion()
             }
-            // Answering it in the chat moves the turn on, which clears it from the store.
-            if store.hooks.pendingQuestions[q.session]?.id != q.id {
+            // Answering it in the chat moves the turn on, which clears it from the store; a
+            // mirror whose window has also elapsed is dropped so a dead session cannot park it.
+            if store.hooks.pendingQuestions[q.session]?.id != q.id || q.deadline <= Date() {
                 handedOver.remove(q.id)
                 store.hooks.clearQuestion(q.id)
                 dismissQuestion()
@@ -453,8 +454,14 @@ final class Island: NSObject, ObservableObject {
 
     private var showingCard: Bool {
         if case .approval = state { return true }
-        if case .question = state { return true }
+        if case .question(let q) = state { return !isStaleCard(q) }
         return false
+    }
+
+    /// A question card nobody is actively answering: it was handed to the chat, or its hook has
+    /// gone. Such a card is informational and must yield the stage to a live one.
+    private func isStaleCard(_ q: Question) -> Bool {
+        handedOver.contains(q.id) || q.abandoned
     }
 
     /// Show the next thing still worth answering. Questions outrank approvals: an agent asking a
@@ -537,10 +544,15 @@ final class Island: NSObject, ObservableObject {
             approvalContext = nil     // it belonged to that approval, not to the one returning
             if !queuedApprovals.contains(where: { $0.id == a.id }) { queuedApprovals.insert(a, at: 0) }
         } else if case .question(let q) = state, q.id != question.id {
-            if !queuedQuestions.contains(where: { $0.id == question.id }) {
-                queuedQuestions.append(question)
+            if isStaleCard(q) {
+                handedOver.remove(q.id)         // the leftover yields to a live question
+                store.hooks.clearQuestion(q.id)
+            } else {
+                if !queuedQuestions.contains(where: { $0.id == question.id }) {
+                    queuedQuestions.append(question)
+                }
+                return
             }
-            return
         }
         followActiveScreen()
         peekWork?.cancel(); questionWork?.cancel()

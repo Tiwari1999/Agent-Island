@@ -1666,6 +1666,15 @@ check("the countdown length matches the hook's grace",
 
 # Answering in the chat is an explicit choice that keeps the notch copy up rather than
 # blanking it, so the question is visible in both places.
+# A handed-over mirror had no timeout and counted as a live card, so it wedged the notch: every
+# new question or approval from any session queued behind it forever. A stale card must yield.
+check("a stale card does not count as a live one",
+      "if case .question(let q) = state { return !isStaleCard(q) }" in _is5
+      and "handedOver.contains(q.id) || q.abandoned" in _is5)
+check("a new question takes the stage from a stale card",
+      "if isStaleCard(q) {" in _is5.split("func ask(")[1].split("followActiveScreen")[0])
+check("a mirror is dropped once its window elapses",
+      "|| q.deadline <= Date()" in _is5)
 check("answer-in-chat hands over and keeps the mirror",
       "func handToChat" in _is5 and "handedOver.insert(q.id)" in
       _is5.split("func handToChat")[1].split("}")[0]
