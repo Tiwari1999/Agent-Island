@@ -1123,6 +1123,50 @@ check("every auto-decision is written down",
       os.path.exists(os.path.join(_rd, "log"))
       and "agentisland rules:" in open(os.path.join(_rd, "log")).read())
 
+print("\n=== 23i. a question actually reaches the card ===")
+_ph = open(os.path.join(REPO, "hooks/agentisland-permission.sh")).read()
+_rh2 = open(os.path.join(REPO, "hooks/agentisland-rules.py")).read()
+_is6 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_vw6 = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
+
+# AskUserQuestion arrives as BOTH a PreToolUse and a PermissionRequest. The permission hook has
+# no matcher, so both fired and the approval card won -- the question never appeared.
+check("the permission hook leaves questions to the question card",
+      '"AskUserQuestion"' in _ph and "exit 0 ;; esac" in _ph)
+check("the guard tolerates either JSON spacing",
+      """*'"tool_name"'*'"AskUserQuestion"'*""" in _ph)
+check("a rule cannot allow or deny a question",
+      'if tool == "AskUserQuestion":' in _rh2)
+
+# Verified against a payload captured from a real ask.
+_pj = "/tmp/qpayload.json"
+if os.path.exists(_pj):
+    _d = RUN + "-permq"
+    os.makedirs(_d + "/dec", exist_ok=True)
+    open(_d + "/alive", "w").close()
+    for _style, _sep in (("compact", (",", ":")), ("spaced", (", ", ": "))):
+        _sp = f"{_d}/{_style}.jsonl"
+        subprocess.run([os.path.join(REPO, "hooks/agentisland-permission.sh")],
+            input=json.dumps(json.load(open(_pj)), separators=_sep), capture_output=True,
+            text=True, timeout=20,
+            env=dict(os.environ, AGENTISLAND_SPOOL=_sp, AGENTISLAND_DECISIONS=_d + "/dec",
+                     AGENTISLAND_ALIVE=_d + "/alive", AGENTISLAND_TIMEOUT_TENTHS="20"))
+        check(f"a real question is not claimed as a permission ({_style})",
+              not os.path.exists(_sp) or not open(_sp).read().strip())
+
+# Reading four questions before answering any should not require knowing a chord exists.
+check("questions can be reached by clicking a pip",
+      "onStep(i)" in _vw6 and "func goToStep" in _is6)
+check("and by keyboard", "Hotkeys.leftArrow" in _is6 and "Hotkeys.rightArrow" in _is6)
+# The panel takes no focus, so a click elsewhere is the only dismissal a person will try.
+check("a click outside closes the card",
+      "addGlobalMonitorForEvents" in _is6 and "self.dismissQuestion()" in _is6)
+check("the click monitor is always torn down",
+      _is6.count("stopWatchingClicks()") >= 3)
+# A card that timed out was unreachable unless you knew the row would bring it back.
+check("a waiting row offers a visible way back in",
+      "onAnswer" in _vw6 and "questionmark.bubble.fill" in _vw6)
+
 print("\n=== 23g. hostile spool and decision files ===")
 _ap4 = open(os.path.join(REPO, "Sources/AgentIsland/Approvals.swift")).read()
 _hs4 = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()

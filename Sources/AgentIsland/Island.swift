@@ -38,6 +38,9 @@ final class Island: NSObject, ObservableObject {
     /// the hook is told about (via the hold file), so collapsing back would lie to it.
     @Published var approvalContext: ApprovalContext?
     private let hold = ApprovalHold()
+    /// Watches for a click outside the card. The panel never takes focus, so this is the only
+    /// way to notice one — without it a card could only be answered or waited out.
+    private var outsideClick: Any?
     /// Which question of the ask is on screen, and what has been chosen so far.
     @Published var questionStep = 0
     @Published var picks: [String: [String]] = [:]
@@ -511,6 +514,7 @@ final class Island: NSObject, ObservableObject {
         // Keep the hook waiting while the card is on screen: it used to expire underneath the
         // reader after 45 seconds, taking the only way to answer with it.
         hold.begin(id: question.id)
+        watchForOutsideClick()
         refreshHitRegion()
         let work = DispatchWorkItem { [weak self] in
             guard let self, case .question(let q) = self.state, q.id == question.id else { return }
@@ -525,10 +529,55 @@ final class Island: NSObject, ObservableObject {
 
     private func bindKeys(_ q: Question, step: Int) {
         guard step < q.items.count else { return }
-        Hotkeys.shared.bind(q.items[step].options.prefix(4).enumerated().map { i, opt in
-            (Hotkeys.digits[i], Hotkeys.cmdOpt,
-             { [weak self] in self?.pick(q, step: step, option: opt.label) })
-        })
+        var keys: [(key: Int, mods: Int, action: () -> Void)] =
+            q.items[step].options.prefix(4).enumerated().map { i, opt in
+                (Hotkeys.digits[i], Hotkeys.cmdOpt,
+                 { [weak self] in self?.pick(q, step: step, option: opt.label) })
+            }
+        if q.items.count > 1 {
+            keys.append((Hotkeys.leftArrow, Hotkeys.cmdOpt,
+                         { [weak self] in self?.goToStep(q, step - 1) }))
+            keys.append((Hotkeys.rightArrow, Hotkeys.cmdOpt,
+                         { [weak self] in self?.goToStep(q, step + 1) }))
+        }
+        Hotkeys.shared.bind(keys)
+    }
+
+    /// Move to another question of the same ask without answering this one, so you can read
+    /// them all before committing to any. Clicking a pip lands here too.
+    func goToStep(_ q: Question, _ step: Int) {
+        guard q.items.indices.contains(step), step != questionStep else { return }
+        questionStep = step
+        bindKeys(q, step: step)
+        withAnimation(.easeOut(duration: 0.16)) { state = .question(q) }
+        refreshHitRegion()
+    }
+
+    private func watchForOutsideClick() {
+        stopWatchingClicks()
+        outsideClick = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) {
+            [weak self] _ in
+            guard let self, case .question = self.state else { return }
+            // Global monitors only see clicks outside our own windows, so arriving here is
+            // already proof the click was elsewhere.
+            DispatchQueue.main.async { self.dismissQuestion() }
+        }
+    }
+
+    private func stopWatchingClicks() {
+        if let outsideClick { NSEvent.removeMonitor(outsideClick) }
+        outsideClick = nil
+    }
+
+    /// Dismiss the card without answering. The hook falls through to the terminal, and the
+    /// question stays pending so the row can bring it back.
+    func dismissQuestion() {
+        guard case .question = state else { return }
+        questionWork?.cancel()
+        hold.end()
+        stopWatchingClicks()
+        Hotkeys.shared.unbind()
+        presentNext()
     }
 
     /// Record one answer and move on. The card only closes when the last question is answered,
@@ -559,6 +608,7 @@ final class Island: NSObject, ObservableObject {
     }
 
     func choose(_ question: Question, picks: [String: [String]]) {
+        stopWatchingClicks()
         // An ask whose questions share wording cannot be answered as a map keyed by wording:
         // the second pick overwrites the first and the write is refused. Say so rather than
         // silently closing a card whose hook is still waiting.
@@ -682,7 +732,8 @@ private struct RootView: View {
                         step: island.questionStep,
                         picks: island.picks,
                         onPick: { island.pick(q, step: island.questionStep, option: $0) },
-                        onConfirm: { island.advance(q, from: island.questionStep) })
+                        onConfirm: { island.advance(q, from: island.questionStep) },
+                        onStep: { island.goToStep(q, $0) })
                         .frame(maxHeight: .infinity, alignment: .bottom)
                         .padding(.bottom, 6)
                 case .expanded:

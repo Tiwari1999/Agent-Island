@@ -210,6 +210,9 @@ struct AgentRowView: View {
     let row: AgentRow
     let model: String?
     var onPlan: (() -> Void)? = nil
+    /// Present when this row has a question still waiting. A card that timed out is otherwise
+    /// unreachable: the user has no way of knowing the row will bring it back.
+    var onAnswer: (() -> Void)? = nil
     /// Recent tool calls, parsed only while this row is open. Empty means collapsed.
     var calls: [ToolCall] = []
     var expanded = false
@@ -341,6 +344,17 @@ struct AgentRowView: View {
                     // One quiet identity cluster instead of three capsules: what a row IS
                     // never demands action, so it never earns three separate shapes.
                     chip(identity, row.agent.remoteHost != nil ? Theme.amber : Theme.muted)
+                    if let onAnswer {
+                        HStack(spacing: 3) {
+                            Image(systemName: "questionmark.bubble.fill").font(.system(size: 8))
+                            Text("answer").font(Theme.mono(8.5))
+                        }
+                        .foregroundColor(Theme.waiting)
+                        .padding(.horizontal, 5).padding(.vertical, 1.5)
+                        .background(Capsule().fill(Theme.waiting.opacity(0.14)))
+                        .contentShape(Capsule())
+                        .onTapGesture(perform: onAnswer)
+                    }
                     if let onPlan {
                         HStack(spacing: 3) {
                             Image(systemName: "doc.plaintext").font(.system(size: 8))
@@ -569,6 +583,12 @@ struct PanelView: View {
                                                                 title: row.displayName)
                                                } }
                                          },
+                                         // A card that timed out is otherwise unreachable.
+                                         onAnswer: store.hooks.pendingQuestions[row.agent.sessionId]
+                                             .flatMap { q -> (() -> Void)? in
+                                                 guard q.deadline > Date() else { return nil }
+                                                 return { store.onRowActivate?(row) }
+                                             },
                                          calls: open ? openCalls : [],
                                          expanded: open,
                                          onToggle: { toggle(row) }) { store.jump(row) }
@@ -801,6 +821,7 @@ struct QuestionCard: View {
     let picks: [String: [String]]
     let onPick: (String) -> Void
     let onConfirm: () -> Void
+    let onStep: (Int) -> Void
     @State private var hot: String?
 
     private var item: QuestionItem { question.items[min(step, question.items.count - 1)] }
@@ -850,16 +871,22 @@ struct QuestionCard: View {
             // How many questions there are, before you answer the first one.
             if question.items.count > 1 {
                 HStack(spacing: 5) {
+                    // Each pip is a way in: reading all four before answering any should not
+                    // require knowing a chord exists.
                     HStack(spacing: 3) {
                         ForEach(0..<question.items.count, id: \.self) { i in
                             Circle()
                                 .fill(i < step ? Theme.working : i == step ? Theme.waiting : Theme.faint)
                                 .opacity(i > step ? 0.4 : 1)
-                                .frame(width: 5, height: 5)
+                                .frame(width: 6, height: 6)
+                                .padding(3)
+                                .contentShape(Rectangle())
+                                .onTapGesture { onStep(i) }
                         }
                     }
                     Text("\(step + 1) of \(question.items.count)")
                         .font(Theme.mono(9)).foregroundColor(Theme.faint)
+                    Text("⌘⌥←→").font(Theme.mono(8)).foregroundColor(Theme.faint.opacity(0.7))
                 }
             }
         }

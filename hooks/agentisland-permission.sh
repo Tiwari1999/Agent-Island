@@ -11,6 +11,11 @@ TIMEOUT_TENTHS="${AGENTISLAND_TIMEOUT_TENTHS:-200}"   # 20s
 
 IFS= read -r -d '' INPUT
 [ -z "$INPUT" ] && exit 0
+# AskUserQuestion arrives as both a PreToolUse and a PermissionRequest. It is answered, not
+# approved, and the question hook owns it — without this both fire and the approval card wins,
+# so the question the user was meant to answer never appears.
+case "$INPUT" in *'"tool_name"'*'"AskUserQuestion"'*) exit 0 ;; esac
+
 # A plan takes longer to read than a shell command; give the reviewer a real window.
 case "$INPUT" in *'"tool_name":"ExitPlanMode"'*)
     [ -z "$AGENTISLAND_TIMEOUT_TENTHS" ] && TIMEOUT_TENTHS=550 ;;   # a test's override still wins

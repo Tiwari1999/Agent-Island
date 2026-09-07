@@ -106,6 +106,9 @@ def main():
 
     # Cursor sends camelCase event names; the rule file should not have to know that.
     tool = payload.get("tool_name") or payload.get("toolName") or ""
+    # A question is answered by its card, never allowed or denied by a rule.
+    if tool == "AskUserQuestion":
+        sys.exit(0)
     inp = payload.get("tool_input") or {}
     cwd = payload.get("cwd", "")
     text = subject(tool, inp)

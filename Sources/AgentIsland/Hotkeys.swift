@@ -52,5 +52,9 @@ final class Hotkeys {
 
     // Number keys 1-4 for multiple choice.
     static let digits = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4]
+    /// The panel never takes focus, so plain arrows cannot reach it — moving between the
+    /// questions of one ask uses the same chord the options already do.
+    static let leftArrow = kVK_LeftArrow
+    static let rightArrow = kVK_RightArrow
     static let cmdOpt = cmdKey | optionKey
 }
