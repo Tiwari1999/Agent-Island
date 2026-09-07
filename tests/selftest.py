@@ -1597,6 +1597,15 @@ def _pid(i):
 check("the waiting pid is recoverable from the id",
       all(_pid(k) == v for k, v in _ids.items()))
 
+# A silent launch failure is the worst version of tonight's bug: no island, so every hook
+# falls through and nothing in the notch ever appears again.
+_sh = open(os.path.join(REPO, "install.sh")).read()
+check("install verifies the app actually started",
+      "pgrep -x AgentIsland" in _sh.split("==> launching")[1]
+      and "did not start" in _sh)
+check("and re-registers the bundle it just replaced", "lsregister" in _sh)
+check("a failed launch is a failed install", "exit 1" in _sh.split("==> launching")[1])
+
 print("\n=== 23. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")
 check("binary exists", os.path.exists(b))

@@ -38,5 +38,19 @@ echo "==> registering hooks"
 python3 "$REPO/scripts/install-hooks.py" "$REPO"
 
 echo "==> launching"
-open "$APP"
-echo "done — hover the notch"
+# rm -rf on the bundle leaves LaunchServices holding a stale registration, which answers -600
+# and starts nothing. Re-register, then retry and verify: a silent failure here leaves no
+# island running, and every hook falls straight through to the terminal.
+LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+[ -x "$LSREG" ] && "$LSREG" -f "$APP" 2>/dev/null || true
+for _ in $(seq 1 8); do
+    pgrep -x AgentIsland >/dev/null && break
+    open "$APP" 2>/dev/null || true
+    sleep 1
+done
+if pgrep -x AgentIsland >/dev/null; then
+    echo "done — hover the notch"
+else
+    echo "! AgentIsland did not start. Open $APP from Finder, then re-run this script." >&2
+    exit 1
+fi
