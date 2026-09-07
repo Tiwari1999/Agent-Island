@@ -1051,6 +1051,62 @@ check("clicking a blocked row answers it instead of jumping",
 check("a question names the session it came from",
       "var project: String?" in _hs2 and "question.project" in _is2)
 
+print("\n=== 23h. auto-approve rules cannot be turned against you ===")
+_rh = os.path.join(REPO, "hooks/agentisland-rules.py")
+_rd = RUN + "-rules"
+os.makedirs(_rd, exist_ok=True)
+
+def _rule(rules, cmd, mode=0o600, link=False, tool="Bash"):
+    """Run the rules hook against one command and return its decision, or None."""
+    f = os.path.join(_rd, "r.json")
+    real = os.path.join(_rd, "real.json")
+    with open(real, "w") as fh: json.dump(rules, fh)
+    os.chmod(real, mode)
+    if os.path.lexists(f): os.remove(f)
+    if link: os.symlink(real, f)
+    else: os.replace(real, f); os.chmod(f, mode)
+    r = subprocess.run([_rh], input=json.dumps(
+        {"tool_name": tool, "cwd": "/Users/x", "tool_input": {"command": cmd}}),
+        capture_output=True, text=True, timeout=20,
+        env=dict(os.environ, AGENTISLAND_RULES=f, AGENTISLAND_LOG=os.path.join(_rd, "log")))
+    if r.returncode != 0: return "CRASH"
+    out = r.stdout.strip()
+    if not out: return None
+    try: return json.loads(out)["hookSpecificOutput"]["permissionDecision"]
+    except Exception: return "MALFORMED"
+
+# An agent can write files, so a prompt injection can write the rules file. A catch-all allow
+# would then approve everything before the user is ever shown a card.
+check("a catch-all allow rule is refused",
+      _rule([{"pattern": ".*", "action": "allow"}], "npm test") is None)
+check("other ways of writing catch-all are refused too",
+      all(_rule([{"pattern": p_, "action": "allow"}], "npm test") is None
+          for p_ in [".+", "^.*$", "[\\s\\S]*", "(?s).*", ""]))
+# Even a narrow rule may not auto-approve what the island itself calls dangerous.
+check("a rule cannot auto-approve a destructive command",
+      _rule([{"pattern": "^sudo ", "action": "allow"}], "sudo rm -rf /Users/x/w") is None)
+check("nor a force push", _rule([{"pattern": "^git ", "action": "allow"}], "git push --force") is None)
+# Denying broadly is merely annoying, so it stays allowed.
+check("a broad deny rule still works",
+      _rule([{"pattern": ".*", "action": "deny"}], "npm test") == "deny")
+# The file itself must not be one anyone else could have written.
+check("a world-writable rules file is ignored",
+      _rule([{"tool": "Bash", "pattern": "^npm test", "action": "allow"}], "npm test",
+            mode=0o666) is None)
+check("a symlinked rules file is ignored",
+      _rule([{"tool": "Bash", "pattern": "^npm test", "action": "allow"}], "npm test",
+            link=True) is None)
+# And the legitimate case still has to work, or the feature is gone rather than safe.
+check("a specific allow rule still works",
+      _rule([{"tool": "Bash", "pattern": r"^npm (test|run build)\b", "action": "allow"}],
+            "npm test") == "allow")
+check("a specific rule does not over-match",
+      _rule([{"tool": "Bash", "pattern": r"^npm (test|run build)\b", "action": "allow"}],
+            "npm publish") is None)
+check("every auto-decision is written down",
+      os.path.exists(os.path.join(_rd, "log"))
+      and "agentisland rules:" in open(os.path.join(_rd, "log")).read())
+
 print("\n=== 23g. hostile spool and decision files ===")
 _ap4 = open(os.path.join(REPO, "Sources/AgentIsland/Approvals.swift")).read()
 _hs4 = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()
