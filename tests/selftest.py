@@ -357,6 +357,18 @@ check("a blocked count requires a live process",
       "agent.pid.map(Proc.alive) ?? (agent.remoteHost != nil)" in _as5.split("var dormantBlocked")[1][:320])
 check("a blocked row ranks where it can be found",
       "if r.dormantBlocked { return 1 }" in _as5)
+# A working session with a stale vendor "blocked" phase read as blocked-and-working at once and
+# sorted to the top above the sessions actually running: a live turn beats the lagging phase.
+check("an actively working session is never counted as dormant-blocked",
+      "&& !isWorking" in _as5.split("var dormantBlocked")[1][:200])
+check("a working row shows what it is doing, not a remembered question",
+      'if isWorking { return live?.detail ?? narration }' in _as5)
+# Empirically, against the live dump: nothing is both blocked and working.
+if os.path.exists("/tmp/agentisland.rows.json"):
+    _rw = json.load(open("/tmp/agentisland.rows.json"))
+    check("no row is blocked and working at once",
+          not [r for r in _rw if r.get("blocked") and r.get("working")],
+          f"{sum(1 for r in _rw if r.get('blocked') and r.get('working'))} collisions")
 if os.path.exists(_mp := "/tmp/agentisland.rows.json"):
     _r5 = json.load(open(_mp))
     _blocked = [x for x in _r5 if x.get("blocked")]

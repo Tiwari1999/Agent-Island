@@ -100,9 +100,9 @@ struct AgentRow: Identifiable {
     var tabHint: String { isBackground ? "background session" : host.name }
     /// A blocked agent's own question outranks any stale tool activity.
     var activity: String? {
+        if isWorking { return live?.detail ?? narration }
         if let q = blockedQuestion { return q }
-        guard isWorking else { return nil }   // finished work is not current activity
-        return live?.detail ?? narration
+        return nil   // finished work is not current activity
     }
     var blockedQuestion: String? {
         agent.phase == "blocked" ? Blocked.question(for: agent.sessionId) : nil
@@ -173,7 +173,7 @@ struct AgentRow: Identifiable {
     /// outlives the run that wrote it, so without the liveness check the header counted
     /// sessions that had been dead a fortnight and pointed at rows nobody could find.
     var dormantBlocked: Bool {
-        blockedQuestion != nil && !(live?.waiting ?? false)
+        blockedQuestion != nil && !(live?.waiting ?? false) && !isWorking
             && (agent.pid.map(Proc.alive) ?? (agent.remoteHost != nil))
     }
 
