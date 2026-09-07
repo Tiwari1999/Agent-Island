@@ -347,9 +347,11 @@ enum PromptCheck {
         let workRow = AgentRow(agent: busy, live: LiveState(active: true))
         var waitRow = AgentRow(agent: busy, live: LiveState(waiting: true, active: true))
         waitRow.live?.waiting = true
+        // Four ranks now: an answer is owed, an answer is owed but was asked a while ago,
+        // work is happening, nothing is happening.
         let tiers = [(AgentStore.tier(waitRow), 0, "a blocked agent outranks everything"),
-                     (AgentStore.tier(workRow), 1, "working sits between"),
-                     (AgentStore.tier(idleRow), 2, "idle sinks to the bottom")]
+                     (AgentStore.tier(workRow), 2, "working sits below anything owed an answer"),
+                     (AgentStore.tier(idleRow), 3, "idle sinks to the bottom")]
         // kill -9 mid-tool sends no Stop and no PostToolUse, so the open-tool flag is the
         // only thing still claiming work. It must not outlive the process it describes.
         let killedMidTool = AgentRow(

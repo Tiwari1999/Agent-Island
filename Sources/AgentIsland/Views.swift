@@ -263,7 +263,13 @@ struct AgentRowView: View {
                                 .lineLimit(1).truncationMode(.tail)
                             Spacer(minLength: 4)
                             if let d = c.duration {
-                                Text(d).font(Theme.mono(8.5)).foregroundColor(Theme.faint)
+                                // A bare number on the right of a newest-first list reads as
+                                // "ago". This one is how long the call took, so it says so.
+                                HStack(spacing: 2) {
+                                    Image(systemName: "timer").font(.system(size: 7))
+                                    Text(d).font(Theme.mono(8.5))
+                                }
+                                .foregroundColor(Theme.faint)
                             }
                         }
                         if let out = c.response, !out.isEmpty {

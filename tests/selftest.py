@@ -350,6 +350,22 @@ check("opening the panel does not freeze a stale order",
       "frozenOrder = [:]\n            refresh()" in st)
 check("the freeze is taken from a sorted result",
       st.index("self.rows = self.applyOrder(built)") < st.index("self.freezeOrderIfNeeded()"))
+# The header counted sessions blocked a fortnight ago whose process was long gone, and
+# pointed at rows sitting at the bottom of the list — a number leading nowhere.
+_as5 = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
+check("a blocked count requires a live process",
+      "agent.pid.map(Proc.alive) ?? (agent.remoteHost != nil)" in _as5.split("var dormantBlocked")[1][:320])
+check("a blocked row ranks where it can be found",
+      "if r.dormantBlocked { return 1 }" in _as5)
+if os.path.exists(_mp := "/tmp/agentisland.rows.json"):
+    _r5 = json.load(open(_mp))
+    _blocked = [x for x in _r5 if x.get("blocked")]
+    _first_other = next((i for i, x in enumerate(_r5)
+                         if not x.get("blocked") and not x.get("waiting")), len(_r5))
+    check("every counted blocked row sits above the ordinary ones",
+          all(_r5.index(b) < _first_other for b in _blocked),
+          f"{len(_blocked)} blocked")
+
 # The ordering contract, audited on the app's own published manifest when one exists:
 # needs-you rows, then working, then idle — a working agent may never sit under an idle one.
 _mp = "/tmp/agentisland.rows.json"
@@ -1212,6 +1228,10 @@ check("a collapsed row keeps its centring",
 
 # The design's core rule: intent is the headline, output is evidence.
 check("the why is rendered brightest", "foregroundColor(c.isError ? Theme.failed : Theme.text)" in _tv)
+# The list is newest-first, so a bare time on the right reads as age when it is duration —
+# correct ordering looked broken because of it.
+check("a call's duration is marked as a duration",
+      'Image(systemName: "timer")' in _tv)
 check("the response is rendered faint",
       "Theme.failed.opacity(0.75) : Theme.faint" in _tv)
 check("no new colours were invented for the timeline",

@@ -169,9 +169,13 @@ struct AgentRow: Identifiable {
     /// Needs you *right now*: a hook fired inside the live window. This is what earns an alarm.
     // A pending ask from a killed process is moot; without this the badge outlived the CLI.
     var waiting: Bool { (live?.waiting ?? false) && (agent.pid.map(Proc.alive) ?? true) }
-    /// Blocked on a question asked long ago. Real work, but not urgent — counting it as
-    /// "waiting" made the header claim attention was needed when nothing had just happened.
-    var dormantBlocked: Bool { blockedQuestion != nil && !(live?.waiting ?? false) }
+    /// Blocked on a question asked earlier, rather than one that just arrived. The job file
+    /// outlives the run that wrote it, so without the liveness check the header counted
+    /// sessions that had been dead a fortnight and pointed at rows nobody could find.
+    var dormantBlocked: Bool {
+        blockedQuestion != nil && !(live?.waiting ?? false)
+            && (agent.pid.map(Proc.alive) ?? (agent.remoteHost != nil))
+    }
 
     var ago: String {
         guard let lastActive else { return "" }
@@ -256,7 +260,10 @@ final class AgentStore: ObservableObject {
     /// idle one no matter what the timestamps or the opening order say.
     nonisolated static func tier(_ r: AgentRow) -> Int {
         if r.waiting || r.died != nil { return 0 }
-        return r.isWorking ? 1 : 2
+        // A live session blocked on an earlier question still needs an answer, so it belongs
+        // above working rows: the header counts it, and the count has to lead somewhere.
+        if r.dormantBlocked { return 1 }
+        return r.isWorking ? 2 : 3
     }
 
     private func applyOrder(_ rows: [AgentRow]) -> [AgentRow] {
