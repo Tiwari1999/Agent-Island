@@ -52,10 +52,15 @@ struct CursorSource: AgentSource {
                 let prompt = Self.lastPrompt(dir: dir)
                 // Cursor names a chat only once it has summarised it, so fall back to what the
                 // user actually opened with — a bare UUID names nothing.
-                let title = (meta["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                // Typed intermediates so the type-checker does not have to solve a four-way
+                // ?? chain of closures at once — that timed out on Swift 6.2.
+                let metaTitle: String? = (meta["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                let promptTitle: String? = prompt.map { String($0.prefix(52)) }
+                let cwdTitle: String? = cwd.map { ($0 as NSString).lastPathComponent + " chat" }
+                let title = metaTitle
                     ?? Self.firstInstruction(sessionId: session)
-                    ?? prompt.map { String($0.prefix(52)) }
-                    ?? cwd.map { ($0 as NSString).lastPathComponent + " chat" }
+                    ?? promptTitle
+                    ?? cwdTitle
                 let said = prompt ?? Self.lastInstruction(sessionId: session)
 
                 agents.append(Agent(

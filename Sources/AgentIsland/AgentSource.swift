@@ -451,9 +451,9 @@ enum PromptCheck {
                         .data(using: .utf8)!)
             }
         }
-        print("pure-logic checks: "
-              + "\(cases.count + hooks.count + kinds.count + working.count + 12 - failed)/"
-              + "\(cases.count + hooks.count + kinds.count + working.count + 12) cases")
+        let total = cases.count + hooks.count + kinds.count + working.count + 12
+        let passed = total - failed
+        print("pure-logic checks: \(passed)/\(total) cases")
         return failed == 0 ? 0 : 1
     }
 }
