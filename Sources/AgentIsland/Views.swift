@@ -823,6 +823,8 @@ struct QuestionCard: View {
     let typed: [String: String]
     let typingFor: String?
     let allAnswered: Bool
+    /// The hook has gone and Claude is asking in the chat; this card is a copy, not a way in.
+    let handedOver: Bool
     let onPick: (String) -> Void
     let onType: (String) -> Void
     let onBeginType: () -> Void
@@ -957,9 +959,9 @@ struct QuestionCard: View {
                         .stroke(on ? Theme.waiting.opacity(0.28) : Color.clear))
                     .contentShape(Rectangle())
                     .onHover { h in withAnimation(.easeOut(duration: 0.1)) { hot = h ? opt.label : nil } }
-                    .onTapGesture { onPick(opt.label) }
+                    .onTapGesture { if !handedOver { onPick(opt.label) } }
                 }
-                other
+                if !handedOver { other }
             }
         }
         .padding(.horizontal, 16)
@@ -1023,6 +1025,19 @@ struct QuestionCard: View {
     private var footer: some View {
         let last = isLast
         return HStack(spacing: 10) {
+            if handedOver {
+                // The chat owns it now. The card stays so the question is readable in both
+                // places, but it is a copy — the only thing left to do here is go there.
+                Text("waiting for your answer in the chat")
+                    .font(Theme.mono(9)).foregroundColor(Theme.waiting)
+                Spacer(minLength: 0)
+                Text("go to the chat")
+                    .font(Theme.mono(9)).foregroundColor(Theme.text)
+                    .padding(.horizontal, 9).padding(.vertical, 4)
+                    .background(Capsule().stroke(Theme.hairline))
+                    .contentShape(Capsule())
+                    .onTapGesture(perform: onJump)
+            } else {
             Text(typing ? (isLast ? (allAnswered ? "⏎ to submit" : "⏎ for what is missing")
                                   : "⏎ for the next question")
                         : item.multi ? "\(chosen.count) selected · ⌘⌥1–4 toggles"
@@ -1048,6 +1063,7 @@ struct QuestionCard: View {
             // stays inert until every question in the ask has an answer.
             button("submit", filled: true, on: true, action: onSubmit)
                 .opacity(allAnswered ? 1 : 0.55)
+            }
         }
         .padding(.horizontal, 16)
     }

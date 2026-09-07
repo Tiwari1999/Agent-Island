@@ -18,6 +18,10 @@ try:
     WINDOW = float(os.environ.get("AGENTISLAND_Q_TIMEOUT", "300"))
 except ValueError:
     WINDOW = 300.0
+try:
+    GRACE = float(os.environ.get("AGENTISLAND_Q_GRACE", "60"))
+except ValueError:
+    GRACE = 60.0
 
 
 def _island_alive():
@@ -118,8 +122,18 @@ def main():
     # Timer in the default run-loop mode is suspended for exactly as long as AppKit tracks
     # the mouse, which is precisely when someone is using the card. Three answers died that
     # way. The app's own heartbeat already covers what the per-card one was for.
+    # A card nobody has touched falls through early rather than holding the turn for the
+    # whole window: the reader may simply not be at the desk. The mark is written once, on
+    # first interaction, and never refreshed — the refreshing version it replaces died
+    # whenever AppKit was tracking the mouse, which is exactly when the card is in use.
+    touched = path + ".touched"
     started = time.time()
-    while time.time() - started < WINDOW:
+    while True:
+        waited = time.time() - started
+        if waited >= WINDOW:
+            break
+        if waited >= GRACE and not os.path.exists(touched):
+            break
         if os.path.exists(path):
             try:
                 choice = open(path).read().strip()
@@ -186,10 +200,11 @@ def main():
         if not _island_alive():
             break
         time.sleep(0.12)
-    try:
-        os.remove(skip)
-    except OSError:
-        pass
+    for f in (skip, touched):
+        try:
+            os.remove(f)
+        except OSError:
+            pass
     bail()   # timed out, or handed over — Claude asks normally
 
 

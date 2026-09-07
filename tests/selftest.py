@@ -474,20 +474,20 @@ def fire(scenario):
     rid=""
     for l in open(f"{hw}/spool.jsonl"):
         if "ap_request_id" in l: rid=json.loads(l)["ap_request_id"]
-    if scenario in ("hold","holdans"): open(f"{hw}/dec/{rid}.hold","w").close()
+    if scenario in ("hold","holdans"): open(f"{hw}/dec/{rid}.touched","w").close()
     if scenario=="holdans":
         time.sleep(2.5); open(f"{hw}/dec/{rid}","w").write("allow")
     th.join(timeout=10)
-    return time.time()-t0, outbox.get("out",""), os.path.exists(f"{hw}/dec/{rid}.hold")
+    return time.time()-t0, outbox.get("out",""), os.path.exists(f"{hw}/dec/{rid}.touched")
 d1,o1,h1=fire("baseline")
 d2,o2,h2=fire("hold")
 d3,o3,h3=fire("holdans")
 _sh.rmtree(hw,ignore_errors=True)
-check("without a hold the hook exits at its base timeout", 1.0<d1<3.0, f"{d1:.1f}s")
-check("a hold extends the wait to the hard ceiling", 3.5<d2<6.5, f"{d2:.1f}s")
-check("an answer past the base timeout is honored under hold",
+check("an untouched approval exits at its base timeout", 1.0<d1<3.0, f"{d1:.1f}s")
+check("a touched card extends the wait to the hard ceiling", 3.5<d2<6.5, f"{d2:.1f}s")
+check("an answer past the base timeout is honored once touched",
       '"permissionDecision":"allow"' in o3 and d3<5.5, f"{d3:.1f}s")
-check("the hold file is cleaned on every path", not (h1 or h2 or h3))
+check("the mark is cleaned on every path", not (h1 or h2 or h3))
 isl3=open(os.path.join(REPO,"Sources/AgentIsland/Island.swift")).read()
 check("expanding arms the hold and re-arms the drop to the ceiling",
       "hold.begin(id:" in isl3 and "+ 290" in isl3)
@@ -1065,7 +1065,8 @@ check("status notifications are not treated as asks",
 
 # The card used to expire under the reader, taking the only way to answer with it.
 check("a question card holds its hook open", "holdQuestion(question)" in _is2)
-check("the question hook waits the whole window", "while time.time() - started < WINDOW:" in _qh)
+check("the question hook waits the whole window",
+      "if waited >= WINDOW:" in _qh and "if waited >= GRACE and not os.path.exists(touched):" in _qh)
 check("an unanswered question survives its card",
       "pendingQuestions" in _hs2 and "func clearQuestion" in _hs2)
 check("clicking a blocked row answers it instead of jumping",
@@ -1539,11 +1540,96 @@ check("the harness lets the hook outlive its own window",
 # while the card is being used — so one missed 10s window killed the hook mid-answer.
 check("the wait no longer depends on a per-card heartbeat",
       "_held" not in _qh6 and ".hold" not in _qh6)
-check("it waits the window out flat", "while time.time() - started < WINDOW:" in _qh6)
+check("it waits the window out flat, bounded only by the grace",
+      "if waited >= WINDOW:" in _qh6 and "waited = time.time() - started" in _qh6)
 check("and stands down only if the app itself goes away",
       "if not _island_alive():" in _qh6)
 check("the island stopped writing a per-card heartbeat",
       "questionHold" not in open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read())
+
+print("\n=== 27. untouched cards fall through, touched ones wait ===")
+_ph = os.path.join(REPO, "hooks/agentisland-permission.sh")
+
+def _grace(touch, grace="2", window="30"):
+    """Run the question hook; optionally mark the card touched. Returns (seconds, answered)."""
+    d = f"{RUN}-gr{int(touch)}"
+    sp = d + ".jsonl"
+    os.makedirs(d, exist_ok=True)
+    for f in os.listdir(d): os.remove(os.path.join(d, f))
+    if os.path.exists(sp): os.remove(sp)
+    box = {}
+    def go():
+        t0 = time.time()
+        box["r"] = subprocess.run([qh], input=QREQ, capture_output=True, text=True, timeout=60,
+            env=dict(os.environ, AGENTISLAND_ALIVE=_ta, AGENTISLAND_Q_TIMEOUT=window,
+                     AGENTISLAND_Q_GRACE=grace, AGENTISLAND_SPOOL=sp, AGENTISLAND_DECISIONS=d))
+        box["took"] = time.time() - t0
+    t = threading.Thread(target=go); t.start()
+    for _ in range(60):
+        if os.path.exists(sp) and open(sp).read().strip(): break
+        time.sleep(0.2)
+    qid = json.loads(open(sp).readline())["ap_question_id"]
+    if touch:
+        open(os.path.join(d, qid + ".touched"), "w").close()
+        time.sleep(4)                                   # well past the grace
+        open(os.path.join(d, qid), "w").write(json.dumps({"Which DB?": "MongoDB"}))
+    t.join()
+    got = None
+    try: got = json.loads(box["r"].stdout)["hookSpecificOutput"]["updatedInput"]["answers"]
+    except Exception: pass
+    return box["took"], got
+
+_t, _a = _grace(touch=False)
+check("an untouched card falls through at the grace, not the window",
+      1.5 < _t < 6 and _a is None, f"{_t:.1f}s")
+_t, _a = _grace(touch=True)
+check("a touched card waits past the grace and is answered",
+      _t > 3.5 and _a == {"Which DB?": "MongoDB"}, f"{_t:.1f}s")
+
+# The mark is written once and never refreshed, which is the whole point: there is no
+# freshness check left to fail.
+_qh8 = open(os.path.join(REPO, "hooks/agentisland-question.py")).read()
+_ps8 = open(_ph).read()
+check("the question hook never checks the mark's age",
+      "getmtime(touched)" not in _qh8 and ".touched" in _qh8)
+check("the approval hook never checks the mark's age",
+      "hold" not in _ps8 and "$DECISIONS/$id.touched" in _ps8)
+check("nothing refreshes a mark", "setAttributes([.modificationDate" not in
+      open(os.path.join(REPO, "Sources/AgentIsland/ApprovalContext.swift")).read())
+check("interacting with a card marks it",
+      _is5.count("Approvals.touch(") >= 3 and "static func touch(" in _ap5)
+
+# A question that moved to the chat stays readable in the notch instead of vanishing.
+check("a handed-over question stays on screen as a copy",
+      "@Published var handedOver: Set<String> = []" in _is5
+      and "handedOver.insert(q.id)" in _is5)
+check("the copy cannot be answered",
+      "if !handedOver { onPick(opt.label) }" in _vw5 and "if !handedOver { other }" in _vw5)
+check("and it says where the question went",
+      "waiting for your answer in the chat" in _vw5 and "go to the chat" in _vw5)
+check("the copy clears once the chat answers",
+      "store.hooks.pendingQuestions[q.session]?.id != q.id" in _is5)
+
+# The silent-failure guard: a timeout below the window means answers are written and never
+# read, so the installer has to say so rather than leaving it to be discovered at 3am.
+_ih2 = open(os.path.join(REPO, "scripts/install-hooks.py")).read()
+check("the installer checks the harness deadline against the window",
+      "def check_deadline():" in _ih2 and "never read" in _ih2)
+_probe = f"{RUN}-deadline.json"
+json.dump({"hooks": {"PreToolUse": [{"matcher": "AskUserQuestion", "hooks": [
+    {"type": "command", "command": "x/agentisland-question.py", "timeout": 60}]}]}},
+    open(_probe, "w"))
+_out = subprocess.run([sys.executable, "-c", f"""
+import json, re, os, sys
+src = open({os.path.join(REPO, 'hooks/agentisland-question.py')!r}).read()
+window = float(re.search(r'AGENTISLAND_Q_TIMEOUT", "([0-9.]+)"', src).group(1))
+cfg = json.load(open({_probe!r}))
+for g in cfg["hooks"]["PreToolUse"]:
+    for h in g["hooks"]:
+        if "agentisland-question" in json.dumps(h) and float(h.get("timeout", 600)) <= window:
+            print("WARN")
+"""], capture_output=True, text=True).stdout
+check("and a timeout below the window trips it", "WARN" in _out)
 
 # An already-installed entry used to be left exactly as it was, so this fix would never have
 # reached anyone who had installed before it.
@@ -1603,9 +1689,11 @@ _hs6 = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()
 check("a question knows which hook is waiting on it", "var hookPid: Int?" in _hs6)
 check("a question whose hook is gone is abandoned",
       "var abandoned: Bool { hookPid.map { !Proc.alive($0) } ?? false }" in _hs6)
-check("abandoned questions are pruned", "pendingQuestions.filter { !$0.value.abandoned }" in _hs6)
-check("and the card on screen drops with them",
-      "if case .question(let q) = state, q.abandoned {" in _is5)
+check("abandoned questions are kept for the read-only copy",
+      "pendingQuestions.filter { !$0.value.abandoned }" not in _hs6)
+check("and the card on screen becomes that copy",
+      "if case .question(let q) = state, q.abandoned {" in _is5
+      and "handedOver.insert(q.id)" in _is5)
 
 # The id is the only place the waiting pid is recorded, so its shape is load-bearing.
 _ids = {"aq-24374-1788756269": 24374, "aq-1-2": 1, "nope": None, "aq-x-2": None}

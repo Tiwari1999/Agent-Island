@@ -28,6 +28,19 @@ enum Approvals {
     /// One write for the whole ask: question text to the chosen label, or labels when the
     /// question allows several. The hook validates every entry against what it offered.
     @discardableResult
+    /// Mark that the reader is engaged with this card, so the hook waits its full window
+    /// rather than falling through to the terminal. Written once and never refreshed: the
+    /// refreshing version it replaces stalled whenever AppKit was tracking the mouse — while
+    /// the card was in use — and the hook exited mid-answer.
+    static func touch(_ id: String) {
+        guard validID(id) else { return }
+        ensureDir()
+        let p = (decisionsDir as NSString).appendingPathComponent(id + ".touched")
+        guard !FileManager.default.fileExists(atPath: p) else { return }
+        FileManager.default.createFile(atPath: p, contents: nil,
+                                       attributes: [.posixPermissions: 0o600])
+    }
+
     /// Tell the hook to stand down so Claude's own picker can appear. Without this the turn
     /// stays held for the rest of the ceiling and "open in terminal" lands on nothing.
     static func skip(_ id: String) {

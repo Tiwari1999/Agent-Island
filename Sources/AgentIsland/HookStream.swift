@@ -393,8 +393,9 @@ final class HookStream: ObservableObject {
         let hard = cutoff.addingTimeInterval(-5 * 3600)
         let kept = live.filter { $0.value.at > ($0.value.inTool ? hard : cutoff) }
         if kept.count != live.count { live = kept }
-        let alive = pendingQuestions.filter { !$0.value.abandoned }
-        if alive.count != pendingQuestions.count { pendingQuestions = alive }
+        // Questions whose hook has gone are deliberately kept: the card stays on screen as a
+        // read-only copy of what Claude is now asking in the chat, and clears when the turn
+        // moves on. Pruning them here made the copy vanish the instant it appeared.
     }
 
     /// Notifications that report an outcome rather than ask for one.

@@ -53,6 +53,9 @@ final class Island: NSObject, ObservableObject {
     @Published var typed: [String: String] = [:]
     /// Which question's field is live — the only time this panel takes keyboard focus.
     @Published var typingFor: String?
+    /// Questions whose hook has gone: Claude is asking in the chat now, and the card stays
+    /// as a read-only copy so the question is visible in both places rather than vanishing.
+    @Published var handedOver: Set<String> = []
     private let frames = FrameMeter()
     @Published var revealed = false
     @Published var notchWidth: CGFloat = 0
@@ -310,13 +313,23 @@ final class Island: NSObject, ObservableObject {
 
     private func track() {
         guard window != nil else { return }
-        // A question nobody is waiting on is not a question. Drop it rather than leaving the
-        // card up for the rest of its window.
+        // The hook has gone, so Claude is asking in the chat instead. Keep the card as a
+        // read-only copy rather than dropping it: leaving the notch blank is what made the
+        // question feel lost when it moved.
         if case .question(let q) = state, q.abandoned {
-            releaseQuestion(q.id)
-            store.hooks.clearQuestion(q.id)
-            Hotkeys.shared.unbind()
-            dismissQuestion()
+            if !handedOver.contains(q.id) {
+                handedOver.insert(q.id)
+                releaseQuestion(q.id)
+                endTyping()
+                Hotkeys.shared.unbind()
+                refreshHitRegion()
+            }
+            // Answering it in the chat moves the turn on, which clears it from the store.
+            if store.hooks.pendingQuestions[q.session]?.id != q.id {
+                handedOver.remove(q.id)
+                store.hooks.clearQuestion(q.id)
+                dismissQuestion()
+            }
             return
         }
         // Only re-home while collapsed; moving a visible panel would yank it mid-interaction.
@@ -568,6 +581,7 @@ final class Island: NSObject, ObservableObject {
     /// them all before committing to any. Clicking a pip lands here too.
     func goToStep(_ q: Question, _ step: Int) {
         guard q.items.indices.contains(step), step != questionStep else { return }
+        Approvals.touch(q.id)
         endTyping()     // the field belonged to the question being left
         questionStep = step
         bindKeys(q, step: step)
@@ -634,6 +648,7 @@ final class Island: NSObject, ObservableObject {
     /// nothing commits until submit — moving off the last question is not an answer.
     func pick(_ question: Question, step: Int, option: String) {
         guard step < question.items.count else { return }
+        Approvals.touch(question.id)
         let item = question.items[step]
         if item.multi {
             var chosen = picks[item.text] ?? []
@@ -678,6 +693,7 @@ final class Island: NSObject, ObservableObject {
     /// option never pulls focus out of the editor behind. Take it for the field alone.
     func beginTyping(_ key: String) {
         guard typingFor != key else { return }
+        if case .question(let q) = state { Approvals.touch(q.id) }
         typingFor = key
         (window as? Panel)?.keyable = true
         window?.makeKeyAndOrderFront(nil)
@@ -828,6 +844,7 @@ private struct RootView: View {
                         typed: island.typed,
                         typingFor: island.typingFor,
                         allAnswered: island.allAnswered(q),
+                        handedOver: island.handedOver.contains(q.id),
                         onPick: { island.pick(q, step: island.questionStep, option: $0) },
                         onType: { island.typed[q.items[island.questionStep].text] = $0 },
                         onBeginType: { island.beginTyping(q.items[island.questionStep].text) },

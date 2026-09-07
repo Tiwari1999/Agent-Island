@@ -33,23 +33,19 @@ mkdir -p "$DECISIONS" 2>/dev/null
 chmod 700 "$DECISIONS" 2>/dev/null
 printf '{"ap_request_id":"%s","payload":%s}\n' "$id" "${INPUT//$'\n'/}" >> "$SPOOL" 2>/dev/null
 
-# The island writes $id.hold while the user is reading expanded context; a fresh hold extends
-# the wait past the base timeout, up to a hard ceiling so a dead island can never park the
-# session forever. Freshness is checked once a second to keep the loop free of subprocesses.
+# The island writes $id.touched once, when the reader engages with the card; past the base
+# timeout the wait continues only if that mark exists, up to a ceiling so a dead island can
+# never park the session forever. The mark is written once and never refreshed: the version
+# that had to be re-touched every 10s died whenever AppKit was tracking the mouse, which is
+# exactly when the card is in use, and silently discarded the answer.
 HARD_TENTHS="${AGENTISLAND_HOLD_HARD_TENTHS:-3000}"   # 5 min absolute ceiling
-held=0
 i=0
-while [ "$i" -lt "$TIMEOUT_TENTHS" ] || { [ "$held" = 1 ] && [ "$i" -lt "$HARD_TENTHS" ]; }; do
-    if [ $((i % 10)) -eq 0 ]; then
-        held=0
-        if [ -f "$DECISIONS/$id.hold" ]; then
-            now2=$(date +%s)
-            hm=$(stat -f %m "$DECISIONS/$id.hold" 2>/dev/null || echo 0)
-            [ $((now2 - hm)) -lt 10 ] && held=1
-        fi
+while [ "$i" -lt "$HARD_TENTHS" ]; do
+    if [ "$i" -ge "$TIMEOUT_TENTHS" ] && [ ! -f "$DECISIONS/$id.touched" ]; then
+        break
     fi
     if [ -f "$DECISIONS/$id" ]; then
-        rm -f "$DECISIONS/$id.hold" 2>/dev/null
+        rm -f "$DECISIONS/$id.touched" 2>/dev/null
         decision=$(cat "$DECISIONS/$id" 2>/dev/null)
         rm -f "$DECISIONS/$id" 2>/dev/null
         case "$decision" in
@@ -64,6 +60,6 @@ while [ "$i" -lt "$TIMEOUT_TENTHS" ] || { [ "$held" = 1 ] && [ "$i" -lt "$HARD_T
 done
 
 # Timed out: withdraw silently so Claude prompts normally.
-rm -f "$DECISIONS/$id.hold" 2>/dev/null
+rm -f "$DECISIONS/$id.touched" 2>/dev/null
 printf '' >> "$SPOOL" 2>/dev/null
 exit 0

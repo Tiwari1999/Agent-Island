@@ -81,25 +81,21 @@ enum Narration {
 /// Keeps the hook waiting while the user reads: a fresh `<id>.hold` beside the decision file
 /// extends the hook's own loop past its base timeout, up to the hook's hard ceiling.
 @MainActor
+/// A one-shot mark that the reader is engaged with a card. Never refreshed, so it cannot go
+/// stale — the refreshing version this replaces ran on a Timer in the default run-loop mode,
+/// which AppKit suspends for exactly as long as it tracks the mouse. The hook therefore
+/// exited mid-answer precisely when someone was using the card.
 final class ApprovalHold {
-    private var timer: Timer?
     private var path: String?
 
     func begin(id: String) {
         end()
         guard Approvals.validID(id) else { return }
-        let p = (Approvals.decisionsDir as NSString).appendingPathComponent(id + ".hold")
-        path = p
-        FileManager.default.createFile(atPath: p, contents: nil,
-                                       attributes: [.posixPermissions: 0o600])
-        // The hook treats a hold older than 10s as abandoned, so refresh well inside that.
-        timer = Timer.scheduledTimer(withTimeInterval: 4, repeats: true) { _ in
-            try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: p)
-        }
+        Approvals.touch(id)
+        path = (Approvals.decisionsDir as NSString).appendingPathComponent(id + ".touched")
     }
 
     func end() {
-        timer?.invalidate(); timer = nil
         if let path { try? FileManager.default.removeItem(atPath: path) }
         path = nil
     }

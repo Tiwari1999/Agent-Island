@@ -10,7 +10,8 @@ overwriting Claude settings, statusline config and iTerm2 tab titles. So this in
   * wraps an existing statusLine rather than replacing it
   * prints exactly what it changed
 """
-import json, os, shlex, shutil, sys, time
+import json
+import re, os, shlex, shutil, sys, time
 
 REPO = sys.argv[1] if len(sys.argv) > 1 else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -208,3 +209,39 @@ else:
     print("  Cursor: not installed, skipped")
 
 print("\n  Uninstall with: python3 scripts/uninstall-hooks.py")
+
+# The harness kills a hook at the timeout in settings.json whatever the hook believes. When
+# that number sits below the hook's own window the failure is silent and late: the reader
+# answers in the notch, the hook is already dead, and the answer is written to a file nobody
+# reads. Say so here rather than at answer time.
+def check_deadline():
+    try:
+        src = open(os.path.join(REPO, "hooks/agentisland-question.py")).read()
+        window = float(re.search(r'AGENTISLAND_Q_TIMEOUT", "([0-9.]+)"', src).group(1))
+    except Exception:
+        return
+    for path in (os.path.expanduser("~/.claude/settings.json"),):
+        cfg = load(path)
+        if not isinstance(cfg, dict) or not isinstance(cfg.get("hooks"), dict):
+            continue
+        groups = cfg["hooks"].get("PreToolUse")
+        if not isinstance(groups, list):
+            continue
+        for group in groups:
+            if not isinstance(group, dict):
+                continue
+            for h in group.get("hooks", []) if isinstance(group.get("hooks"), list) else []:
+                if not isinstance(h, dict):
+                    continue
+                if "agentisland-question" not in json.dumps(h):
+                    continue
+                t = h.get("timeout")
+                if t is None or float(t) <= window:
+                    print(f"\n  ! {path}")
+                    print(f"    the question hook waits {window:.0f}s but Claude Code will kill it "
+                          f"at {t if t is not None else 600}s.")
+                    print("    Answers given after that are written and never read. Re-run this "
+                          "installer, or raise the timeout by hand.")
+
+
+check_deadline()
