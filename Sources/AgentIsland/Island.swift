@@ -664,9 +664,15 @@ final class Island: NSObject, ObservableObject {
 
     func allAnswered(_ q: Question) -> Bool { q.items.allSatisfy(isAnswered) }
 
-    /// The only path that commits. Refuses a partial set rather than sending three of four.
+    /// The only path that commits. A partial set is never sent: it takes you to the gap,
+    /// which beats a dead click on a button that looks pressable.
     func submit(_ question: Question) {
-        guard allAnswered(question) else { return }
+        guard allAnswered(question) else {
+            if let gap = question.items.firstIndex(where: { !isAnswered($0) }) {
+                goToStep(question, gap)
+            }
+            return
+        }
         endTyping()
         choose(question, picks: picks)
     }

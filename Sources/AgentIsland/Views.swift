@@ -845,6 +845,7 @@ struct QuestionCard: View {
             || !(typed[q.text] ?? "").trimmingCharacters(in: .whitespaces).isEmpty
     }
     private var doneCount: Int { question.items.indices.filter(done).count }
+    private var isLast: Bool { step == question.items.count - 1 }
     /// The focused option decides what the preview shows; hover wins, else the first choice.
     private var focused: QuestionOption? {
         item.options.first { $0.label == hot } ?? item.options.first { chosen.contains($0.label) }
@@ -982,7 +983,7 @@ struct QuestionCard: View {
                     .font(Theme.label(11.5)).foregroundColor(Theme.text)
                     .focused($writing)
                     .onAppear { writing = true }
-                    .onSubmit(onConfirm)
+                    .onSubmit { isLast ? onSubmit() : onConfirm() }
             } else {
                 Text(on ? text : "or type your own answer")
                     .font(Theme.label(11.5))
@@ -1020,9 +1021,10 @@ struct QuestionCard: View {
     /// on the last question the difference between "answered" and "submitted" is invisible
     /// unless something says so.
     private var footer: some View {
-        let last = step == question.items.count - 1
+        let last = isLast
         return HStack(spacing: 10) {
-            Text(typing ? (last ? "⏎ done — press submit" : "⏎ for the next question")
+            Text(typing ? (isLast ? (allAnswered ? "⏎ to submit" : "⏎ for what is missing")
+                                  : "⏎ for the next question")
                         : item.multi ? "\(chosen.count) selected · ⌘⌥1–4 toggles"
                                      : "⌘⌥1–4 to choose")
                 .font(Theme.mono(9)).foregroundColor(Theme.faint)
@@ -1044,7 +1046,8 @@ struct QuestionCard: View {
             }
             // Always present, never automatic: nothing is sent until this is pressed, and it
             // stays inert until every question in the ask has an answer.
-            button("submit", filled: true, on: allAnswered, action: onSubmit)
+            button("submit", filled: true, on: true, action: onSubmit)
+                .opacity(allAnswered ? 1 : 0.55)
         }
         .padding(.horizontal, 16)
     }

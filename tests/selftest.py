@@ -1166,8 +1166,11 @@ check("question navigation uses a chord terminals do not own",
 
 # A card with no button reads as a card with nothing to do.
 check("submit is always visible, and separate from next",
-      'button("submit", filled: true, on: allAnswered' in _vw7
+      'button("submit", filled: true, on: true' in _vw7
       and 'button("next", filled: false, on: answered' in _vw7)
+# Dim, but never dead: pressing it early goes to the gap.
+check("an incomplete submit is dimmed rather than disabled",
+      ".opacity(allAnswered ? 1 : 0.55)" in _vw7)
 check("and there is a way out to the terminal",
       "open in terminal" in _vw7 and "func jumpToTerminal" in
       open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read())
@@ -1480,11 +1483,11 @@ check("moving past the last question never submits",
       and "choose(question, picks: picks)" not in _is5.split("func advance")[1].split("func isAnswered")[0])
 check("submit is the only path that commits",
       "func submit(_ question: Question)" in _is5
-      and "guard allAnswered(question) else { return }" in _is5)
+      and "endTyping()\n        choose(question, picks: picks)" in _is5)
 check("a partial ask cannot be submitted", "q.items.allSatisfy(isAnswered)" in _is5)
 check("either a pick or typed text counts as answered",
       "!(picks[item.text] ?? []).isEmpty" in _is5 and '!(typed[item.text] ?? "")' in _is5)
-check("the submit button is always drawn", 'button("submit", filled: true, on: allAnswered' in _vw5)
+check("the submit button is always drawn", 'button("submit", filled: true, on: true' in _vw5)
 
 # Typing needs key focus, which this panel refuses so that clicking an option cannot pull
 # focus out of the editor behind it. It is taken for the field and handed straight back.
@@ -1501,8 +1504,8 @@ check("the reader is told the dots are the way across", "click a dot to jump" in
 
 # Typing then finding the ask still pending read as a lost answer. Nothing was lost — the
 # card just showed position where it needed to show what was answered.
-check("return moves to the next question, it does not submit",
-      ".onSubmit(onConfirm)" in _vw5 and ".onSubmit(onSubmit)" not in _vw5)
+check("return moves on, and on the last question that means submitting",
+      ".onSubmit { isLast ? onSubmit() : onConfirm() }" in _vw5)
 check("leaving a question closes its field",
       "endTyping()" in _is5.split("func goToStep")[1].split("func holdQuestion")[0])
 check("a pip shows what is answered, not where you are",
@@ -1512,6 +1515,12 @@ check("an inert submit says how many are left", "of \\(question.items.count) ans
 check("that count is not shown on a single question",
       "if question.items.count > 1 {\n                Text(\"\\(doneCount)" in _vw5)
 check("the field says what return will do", "⏎ for the next question" in _vw5)
+# Return was a dead key on the last question, under a footer telling the reader to press
+# submit. Moving on from the last question means submitting.
+check("return submits on the last question",
+      ".onSubmit { isLast ? onSubmit() : onConfirm() }" in _vw5)
+check("an incomplete submit goes to the gap instead of nothing",
+      "question.items.firstIndex(where: { !isAnswered($0) })" in _is5)
 
 print("\n=== 26. the deadline the harness actually enforces ===")
 # Claude Code SIGKILLs a hook at the timeout in settings.json, whatever the hook believes.
