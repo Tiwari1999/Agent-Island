@@ -1058,7 +1058,7 @@ check("status notifications are not treated as asks",
       "static func informational" in _hs2 and 'Self.informational(kind) { break }' in _hs2)
 
 # The card used to expire under the reader, taking the only way to answer with it.
-check("a question card holds its hook open", "hold.begin(id: question.id)" in _is2)
+check("a question card holds its hook open", "holdQuestion(question)" in _is2)
 check("the question hook honours a hold", "_held(hold, started, HARD)" in _qh)
 check("an unanswered question survives its card",
       "pendingQuestions" in _hs2 and "func clearQuestion" in _hs2)
@@ -1123,6 +1123,47 @@ check("every auto-decision is written down",
       os.path.exists(os.path.join(_rd, "log"))
       and "agentisland rules:" in open(os.path.join(_rd, "log")).read())
 
+print("\n=== 23j. an answer always has a reader ===")
+_is7 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_ap7 = open(os.path.join(REPO, "Sources/AgentIsland/Approvals.swift")).read()
+_qh7 = open(os.path.join(REPO, "hooks/agentisland-question.py")).read()
+_hs7 = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()
+_vw7 = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
+_hk7 = open(os.path.join(REPO, "Sources/AgentIsland/Hotkeys.swift")).read()
+
+# The hold was tied to the card. One click elsewhere dismissed it, the hook died at 45s, and
+# every answer given afterwards was written to a file nobody was reading.
+check("the hold belongs to the question, not its card",
+      "func holdQuestion" in _is7 and "questionHold" in _is7)
+check("dismissing a card does not end the hold",
+      "hold.end()" not in _is7.split("func dismissQuestion")[1][:400])
+check("answering releases it", "defer { releaseQuestion(question.id) }" in _is7)
+check("expiry releases it", "self.releaseQuestion(q.id)" in _is7)
+check("questions and approvals hold independently",
+      "private let questionHold = ApprovalHold()" in _is7)
+
+# The island guessed how long the hook would wait, so it both withdrew the answer button early
+# and offered one after nobody was left.
+check("the hook publishes its own deadline", '"expires_at"' in _qh7)
+check("the island uses it rather than guessing",
+      'obj["expires_at"]' in _hs7 and "43 + 25 *" not in _hs7)
+
+# A file still on disk means nobody read it.
+check("an answer nobody collected is reported",
+      "static func wasRead" in _ap7 and "answered too late" in _is7)
+
+# A chord another app owns fails to register, which looked identical to a key doing nothing.
+check("a hotkey that cannot register says so",
+      "not available" in _hk7 and "err != noErr" in _hk7)
+check("question navigation uses a chord terminals do not own",
+      "cmdOptShift" in _is7 and "leftArrow" not in _is7)
+
+# A card with no button reads as a card with nothing to do.
+check("submit is always visible", 'Text(last ? "submit" : "next")' in _vw7)
+check("and there is a way out to the terminal",
+      "open in terminal" in _vw7 and "func jumpToTerminal" in
+      open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read())
+
 print("\n=== 23i. a question actually reaches the card ===")
 _ph = open(os.path.join(REPO, "hooks/agentisland-permission.sh")).read()
 _rh2 = open(os.path.join(REPO, "hooks/agentisland-rules.py")).read()
@@ -1157,7 +1198,7 @@ if os.path.exists(_pj):
 # Reading four questions before answering any should not require knowing a chord exists.
 check("questions can be reached by clicking a pip",
       "onStep(i)" in _vw6 and "func goToStep" in _is6)
-check("and by keyboard", "Hotkeys.leftArrow" in _is6 and "Hotkeys.rightArrow" in _is6)
+check("and by keyboard", "Hotkeys.cmdOptShift" in _is6)
 # The panel takes no focus, so a click elsewhere is the only dismissal a person will try.
 check("a click outside closes the card",
       "addGlobalMonitorForEvents" in _is6 and "self.dismissQuestion()" in _is6)

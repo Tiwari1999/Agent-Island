@@ -220,9 +220,11 @@ final class HookStream: ObservableObject {
                     id: qid,
                     session: obj["session_id"] as? String ?? "",
                     items: items,
-                    // The hook holds while the card is up, so this only bounds an unattended
-                    // card. Four questions need more than one question's worth of time.
-                    deadline: Date().addingTimeInterval(43 + 25 * Double(items.count - 1)),
+                    // The hook says how long it will wait; guessing meant the island both
+                    // withdrew the answer button early and offered it after nobody was left.
+                    deadline: (obj["expires_at"] as? NSNumber).map {
+                        Date(timeIntervalSince1970: $0.doubleValue)
+                    } ?? Date().addingTimeInterval(45),
                     cwd: obj["cwd"] as? String))
                 continue
             }

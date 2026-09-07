@@ -22,9 +22,16 @@ final class Hotkeys {
             let id = UInt32(i + 1)
             actions[id] = b.action
             var ref: EventHotKeyRef?
-            RegisterEventHotKey(UInt32(b.key), UInt32(b.mods),
-                                EventHotKeyID(signature: OSType(0x41494C44), id: id),
-                                GetApplicationEventTarget(), 0, &ref)
+            // Another app owning the chord makes registration fail, and discarding the status
+            // made that indistinguishable from a key that simply does nothing.
+            let err = RegisterEventHotKey(UInt32(b.key), UInt32(b.mods),
+                                          EventHotKeyID(signature: OSType(0x41494C44), id: id),
+                                          GetApplicationEventTarget(), 0, &ref)
+            if err != noErr || ref == nil {
+                Diagnostics.log("hotkey: key \(b.key) mods \(b.mods) not available (\(err))")
+                actions[id] = nil
+                continue
+            }
             refs.append(ref)
         }
     }
@@ -52,9 +59,7 @@ final class Hotkeys {
 
     // Number keys 1-4 for multiple choice.
     static let digits = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4]
-    /// The panel never takes focus, so plain arrows cannot reach it — moving between the
-    /// questions of one ask uses the same chord the options already do.
-    static let leftArrow = kVK_LeftArrow
-    static let rightArrow = kVK_RightArrow
     static let cmdOpt = cmdKey | optionKey
+    /// Jumping between the questions of one ask. Shift distinguishes it from picking an option.
+    static let cmdOptShift = cmdKey | optionKey | shiftKey
 }

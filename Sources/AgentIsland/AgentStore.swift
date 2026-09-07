@@ -551,6 +551,13 @@ final class AgentStore: ObservableObject {
     /// Given a row, does something better than jumping exist? Returns true if it handled it.
     var onRowActivate: ((AgentRow) -> Bool)?
 
+    /// Land in the session's terminal, skipping the "answer it here instead" shortcut — the
+    /// point of this one is to leave the notch.
+    func jumpToTerminal(_ row: AgentRow) {
+        if row.host.jump() { return }
+        jump(row)
+    }
+
     func jump(_ row: AgentRow) {
         if onRowActivate?(row) == true { return }
         // Whatever host it runs in — Warp, iTerm2, Terminal, an IDE — try that first.

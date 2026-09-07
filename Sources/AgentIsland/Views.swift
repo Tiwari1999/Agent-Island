@@ -822,6 +822,8 @@ struct QuestionCard: View {
     let onPick: (String) -> Void
     let onConfirm: () -> Void
     let onStep: (Int) -> Void
+    /// Leave the card and land in the session's own terminal, question still pending.
+    let onJump: () -> Void
     @State private var hot: String?
 
     private var item: QuestionItem { question.items[min(step, question.items.count - 1)] }
@@ -840,7 +842,7 @@ struct QuestionCard: View {
                 options
                 if showsPreview { preview }
             }
-            if item.multi { confirmRow }
+            footer
         }
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -886,7 +888,7 @@ struct QuestionCard: View {
                     }
                     Text("\(step + 1) of \(question.items.count)")
                         .font(Theme.mono(9)).foregroundColor(Theme.faint)
-                    Text("⌘⌥←→").font(Theme.mono(8)).foregroundColor(Theme.faint.opacity(0.7))
+                    Text("⌘⌥⇧1–4").font(Theme.mono(8)).foregroundColor(Theme.faint.opacity(0.7))
                 }
             }
         }
@@ -955,18 +957,31 @@ struct QuestionCard: View {
         }
     }
 
-    /// Several answers are allowed, so nothing is submitted until the user says so.
-    private var confirmRow: some View {
-        HStack(spacing: 8) {
-            Text("\(chosen.count) selected").font(Theme.mono(9)).foregroundColor(Theme.faint)
-            Spacer(minLength: 0)
-            Text("confirm")
-                .font(Theme.label(10.5))
-                .foregroundColor(chosen.isEmpty ? Theme.faint : Theme.bg)
-                .padding(.horizontal, 11).padding(.vertical, 5)
-                .background(Capsule().fill(chosen.isEmpty ? Theme.raised : Theme.waiting))
+    /// Always visible, because a card with no button reads as a card with nothing to do — and
+    /// on the last question the difference between "answered" and "submitted" is invisible
+    /// unless something says so.
+    private var footer: some View {
+        let last = step == question.items.count - 1
+        let ready = !chosen.isEmpty
+        return HStack(spacing: 10) {
+            Text(item.multi ? "\(chosen.count) selected · ⌘⌥1–4 toggles"
+                            : "⌘⌥1–4 to choose")
+                .font(Theme.mono(9)).foregroundColor(Theme.faint)
+            // Answering in the notch is one way; reading the whole thread is another.
+            Text("open in terminal")
+                .font(Theme.mono(9)).foregroundColor(Theme.muted)
+                .padding(.horizontal, 7).padding(.vertical, 3)
+                .background(Capsule().stroke(Theme.hairline))
                 .contentShape(Capsule())
-                .onTapGesture { if !chosen.isEmpty { onConfirm() } }
+                .onTapGesture(perform: onJump)
+            Spacer(minLength: 0)
+            Text(last ? "submit" : "next")
+                .font(Theme.label(10.5))
+                .foregroundColor(ready ? Theme.bg : Theme.faint)
+                .padding(.horizontal, 12).padding(.vertical, 5)
+                .background(Capsule().fill(ready ? Theme.waiting : Theme.raised))
+                .contentShape(Capsule())
+                .onTapGesture { if ready { onConfirm() } }
         }
         .padding(.horizontal, 16)
     }

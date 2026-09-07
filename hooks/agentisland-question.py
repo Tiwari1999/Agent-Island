@@ -89,6 +89,10 @@ def main():
     if len(items) != len(questions):
         bail()      # one unreadable question means the whole ask belongs in the terminal
 
+    try:
+        HARD = float(os.environ.get("AGENTISLAND_Q_HOLD_HARD", "300"))
+    except ValueError:
+        HARD = 300.0
     req_id = f"aq-{os.getpid()}-{int(time.time())}"
     try:
         # Answers are private: the default mode leaves them readable by every user on the box.
@@ -102,6 +106,9 @@ def main():
                 "ap_question_id": req_id,
                 "session_id": payload.get("session_id", ""),
                 "cwd": payload.get("cwd", ""),
+                # How long this hook will actually wait, so the island never offers an answer
+                # to something that has stopped listening, or withdraws one too early.
+                "expires_at": time.time() + HARD,
                 "items": items,
             }) + "\n")
     except OSError:
@@ -111,10 +118,6 @@ def main():
     hold = path + ".hold"
     # The island refreshes <id>.hold while the card is on screen. Without this the question
     # expired after TIMEOUT even with the user mid-read, and the card simply vanished.
-    try:
-        HARD = float(os.environ.get("AGENTISLAND_Q_HOLD_HARD", "300"))
-    except ValueError:
-        HARD = 300.0
     started = time.time()
     deadline = started + TIMEOUT
     while time.time() < deadline or _held(hold, started, HARD):

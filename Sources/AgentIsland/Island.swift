@@ -41,6 +41,11 @@ final class Island: NSObject, ObservableObject {
     /// Watches for a click outside the card. The panel never takes focus, so this is the only
     /// way to notice one — without it a card could only be answered or waited out.
     private var outsideClick: Any?
+    /// A hold that belongs to the pending question rather than to its card, so the two cannot
+    /// be confused with the approval hold running beside them.
+    private let questionHold = ApprovalHold()
+    private var heldQuestion: String?
+    private var expiryWork: DispatchWorkItem?
     /// Which question of the ask is on screen, and what has been chosen so far.
     @Published var questionStep = 0
     @Published var picks: [String: [String]] = [:]
@@ -513,14 +518,13 @@ final class Island: NSObject, ObservableObject {
         withAnimation(.spring(response: 0.34, dampingFraction: 0.80)) { state = .question(question) }
         // Keep the hook waiting while the card is on screen: it used to expire underneath the
         // reader after 45 seconds, taking the only way to answer with it.
-        hold.begin(id: question.id)
+        holdQuestion(question)
         watchForOutsideClick()
         refreshHitRegion()
         let work = DispatchWorkItem { [weak self] in
             guard let self, case .question(let q) = self.state, q.id == question.id else { return }
             Hotkeys.shared.unbind()
-            self.hold.end()
-            self.presentNext()
+            self.presentNext()      // the hold outlives the card; only expiry ends it
         }
         questionWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + question.deadline.timeIntervalSinceNow,
@@ -535,10 +539,13 @@ final class Island: NSObject, ObservableObject {
                  { [weak self] in self?.pick(q, step: step, option: opt.label) })
             }
         if q.items.count > 1 {
-            keys.append((Hotkeys.leftArrow, Hotkeys.cmdOpt,
-                         { [weak self] in self?.goToStep(q, step - 1) }))
-            keys.append((Hotkeys.rightArrow, Hotkeys.cmdOpt,
-                         { [weak self] in self?.goToStep(q, step + 1) }))
+            // Arrows with this chord are taken by terminals and browsers for tab switching, so
+            // registration failed silently. Shift plus the same digits jumps straight to a
+            // question, which also beats stepping when you want the fourth one.
+            for i in q.items.indices.prefix(4) {
+                keys.append((Hotkeys.digits[i], Hotkeys.cmdOptShift,
+                             { [weak self] in self?.goToStep(q, i) }))
+            }
         }
         Hotkeys.shared.bind(keys)
     }
@@ -551,6 +558,31 @@ final class Island: NSObject, ObservableObject {
         bindKeys(q, step: step)
         withAnimation(.easeOut(duration: 0.16)) { state = .question(q) }
         refreshHitRegion()
+    }
+
+    /// Keep the hook waiting for as long as the question is answerable, whether or not its
+    /// card is on screen. Tying this to the card meant one click elsewhere killed the hook,
+    /// and every answer given afterwards was written to a file nobody was reading.
+    private func holdQuestion(_ q: Question) {
+        guard heldQuestion != q.id else { return }
+        heldQuestion = q.id
+        questionHold.begin(id: q.id)
+        expiryWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.heldQuestion == q.id else { return }
+            self.releaseQuestion(q.id)
+            self.store.hooks.clearQuestion(q.id)
+        }
+        expiryWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(1, q.deadline.timeIntervalSinceNow),
+                                      execute: work)
+    }
+
+    private func releaseQuestion(_ id: String) {
+        guard heldQuestion == id else { return }
+        heldQuestion = nil
+        expiryWork?.cancel(); expiryWork = nil
+        questionHold.end()
     }
 
     private func watchForOutsideClick() {
@@ -573,8 +605,9 @@ final class Island: NSObject, ObservableObject {
     /// question stays pending so the row can bring it back.
     func dismissQuestion() {
         guard case .question = state else { return }
+        // The card goes away; the question does not. The agent is still blocked on it, so the
+        // hook keeps waiting and the row's answer button brings the card straight back.
         questionWork?.cancel()
-        hold.end()
         stopWatchingClicks()
         Hotkeys.shared.unbind()
         presentNext()
@@ -609,9 +642,20 @@ final class Island: NSObject, ObservableObject {
 
     func choose(_ question: Question, picks: [String: [String]]) {
         stopWatchingClicks()
+        defer { releaseQuestion(question.id) }
         // An ask whose questions share wording cannot be answered as a map keyed by wording:
         // the second pick overwrites the first and the write is refused. Say so rather than
         // silently closing a card whose hook is still waiting.
+        // Confirm the answer was actually collected. If the hook has gone, say so rather than
+        // leaving the user believing they answered.
+        Approvals.wasRead(question.id) { [weak self] read in
+            guard let self, !read else { return }
+            let name = self.store.name(for: question.session) ?? question.project ?? "the agent"
+            Diagnostics.log("question \(question.id): answered too late, the hook had gone")
+            Notifier.notify(title: name,
+                            body: "Answer arrived too late — answer it in the terminal instead",
+                            key: question.session)
+        }
         guard Approvals.answer(question, picks: picks) else {
             Diagnostics.log("question \(question.id): could not answer, leaving it to the terminal")
             questionWork?.cancel(); hold.end()
@@ -733,7 +777,13 @@ private struct RootView: View {
                         picks: island.picks,
                         onPick: { island.pick(q, step: island.questionStep, option: $0) },
                         onConfirm: { island.advance(q, from: island.questionStep) },
-                        onStep: { island.goToStep(q, $0) })
+                        onStep: { island.goToStep(q, $0) },
+                        onJump: {
+                            island.dismissQuestion()
+                            if let row = store.rows.first(where: { $0.agent.sessionId == q.session }) {
+                                store.jumpToTerminal(row)
+                            }
+                        })
                         .frame(maxHeight: .infinity, alignment: .bottom)
                         .padding(.bottom, 6)
                 case .expanded:

@@ -43,6 +43,23 @@ enum Approvals {
         return true
     }
 
+    /// The hook deletes the file the moment it reads it, so a file still sitting there means
+    /// nobody was listening. Silently writing into the void is how a set of answers the user
+    /// actually gave went nowhere.
+    static func wasRead(_ id: String, within: TimeInterval = 3, then: @escaping (Bool) -> Void) {
+        let path = (decisionsDir as NSString).appendingPathComponent(id)
+        let deadline = Date().addingTimeInterval(within)
+        func poll() {
+            if !FileManager.default.fileExists(atPath: path) { then(true); return }
+            guard Date() < deadline else {
+                try? FileManager.default.removeItem(atPath: path)   // nobody will ever read it
+                then(false); return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: poll)
+        }
+        poll()
+    }
+
     static func decide(_ approval: Approval, allow: Bool) {
         guard validID(approval.id) else { return }
         ensureDir()
