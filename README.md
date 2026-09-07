@@ -9,7 +9,7 @@ Claude Code · Codex · Cursor — one panel, at a glance · jump to the exact t
 [![Platform](https://img.shields.io/badge/macOS-14%2B-000000?style=flat-square&logo=apple&logoColor=white)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-6.0-F05138?style=flat-square&logo=swift&logoColor=white)](https://swift.org)
 [![No Xcode](https://img.shields.io/badge/Xcode-not%20required-4BC51D?style=flat-square)](https://www.swift.org/getting-started/)
-[![Tests](https://img.shields.io/badge/self--tests-209-4BC51D?style=flat-square)](tests/selftest.py)
+[![Tests](https://img.shields.io/badge/self--tests-396-4BC51D?style=flat-square)](tests/selftest.py)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue?style=flat-square)](#-licence)
 
 </div>
@@ -60,7 +60,9 @@ Agent Island puts the answer where your eyes already are.
 | 🕊 **Zero spawns at idle** | A refresh creates no processes at all — the process table, environments and working directories are read with syscalls; warm discovery of 27 sessions takes 0.08s |
 | 🛰 **SSH remote monitoring** | Sessions on machines you ssh into, in the same panel — `echo my-vm >> ~/.config/agentisland/remotes`; the probe travels on stdin, nothing is installed remotely |
 | ✅ **Approve from the notch** | Permission cards, answered with `⌘⌥A` / `⌘⌥D` |
-| 💬 **One-click answers** | Multiple-choice prompts answered with `⌘⌥1`–`⌘⌥4` |
+| 💬 **Answer questions** | `AskUserQuestion` prompts answered in the notch: multiple choice with `⌘⌥1`–`⌘⌥4`, a **free-text** field for your own answer, and multi-question asks sequenced with clickable pips (`⌘⌥⇧1`–`⌘⌥⇧4` to jump). Nothing sends until you press **submit** |
+| ⏳ **Sliding window** | A visible countdown before an unanswered question hands back to the terminal; every interaction pushes it forward, so answering never times out under you |
+| 💬 **Or answer in the chat** | One click releases the turn so Claude's own picker appears in the terminal, and the notch keeps a read-only copy — the question stays visible in both places |
 | 🤖 **Auto-approve rules** | A regex allowlist that governs every agent — one rule covers Claude's `Bash` and Cursor's `Shell` alike |
 | 🔔 **Alerts that respect you** | Desktop notifications only when you're *not* already looking |
 
@@ -84,6 +86,22 @@ claude agents --json  →  pid  →  WARP_FOCUS_URL from that process's env  →
 ```
 
 🗄️ No database. ⌨️ No synthetic keystrokes. 🔓 No Accessibility permission. And it resolves correctly **even when every tab shares one repo** — measured at 6/6 distinct tabs.
+
+## 💬 Answering from the notch
+
+When Claude asks an `AskUserQuestion` — the multiple-choice prompts, including the ones with a
+preview panel and the multi-question asks — the card comes to the notch and you answer it there:
+`⌘⌥1`–`⌘⌥4`, a free-text field for your own answer, pips to move between questions, **submit** to
+send. Nothing is sent until you press it.
+
+The honest part: the terminal and the notch **cannot both be live at once**. A Claude Code hook
+runs *before* the picker is drawn, so while the notch holds the answer the terminal shows nothing —
+and once the hook lets go, the terminal owns the picker and the notch can't reach into it. So the
+notch takes first crack with a **sliding window**: a visible countdown, pushed forward by every
+interaction, that hands the turn back to the terminal if you go idle. Want the terminal instead?
+**answer in chat →** releases it immediately and keeps the card up as a read-only copy, so the
+question is visible in both places. 🪟 One place is interactive at a time — by design, not by
+accident.
 
 ## 📦 Install
 
@@ -137,7 +155,7 @@ left blank, so an unsupported feature never reads as a broken one.
 | Session list | ✅ | ✅ | ✅ |
 | Live tool activity | ✅ | ✅ | ✅ |
 | Approve from the notch | ✅ | ✅ | ✅ |
-| One-click answers | ✅ | — | — |
+| Answer questions from the notch | ✅ | — | — |
 | Context pressure | ✅ | ✅ | — |
 | Quota and burn rate | ✅ | — | — |
 | Task progress | ✅ | — | — |
@@ -157,7 +175,7 @@ schema; Cursor uses its own event names, which are folded onto one vocabulary in
 | `Stop` / `SessionEnd` | completion toast |
 | `StopFailure` | died-vs-finished, with `error_type` |
 | `PermissionRequest` | approval cards + auto-approve rules |
-| `PreToolUse` (`AskUserQuestion`) | one-click answers |
+| `PreToolUse` (`AskUserQuestion`) | answer questions from the notch — choice, free text, sliding window |
 | `statusLine` | quota, model, per-session context window |
 
 > [!IMPORTANT]
@@ -206,7 +224,7 @@ Two design rules earned the hard way:
 python3 tests/selftest.py
 ```
 
-209 checks: jump resolution against live Warp tabs, every hook contract (including that each failure path exits without blocking), auto-approve decisions, panel geometry, the staleness window, and that the panel holds only real sessions — every vendor present on disk reaches it, no row is labelled with a bare session id, and no test data survives.
+396 checks: jump resolution against live Warp tabs, every hook contract (including that each failure path exits without blocking), the full question flow (free-text answers crossing the same validation as labels, state surviving a close/reopen, the sliding grace, no answer sent until submit), auto-approve decisions, panel geometry, the staleness window, and that the panel holds only real sessions — every vendor present on disk reaches it, no row is labelled with a bare session id, and no test data survives.
 
 ## 📄 Licence
 

@@ -1602,6 +1602,16 @@ _ps8 = open(_ph).read()
 # tracking, which is exactly when the card was in use.
 check("the question hook slides on the mark's age",
       "os.path.getmtime(touched)" in _qh8 and ".touched" in _qh8)
+# The collapsed bar drew at its wide hover width at rest whenever a question or peek arrived
+# while the pointer was on the notch: the hover-exit cleared `revealed` only when still
+# collapsed, so a card landing mid-hover stranded it true until a fresh hover cycle.
+_isv = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_exit = _isv.split("sensor.onExit")[1].split("}")[0] if "sensor.onExit" in _isv else ""
+check("hover-exit clears the reveal even if a card took the notch",
+      "guard self.state == .collapsed else { return }" not in
+      _isv.split("sensor.onExit")[1].split("self.revealed = false")[0])
+check("and it still clears the reveal", "self.revealed = false" in _isv)
+
 check("only interaction re-stamps the mark, never a background timer",
       "func markInteraction" in _is5
       and "Timer.scheduledTimer" not in open(os.path.join(REPO, "Sources/AgentIsland/ApprovalContext.swift")).read())

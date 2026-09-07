@@ -209,7 +209,10 @@ final class Island: NSObject, ObservableObject {
         sensor.onExit = { [weak self] in
             guard let self else { return }
             self.dwell?.cancel()
-            guard self.state == .collapsed else { return }
+            // Always clear the reveal, even if a card took over the notch while the pointer was
+            // on it. Gating this on `.collapsed` stranded `revealed = true` whenever a question
+            // or peek arrived mid-hover, so the bar drew at its wide hover width once the card
+            // dismissed — an oversized resting bar that only a fresh hover cycle fixed.
             withAnimation(.easeOut(duration: 0.16)) { self.revealed = false }
         }
 
