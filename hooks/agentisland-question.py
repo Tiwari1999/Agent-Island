@@ -122,17 +122,22 @@ def main():
     # Timer in the default run-loop mode is suspended for exactly as long as AppKit tracks
     # the mouse, which is precisely when someone is using the card. Three answers died that
     # way. The app's own heartbeat already covers what the per-card one was for.
-    # A card nobody has touched falls through early rather than holding the turn for the
-    # whole window: the reader may simply not be at the desk. The mark is written once, on
-    # first interaction, and never refreshed — the refreshing version it replaces died
-    # whenever AppKit was tracking the mouse, which is exactly when the card is in use.
+    # Sliding grace: the wait falls through once nothing has happened for GRACE seconds, and
+    # every interaction re-stamps this mark, pushing the deadline forward — up to WINDOW as an
+    # absolute ceiling so a walked-away card cannot hold the turn indefinitely. The mark is
+    # re-stamped on real input, never by a timer: the timer version stalled whenever AppKit
+    # was tracking the mouse, i.e. exactly while the card was in use.
     touched = path + ".touched"
     started = time.time()
     while True:
-        waited = time.time() - started
-        if waited >= WINDOW:
+        now = time.time()
+        if now - started >= WINDOW:
             break
-        if waited >= GRACE and not os.path.exists(touched):
+        try:
+            last = os.path.getmtime(touched)
+        except OSError:
+            last = started
+        if now - last >= GRACE:
             break
         if os.path.exists(path):
             try:

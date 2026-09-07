@@ -1065,8 +1065,8 @@ check("status notifications are not treated as asks",
 
 # The card used to expire under the reader, taking the only way to answer with it.
 check("a question card holds its hook open", "holdQuestion(question)" in _is2)
-check("the question hook waits the whole window",
-      "if waited >= WINDOW:" in _qh and "if waited >= GRACE and not os.path.exists(touched):" in _qh)
+check("the question hook slides on the mark, capped by the window",
+      "if now - started >= WINDOW:" in _qh and "if now - last >= GRACE:" in _qh)
 check("an unanswered question survives its card",
       "pendingQuestions" in _hs2 and "func clearQuestion" in _hs2)
 check("clicking a blocked row answers it instead of jumping",
@@ -1173,9 +1173,8 @@ check("submit is always visible, and separate from next",
 # Dim, but never dead: pressing it early goes to the gap.
 check("an incomplete submit is dimmed rather than disabled",
       ".opacity(allAnswered ? 1 : 0.55)" in _vw7)
-check("and there is a way out to the terminal",
-      "open in terminal" in _vw7 and "func jumpToTerminal" in
-      open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read())
+check("and there is a way out to the chat",
+      "answer in chat →" in _vw7 and "func handToChat" in _is7)
 
 print("\n=== 23i. a question actually reaches the card ===")
 _ph = open(os.path.join(REPO, "hooks/agentisland-permission.sh")).read()
@@ -1254,8 +1253,8 @@ check("an answer that cannot be written does not close the card",
       and "@discardableResult" in _ap4)
 check("an empty ask cannot subscript out of range",
       "guard !q.items.isEmpty else { return nil }" in _is4)
-check("a redelivered ask only resumes if it is the same shape",
-      "cur.items.count == question.items.count" in _is4)
+check("the answer-so-far survives a close and reopen",
+      "if answeringId != question.id {" in _is4 and "private var answeringId: String?" in _is4)
 check("keys rebind to the step actually on screen",
       "bindKeys(question, step: questionStep)" in _is4)
 
@@ -1540,8 +1539,8 @@ check("the harness lets the hook outlive its own window",
 # while the card is being used — so one missed 10s window killed the hook mid-answer.
 check("the wait no longer depends on a per-card heartbeat",
       "_held" not in _qh6 and ".hold" not in _qh6)
-check("it waits the window out flat, bounded only by the grace",
-      "if waited >= WINDOW:" in _qh6 and "waited = time.time() - started" in _qh6)
+check("it slides the deadline on each interaction, capped by the window",
+      "if now - started >= WINDOW:" in _qh6 and "last = os.path.getmtime(touched)" in _qh6)
 check("and stands down only if the app itself goes away",
       "if not _island_alive():" in _qh6)
 check("the island stopped writing a per-card heartbeat",
@@ -1557,23 +1556,32 @@ def _grace(touch, grace="2", window="30"):
     os.makedirs(d, exist_ok=True)
     for f in os.listdir(d): os.remove(os.path.join(d, f))
     if os.path.exists(sp): os.remove(sp)
-    box = {}
+    box = {"beat": True}
     def go():
         t0 = time.time()
         box["r"] = subprocess.run([qh], input=QREQ, capture_output=True, text=True, timeout=60,
             env=dict(os.environ, AGENTISLAND_ALIVE=_ta, AGENTISLAND_Q_TIMEOUT=window,
                      AGENTISLAND_Q_GRACE=grace, AGENTISLAND_SPOOL=sp, AGENTISLAND_DECISIONS=d))
         box["took"] = time.time() - t0
+    def beat():                                          # the running app refreshes this
+        while box["beat"]:
+            open(_ta, "w").write("1"); time.sleep(0.5)
+    threading.Thread(target=beat, daemon=True).start()
     t = threading.Thread(target=go); t.start()
     for _ in range(60):
         if os.path.exists(sp) and open(sp).read().strip(): break
         time.sleep(0.2)
     qid = json.loads(open(sp).readline())["ap_question_id"]
     if touch:
-        open(os.path.join(d, qid + ".touched"), "w").close()
-        time.sleep(4)                                   # well past the grace
+        tp = os.path.join(d, qid + ".touched")
+        # Keep interacting: each re-stamp slides the deadline, so the card outlives the base
+        # grace as long as the user is engaged.
+        for _ in range(4):
+            open(tp, "w").close(); os.utime(tp, None)
+            time.sleep(1)                               # < grace, so it never falls through
         open(os.path.join(d, qid), "w").write(json.dumps({"Which DB?": "MongoDB"}))
     t.join()
+    box["beat"] = False
     got = None
     try: got = json.loads(box["r"].stdout)["hookSpecificOutput"]["updatedInput"]["answers"]
     except Exception: pass
@@ -1583,21 +1591,27 @@ _t, _a = _grace(touch=False)
 check("an untouched card falls through at the grace, not the window",
       1.5 < _t < 6 and _a is None, f"{_t:.1f}s")
 _t, _a = _grace(touch=True)
-check("a touched card waits past the grace and is answered",
+check("a card kept touched slides past the base grace and is answered",
       _t > 3.5 and _a == {"Which DB?": "MongoDB"}, f"{_t:.1f}s")
 
-# The mark is written once and never refreshed, which is the whole point: there is no
-# freshness check left to fail.
+# The mark slides on interaction; the invariant is that only real input re-stamps it.
 _qh8 = open(os.path.join(REPO, "hooks/agentisland-question.py")).read()
 _ps8 = open(_ph).read()
-check("the question hook never checks the mark's age",
-      "getmtime(touched)" not in _qh8 and ".touched" in _qh8)
+# Sliding means the hook DOES read the mark's age, but the mark is re-stamped by real input
+# (markInteraction), never by a repeating timer — the timer version stalled under mouse
+# tracking, which is exactly when the card was in use.
+check("the question hook slides on the mark's age",
+      "os.path.getmtime(touched)" in _qh8 and ".touched" in _qh8)
+check("only interaction re-stamps the mark, never a background timer",
+      "func markInteraction" in _is5
+      and "Timer.scheduledTimer" not in open(os.path.join(REPO, "Sources/AgentIsland/ApprovalContext.swift")).read())
 check("the approval hook never checks the mark's age",
       "hold" not in _ps8 and "$DECISIONS/$id.touched" in _ps8)
 check("nothing refreshes a mark", "setAttributes([.modificationDate" not in
       open(os.path.join(REPO, "Sources/AgentIsland/ApprovalContext.swift")).read())
-check("interacting with a card marks it",
-      _is5.count("Approvals.touch(") >= 3 and "static func touch(" in _ap5)
+check("every interaction slides the grace",
+      _is5.count("markInteraction(") >= 4 and "func markInteraction" in _is5
+      and "static func touch(" in _ap5)
 
 # A question that moved to the chat stays readable in the notch instead of vanishing.
 check("a handed-over question stays on screen as a copy",
@@ -1609,6 +1623,31 @@ check("and it says where the question went",
       "waiting for your answer in the chat" in _vw5 and "go to the chat" in _vw5)
 check("the copy clears once the chat answers",
       "store.hooks.pendingQuestions[q.session]?.id != q.id" in _is5)
+
+# The reported bug: closing the card and reopening from the row restarted at question one and
+# lost every pick, because the answer-so-far was tied to the card being on screen (state ==
+# .question) rather than to the question id.
+check("closing and reopening keeps the answer-so-far",
+      "if answeringId != question.id {" in _is5
+      and "private var answeringId: String?" in _is5)
+check("a reset happens only for a genuinely new question",
+      "questionStep = 0; picks = [:]; typed = [:]" in
+      _is5.split("if answeringId != question.id {")[1].split("}")[0])
+check("resolving a question clears its saved state",
+      "if answeringId == id { answeringId = nil" in _is5)
+
+# The card shows how long is left before it hands to the chat, and every interaction resets it.
+check("the card counts down to the handover",
+      "TimelineView(.periodic(from: graceBase" in _vw5 and 'systemName: "timer"' in _vw5)
+check("the countdown length matches the hook's grace",
+      "static let graceSeconds: TimeInterval = 60" in _is5)
+
+# Answering in the chat is an explicit choice that keeps the notch copy up rather than
+# blanking it, so the question is visible in both places.
+check("answer-in-chat hands over and keeps the mirror",
+      "func handToChat" in _is5 and "handedOver.insert(q.id)" in
+      _is5.split("func handToChat")[1].split("}")[0]
+      and "answer in chat →" in _vw5)
 
 # The silent-failure guard: a timeout below the window means answers are written and never
 # read, so the installer has to say so rather than leaving it to be discovered at 3am.

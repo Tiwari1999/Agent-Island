@@ -825,6 +825,10 @@ struct QuestionCard: View {
     let allAnswered: Bool
     /// The hook has gone and Claude is asking in the chat; this card is a copy, not a way in.
     let handedOver: Bool
+    /// When the grace last reset, and how long it runs. The card counts down from these and
+    /// resets whenever an interaction pushes graceBase forward.
+    let graceBase: Date
+    let graceLength: TimeInterval
     let onPick: (String) -> Void
     let onType: (String) -> Void
     let onBeginType: () -> Void
@@ -890,6 +894,19 @@ struct QuestionCard: View {
                     .background(Capsule().fill(Theme.waiting.opacity(0.14)))
             }
             Spacer(minLength: 6)
+            if !handedOver {
+                // Time left before the question hands to the chat. Any interaction resets it;
+                // let it run out and the card becomes a read-only copy of the chat picker.
+                TimelineView(.periodic(from: graceBase, by: 1)) { ctx in
+                    let left = max(0, Int((graceBase.addingTimeInterval(graceLength))
+                        .timeIntervalSince(ctx.date).rounded(.up)))
+                    HStack(spacing: 3) {
+                        Image(systemName: "timer").font(.system(size: 8))
+                        Text("\(left)s").font(Theme.mono(9)).monospacedDigit()
+                    }
+                    .foregroundColor(left <= 10 ? Theme.amber : Theme.faint)
+                }
+            }
             // How many questions there are, before you answer the first one.
             if question.items.count > 1 {
                 HStack(spacing: 5) {
@@ -1043,8 +1060,8 @@ struct QuestionCard: View {
                         : item.multi ? "\(chosen.count) selected · ⌘⌥1–4 toggles"
                                      : "⌘⌥1–4 to choose")
                 .font(Theme.mono(9)).foregroundColor(Theme.faint)
-            // Answering in the notch is one way; reading the whole thread is another.
-            Text("open in terminal")
+            // Answering in the notch is one way; taking it to the chat is the other.
+            Text("answer in chat →")
                 .font(Theme.mono(9)).foregroundColor(Theme.muted)
                 .padding(.horizontal, 7).padding(.vertical, 3)
                 .background(Capsule().stroke(Theme.hairline))

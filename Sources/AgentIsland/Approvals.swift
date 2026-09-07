@@ -36,9 +36,15 @@ enum Approvals {
         guard validID(id) else { return }
         ensureDir()
         let p = (decisionsDir as NSString).appendingPathComponent(id + ".touched")
-        guard !FileManager.default.fileExists(atPath: p) else { return }
-        FileManager.default.createFile(atPath: p, contents: nil,
-                                       attributes: [.posixPermissions: 0o600])
+        // Re-stamp on every interaction so the hook's grace slides forward. This is driven by
+        // real input, not a repeating timer — the timer version stalled whenever AppKit was
+        // tracking the mouse, which is exactly when the card was in use.
+        if FileManager.default.fileExists(atPath: p) {
+            try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: p)
+        } else {
+            FileManager.default.createFile(atPath: p, contents: nil,
+                                           attributes: [.posixPermissions: 0o600])
+        }
     }
 
     /// Tell the hook to stand down so Claude's own picker can appear. Without this the turn

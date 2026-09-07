@@ -48,6 +48,16 @@ final class Island: NSObject, ObservableObject {
     private var expiryWork: DispatchWorkItem?
     /// Which question of the ask is on screen, and what has been chosen so far.
     @Published var questionStep = 0
+    /// Whose picks/typed/step these are. The card can be closed and reopened from the row;
+    /// the answer-so-far belongs to the question, not to the card being on screen, so it is
+    /// only cleared when a genuinely different question takes over.
+    private var answeringId: String?
+    /// When the grace last reset. Any interaction pushes it forward; the countdown on the
+    /// card and the hook's fall-through both measure from here.
+    @Published var graceBase = Date()
+    /// Must match the question hook's AGENTISLAND_Q_GRACE default; the card counts down this
+    /// long and the hook falls through after the same idle span.
+    static let graceSeconds: TimeInterval = 60
     @Published var picks: [String: [String]] = [:]
     /// Free text the reader typed instead of picking, keyed the same way as `picks`.
     @Published var typed: [String: String] = [:]
@@ -531,13 +541,14 @@ final class Island: NSObject, ObservableObject {
         }
         followActiveScreen()
         peekWork?.cancel(); questionWork?.cancel()
-        // Resume only a card that is genuinely still the one on screen and still the same
-        // shape; anything else starts clean rather than half-remembered.
-        let resumable: Bool
-        if case .question(let cur) = state,
-           cur.id == question.id, cur.items.count == question.items.count,
-           questionStep < question.items.count { resumable = true } else { resumable = false }
-        if !resumable { questionStep = 0; picks = [:]; typed = [:] }
+        // Keep the answer-so-far across a close/reopen: only a genuinely different question
+        // starts clean. Tying this to whether the card was still on screen wiped every pick
+        // the moment the panel was dismissed.
+        if answeringId != question.id {
+            answeringId = question.id
+            questionStep = 0; picks = [:]; typed = [:]
+            graceBase = Date()
+        }
         endTyping()
         // Keys are bound per question as the sequence advances, so 1-4 always means "this
         // question's options" rather than a running index across the whole ask.
@@ -581,7 +592,7 @@ final class Island: NSObject, ObservableObject {
     /// them all before committing to any. Clicking a pip lands here too.
     func goToStep(_ q: Question, _ step: Int) {
         guard q.items.indices.contains(step), step != questionStep else { return }
-        Approvals.touch(q.id)
+        markInteraction(q.id)
         endTyping()     // the field belonged to the question being left
         questionStep = step
         bindKeys(q, step: step)
@@ -606,12 +617,22 @@ final class Island: NSObject, ObservableObject {
                                       execute: work)
     }
 
-    /// Same as `releaseQuestion`, for the one caller outside this type.
-    func releaseHeldQuestion(_ id: String) { releaseQuestion(id) }
+    /// Hand the question to the chat: release the hook so Claude shows its own picker, and
+    /// leave the card up as a read-only mirror rather than dismissing it, so the question is
+    /// visible in both places until it is answered.
+    func handToChat(_ q: Question) {
+        Approvals.skip(q.id)
+        handedOver.insert(q.id)
+        releaseQuestion(q.id)
+        endTyping()
+        Hotkeys.shared.unbind()
+        refreshHitRegion()
+    }
 
     private func releaseQuestion(_ id: String) {
         guard heldQuestion == id else { return }
         heldQuestion = nil
+        if answeringId == id { answeringId = nil; picks = [:]; typed = [:]; questionStep = 0 }
         expiryWork?.cancel(); expiryWork = nil
     }
 
@@ -646,9 +667,16 @@ final class Island: NSObject, ObservableObject {
 
     /// Record one answer and move on. A four-question ask is one card rather than four, and
     /// nothing commits until submit — moving off the last question is not an answer.
+    /// Every real interaction slides the grace forward and re-stamps the mark the hook reads,
+    /// so answering keeps the window open while idling lets it fall through to the chat.
+    func markInteraction(_ id: String) {
+        graceBase = Date()
+        Approvals.touch(id)
+    }
+
     func pick(_ question: Question, step: Int, option: String) {
         guard step < question.items.count else { return }
-        Approvals.touch(question.id)
+        markInteraction(question.id)
         let item = question.items[step]
         if item.multi {
             var chosen = picks[item.text] ?? []
@@ -693,7 +721,7 @@ final class Island: NSObject, ObservableObject {
     /// option never pulls focus out of the editor behind. Take it for the field alone.
     func beginTyping(_ key: String) {
         guard typingFor != key else { return }
-        if case .question(let q) = state { Approvals.touch(q.id) }
+        if case .question(let q) = state { markInteraction(q.id) }
         typingFor = key
         (window as? Panel)?.keyable = true
         window?.makeKeyAndOrderFront(nil)
@@ -845,18 +873,19 @@ private struct RootView: View {
                         typingFor: island.typingFor,
                         allAnswered: island.allAnswered(q),
                         handedOver: island.handedOver.contains(q.id),
+                        graceBase: island.graceBase,
+                        graceLength: Island.graceSeconds,
                         onPick: { island.pick(q, step: island.questionStep, option: $0) },
-                        onType: { island.typed[q.items[island.questionStep].text] = $0 },
+                        onType: {
+                            island.typed[q.items[island.questionStep].text] = $0
+                            island.markInteraction(q.id)
+                        },
                         onBeginType: { island.beginTyping(q.items[island.questionStep].text) },
                         onConfirm: { island.advance(q, from: island.questionStep) },
                         onSubmit: { island.submit(q) },
                         onStep: { island.goToStep(q, $0) },
                         onJump: {
-                            // Hand the question back before leaving, or the terminal shows
-                            // nothing until the hook's ceiling runs out.
-                            Approvals.skip(q.id)
-                            island.releaseHeldQuestion(q.id)
-                            island.dismissQuestion()
+                            island.handToChat(q)
                             if let row = store.rows.first(where: { $0.agent.sessionId == q.session }) {
                                 store.jumpToTerminal(row)
                             }
