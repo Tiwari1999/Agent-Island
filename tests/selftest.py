@@ -1438,6 +1438,16 @@ check("a handle from a process env is sanitised before entering AppleScript",
 check("the controlling tty is read by syscall, not a spawn",
       "PROC_PIDTBSDINFO" in _pr and "devname(dev_t" in _pr and "static func tty(pid:" in _pr)
 check("the tty is captured per process during priming", "i.tty = Proc.tty(pid: pid)" in _pe)
+# Opening iTerm2/Terminal from a Warp tab leaks WARP_FOCUS_URL into it; keying on that handle
+# first sent the jump to Warp. A real TERM_PROGRAM must win over a leaked Warp handle.
+check("a genuine iTerm2 TERM_PROGRAM beats a leaked Warp handle",
+      _ht.index('i.termProgram == "iTerm.app"') < _ht.index("if let u = i.focusURL"))
+check("a genuine Terminal TERM_PROGRAM beats a leaked Warp handle",
+      _ht.index('i.termProgram == "Apple_Terminal"') < _ht.index("if let u = i.focusURL"))
+# Host resolution reads only the process env, so it is identical for every vendor — proving it
+# for a Claude process in iTerm2 proves it for Codex and Cursor there too.
+check("host resolution is vendor-independent (takes a pid, not a vendor)",
+      "static func resolve(pid: Int)" in _ht and "vendor" not in _ht.split("static func resolve(pid: Int)")[1].split("return")[0])
 _q=open(os.path.join(REPO,"hooks/agentisland-question.py")).read()
 _r=open(os.path.join(REPO,"hooks/agentisland-rules.py")).read()
 check("question hook guards non-object JSON", "isinstance(payload, dict)" in _q)

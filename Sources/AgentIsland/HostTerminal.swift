@@ -64,18 +64,22 @@ enum HostTerminal: Equatable {
 
     static func resolve(pid: Int) -> HostTerminal {
         let i = ProcEnv.info(pid: pid)
-        if let u = i.focusURL { return .warp(focusURL: u) }
-        if let s = i.itermSession { return .iterm(session: s) }
-        if let w = i.kittyWindow { return .kitty(window: w) }
-        if let p = i.weztermPane { return .wezterm(pane: p) }
-        // Terminal.app also sets TERM_SESSION_ID, so only claim it when it really is Terminal.
-        // Its TERM_SESSION_ID is a UUID that maps to nothing in the scripting dictionary; the
-        // tty is the only handle that focuses the right tab, so carry that instead.
-        if i.appleSession != nil, i.termProgram == "Apple_Terminal" {
+        // TERM_PROGRAM names the terminal that actually owns this shell, and iTerm2/Terminal set
+        // it reliably. Trust it before the bare Warp handle: opening iTerm2 from a Warp tab
+        // leaks WARP_FOCUS_URL into it, and keying on that first sent the jump to Warp — the
+        // wrong app. Warp itself often leaves TERM_PROGRAM empty, so it stays the fallback.
+        if i.termProgram == "iTerm.app", let s = i.itermSession { return .iterm(session: s) }
+        if i.termProgram == "Apple_Terminal" {
+            // TERM_SESSION_ID is a UUID Terminal never surfaces in its dictionary; the tty is the
+            // only handle that focuses the right tab, so carry that instead.
             if let tty = i.tty { return .appleTerminal(session: tty) }
             return .degraded(bundleID: i.bundleID ?? "com.apple.Terminal", name: "Terminal",
                              reason: "no controlling tty — a restored session or a tmux/ssh layer")
         }
+        if let u = i.focusURL { return .warp(focusURL: u) }
+        if let s = i.itermSession { return .iterm(session: s) }
+        if let w = i.kittyWindow { return .kitty(window: w) }
+        if let p = i.weztermPane { return .wezterm(pane: p) }
         if let b = i.bundleID {
             // Warp does publish a per-session handle, so its absence means this session cannot
             // be resolved — not that Warp lacks the capability. Say so instead of guessing.

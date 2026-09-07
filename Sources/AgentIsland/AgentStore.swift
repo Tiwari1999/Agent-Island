@@ -502,7 +502,11 @@ final class AgentStore: ObservableObject {
              "lastActive": r.lastActive.map { ISO8601DateFormatter().string(from: $0) } ?? "",
              "blocked": r.dormantBlocked, "working": r.isWorking, "waiting": r.waiting,
              "context": r.contextPct ?? -1, "remote": r.agent.remoteHost ?? "",
-             "pid": r.agent.pid ?? -1]
+             "pid": r.agent.pid ?? -1,
+             // Where the row would jump to, and the exact handle it aims at — the terminal it
+             // resolved (Warp / iTerm2 / Terminal / …), whether the jump is precise, and why not.
+             "host": r.host.name, "target": r.host.target ?? "",
+             "precise": r.host.isPrecise, "caveat": r.host.caveat ?? ""]
         }
         guard let data = try? JSONSerialization.data(withJSONObject: items) else { return }
         // Row titles are the user's own prompts and /tmp is world-readable, so the file is
