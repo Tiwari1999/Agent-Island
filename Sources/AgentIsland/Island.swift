@@ -44,7 +44,6 @@ final class Island: NSObject, ObservableObject {
     private var outsideClick: Any?
     /// A hold that belongs to the pending question rather than to its card, so the two cannot
     /// be confused with the approval hold running beside them.
-    private let questionHold = ApprovalHold()
     private var heldQuestion: String?
     private var expiryWork: DispatchWorkItem?
     /// Which question of the ask is on screen, and what has been chosen so far.
@@ -582,7 +581,6 @@ final class Island: NSObject, ObservableObject {
     private func holdQuestion(_ q: Question) {
         guard heldQuestion != q.id else { return }
         heldQuestion = q.id
-        questionHold.begin(id: q.id)
         expiryWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.heldQuestion == q.id else { return }
@@ -601,7 +599,6 @@ final class Island: NSObject, ObservableObject {
         guard heldQuestion == id else { return }
         heldQuestion = nil
         expiryWork?.cancel(); expiryWork = nil
-        questionHold.end()
     }
 
     private func watchForOutsideClick() {

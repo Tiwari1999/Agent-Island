@@ -1065,7 +1065,7 @@ check("status notifications are not treated as asks",
 
 # The card used to expire under the reader, taking the only way to answer with it.
 check("a question card holds its hook open", "holdQuestion(question)" in _is2)
-check("the question hook honours a hold", "_held(hold, started, HARD)" in _qh)
+check("the question hook waits the whole window", "while time.time() - started < WINDOW:" in _qh)
 check("an unanswered question survives its card",
       "pendingQuestions" in _hs2 and "func clearQuestion" in _hs2)
 check("clicking a blocked row answers it instead of jumping",
@@ -1137,16 +1137,17 @@ _hs7 = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()
 _vw7 = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
 _hk7 = open(os.path.join(REPO, "Sources/AgentIsland/Hotkeys.swift")).read()
 
-# The hold was tied to the card. One click elsewhere dismissed it, the hook died at 45s, and
-# every answer given afterwards was written to a file nobody was reading.
-check("the hold belongs to the question, not its card",
-      "func holdQuestion" in _is7 and "questionHold" in _is7)
-check("dismissing a card does not end the hold",
-      "hold.end()" not in _is7.split("func dismissQuestion")[1][:400])
+# The question outlives its card: a click elsewhere used to dismiss the card and, with it,
+# the only route back to answering. Nothing about the hook's lifetime depends on the card
+# any more, so dismissing is now purely cosmetic.
+check("the question outlives its card",
+      "func holdQuestion" in _is7 and "heldQuestion" in _is7)
+check("dismissing a card does not end the question",
+      "releaseQuestion" not in _is7.split("func dismissQuestion")[1][:400])
 check("answering releases it", "defer { releaseQuestion(question.id) }" in _is7)
 check("expiry releases it", "self.releaseQuestion(q.id)" in _is7)
-check("questions and approvals hold independently",
-      "private let questionHold = ApprovalHold()" in _is7)
+check("the approval hold is left alone",
+      "private let hold = ApprovalHold()" in _is7)
 
 # The island guessed how long the hook would wait, so it both withdrew the answer button early
 # and offered one after nobody was left.
@@ -1529,9 +1530,20 @@ print("\n=== 26. the deadline the harness actually enforces ===")
 _ih = open(os.path.join(REPO, "scripts/install-hooks.py")).read()
 _qh6 = open(os.path.join(REPO, "hooks/agentisland-question.py")).read()
 _harness = int(re.search(r'"matcher": "AskUserQuestion", "timeout": (\d+)', _ih).group(1))
-_hard = int(float(re.search(r'AGENTISLAND_Q_HOLD_HARD", "(\d+)', _qh6).group(1)))
-check("the harness lets the hook outlive its own ceiling",
-      _harness > _hard, f"harness {_harness}s > hard {_hard}s")
+_hard = int(float(re.search(r'AGENTISLAND_Q_TIMEOUT", "(\d+)', _qh6).group(1)))
+check("the harness lets the hook outlive its own window",
+      _harness > _hard, f"harness {_harness}s > window {_hard}s")
+
+# The window used to be 45s flat, extended only while the island kept re-touching a per-card
+# heartbeat. A Timer in the default run-loop mode stops while AppKit tracks the mouse — i.e.
+# while the card is being used — so one missed 10s window killed the hook mid-answer.
+check("the wait no longer depends on a per-card heartbeat",
+      "_held" not in _qh6 and ".hold" not in _qh6)
+check("it waits the window out flat", "while time.time() - started < WINDOW:" in _qh6)
+check("and stands down only if the app itself goes away",
+      "if not _island_alive():" in _qh6)
+check("the island stopped writing a per-card heartbeat",
+      "questionHold" not in open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read())
 
 # An already-installed entry used to be left exactly as it was, so this fix would never have
 # reached anyone who had installed before it.
@@ -1574,7 +1586,6 @@ for _ in range(60):
     if os.path.exists(_ss) and open(_ss).read().strip(): break
     time.sleep(0.2)
 _sid = json.loads(open(_ss).readline())["ap_question_id"]
-open(os.path.join(_sd, _sid + ".hold"), "w").write("")     # card is on screen
 time.sleep(1.0)
 open(os.path.join(_sd, _sid + ".skip"), "w").write("")     # reader chose the terminal
 _th.join()

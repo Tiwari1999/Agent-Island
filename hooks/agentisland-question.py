@@ -14,21 +14,22 @@ os.umask(0o077)   # answers and spool lines are private
 SPOOL = os.environ.get("AGENTISLAND_SPOOL", "/tmp/agentisland-events.jsonl")
 DECISIONS = os.environ.get("AGENTISLAND_DECISIONS", "/tmp/agentisland-decisions")
 ALIVE = os.environ.get("AGENTISLAND_ALIVE", "/tmp/agentisland.alive")
-TIMEOUT = float(os.environ.get("AGENTISLAND_Q_TIMEOUT", "45"))
+try:
+    WINDOW = float(os.environ.get("AGENTISLAND_Q_TIMEOUT", "300"))
+except ValueError:
+    WINDOW = 300.0
+
+
+def _island_alive():
+    """The app's own heartbeat, on a timer of its own and independent of any one card."""
+    try:
+        return time.time() - os.path.getmtime(ALIVE) < 15
+    except OSError:
+        return False
 
 
 def bail():
     sys.exit(0)
-
-
-def _held(hold, started, hard):
-    """A hold refreshed in the last 10s extends the wait, up to an absolute ceiling."""
-    if time.time() - started > hard:
-        return False
-    try:
-        return time.time() - os.path.getmtime(hold) < 10
-    except OSError:
-        return False
 
 
 def main():
@@ -89,10 +90,6 @@ def main():
     if len(items) != len(questions):
         bail()      # one unreadable question means the whole ask belongs in the terminal
 
-    try:
-        HARD = float(os.environ.get("AGENTISLAND_Q_HOLD_HARD", "300"))
-    except ValueError:
-        HARD = 300.0
     req_id = f"aq-{os.getpid()}-{int(time.time())}"
     try:
         # Answers are private: the default mode leaves them readable by every user on the box.
@@ -108,20 +105,21 @@ def main():
                 "cwd": payload.get("cwd", ""),
                 # How long this hook will actually wait, so the island never offers an answer
                 # to something that has stopped listening, or withdraws one too early.
-                "expires_at": time.time() + HARD,
+                "expires_at": time.time() + WINDOW,
                 "items": items,
             }) + "\n")
     except OSError:
         bail()
 
     path = os.path.join(DECISIONS, req_id)
-    hold = path + ".hold"
     skip = path + ".skip"
-    # The island refreshes <id>.hold while the card is on screen. Without this the question
-    # expired after TIMEOUT even with the user mid-read, and the card simply vanished.
+    # Wait the window out flat. This used to hold only while the island kept re-touching a
+    # per-card heartbeat file, so one missed 10s window killed the hook mid-answer — and a
+    # Timer in the default run-loop mode is suspended for exactly as long as AppKit tracks
+    # the mouse, which is precisely when someone is using the card. Three answers died that
+    # way. The app's own heartbeat already covers what the per-card one was for.
     started = time.time()
-    deadline = started + TIMEOUT
-    while time.time() < deadline or _held(hold, started, HARD):
+    while time.time() - started < WINDOW:
         if os.path.exists(path):
             try:
                 choice = open(path).read().strip()
@@ -184,12 +182,14 @@ def main():
         # own picker while this hook is still holding the turn.
         if os.path.exists(skip):
             break
+        # The island going away is the one thing that should end the wait early.
+        if not _island_alive():
+            break
         time.sleep(0.12)
-    for f in (hold, skip):
-        try:
-            os.remove(f)
-        except OSError:
-            pass
+    try:
+        os.remove(skip)
+    except OSError:
+        pass
     bail()   # timed out, or handed over — Claude asks normally
 
 
