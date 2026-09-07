@@ -28,12 +28,32 @@ enum Approvals {
     /// One write for the whole ask: question text to the chosen label, or labels when the
     /// question allows several. The hook validates every entry against what it offered.
     @discardableResult
-    static func answer(_ question: Question, picks: [String: [String]]) -> Bool {
+    /// Tell the hook to stand down so Claude's own picker can appear. Without this the turn
+    /// stays held for the rest of the ceiling and "open in terminal" lands on nothing.
+    static func skip(_ id: String) {
+        guard validID(id) else { return }
+        ensureDir()
+        FileManager.default.createFile(
+            atPath: (decisionsDir as NSString).appendingPathComponent(id + ".skip"),
+            contents: nil, attributes: [.posixPermissions: 0o600])
+    }
+
+    static func answer(_ question: Question, picks: [String: [String]],
+                       typed: [String: String] = [:]) -> Bool {
         guard validID(question.id) else { return false }
         ensureDir()
         var body: [String: Any] = [:]
         for item in question.items {
-            guard let chosen = picks[item.text], !chosen.isEmpty else { continue }
+            let chosen = picks[item.text] ?? []
+            // Typed text travels marked rather than as a bare string, so the hook can keep
+            // refusing anything that is neither an offered label nor a deliberate answer.
+            let free = (typed[item.text] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !free.isEmpty {
+                body[item.text] = item.multi ? chosen.map { $0 as Any } + [["other": free]]
+                                             : ["other": free]
+                continue
+            }
+            guard !chosen.isEmpty else { continue }
             body[item.text] = item.multi ? chosen : chosen[0]
         }
         guard body.count == question.items.count,

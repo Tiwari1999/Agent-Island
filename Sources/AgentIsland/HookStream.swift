@@ -54,6 +54,7 @@ struct QuestionItem: Equatable, Identifiable {
             h += 17                                                // option padding + gap
         }
         if multi { h += 30 }
+        h += 32                                                    // the free-text row
         let preview = hasPreview
             ? CGFloat(options.map { $0.preview.split(whereSeparator: \.isNewline).count }.max() ?? 0) * 13 + 44
             : 0
@@ -69,6 +70,16 @@ struct Question: Identifiable, Equatable {
     /// Where it was asked. A card that cannot name its session leaves you answering blind.
     var cwd: String?
     var project: String? { (cwd as NSString?)?.lastPathComponent }
+
+    /// The hook waiting on this answer, from `aq-<pid>-<ts>`.
+    var hookPid: Int? {
+        let parts = id.split(separator: "-")
+        return parts.count >= 3 ? Int(parts[1]) : nil
+    }
+    /// Nobody is listening any more — the turn was interrupted or the hook was killed. The
+    /// card is stale however much of its window is left, and a five-minute window makes a
+    /// lingering dead card far more obvious than a one-minute one did.
+    var abandoned: Bool { hookPid.map { !Proc.alive($0) } ?? false }
 }
 
 /// One agent's most recent hook-reported activity.
@@ -382,6 +393,8 @@ final class HookStream: ObservableObject {
         let hard = cutoff.addingTimeInterval(-5 * 3600)
         let kept = live.filter { $0.value.at > ($0.value.inTool ? hard : cutoff) }
         if kept.count != live.count { live = kept }
+        let alive = pendingQuestions.filter { !$0.value.abandoned }
+        if alive.count != pendingQuestions.count { pendingQuestions = alive }
     }
 
     /// Notifications that report an outcome rather than ask for one.

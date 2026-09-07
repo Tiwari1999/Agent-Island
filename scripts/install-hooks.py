@@ -73,11 +73,19 @@ def add_hook(cfg, event, command, *, first=False, matcher=None, timeout=None):
     replaced = len(entries) - len(kept)
     if replaced:
         entries[:] = kept
-    if any(MARK in json.dumps(e) and command in json.dumps(e) for e in entries):
-        return replaced > 0
     spec = {"type": "command", "command": command}
     if timeout:
         spec["timeout"] = timeout
+    # Reconcile an entry we already own rather than leaving it alone. A changed timeout used
+    # to be ignored for the life of the install, so upgrades kept the old deadline.
+    for e in entries:
+        for i, h in enumerate(e.get("hooks", [])):
+            if MARK in json.dumps(h) and command in json.dumps(h):
+                drift = h != spec or (e.get("matcher") or None) != (matcher or None)
+                e["hooks"][i] = spec
+                if matcher:
+                    e["matcher"] = matcher
+                return replaced > 0 or drift
     entry = {"hooks": [spec]}
     if matcher:
         entry["matcher"] = matcher
@@ -152,7 +160,7 @@ claude_plan = [(e, HOOK, {}) for e in claude_events]
 claude_plan += [
     ("PermissionRequest", RULES,    {"first": True, "timeout": 10}),   # rules run before we ask
     ("PermissionRequest", PERM,     {"timeout": 30}),
-    ("PreToolUse",        QUESTION, {"matcher": "AskUserQuestion", "timeout": 60}),
+    ("PreToolUse",        QUESTION, {"matcher": "AskUserQuestion", "timeout": 310}),
 ]
 install("Claude Code", os.path.expanduser("~/.claude/settings.json"),
         claude_plan, statusline=True)

@@ -3,10 +3,11 @@ import Carbon.HIToolbox
 import SwiftUI
 
 private final class Panel: NSPanel {
-    /// Never key. A panel that can become key spends the first click becoming it instead of
-    /// delivering it to the row underneath — the "I had to click twice" bug. Nothing here needs
-    /// keyboard focus: every shortcut is a global hotkey.
-    override var canBecomeKey: Bool { false }
+    /// Key only while a free-text field is live. A panel that can always become key spends the
+    /// first click becoming it instead of delivering it to the row underneath — the "I had to
+    /// click twice" bug — and pulls focus out of the editor behind on every option click.
+    var keyable = false
+    override var canBecomeKey: Bool { keyable }
 }
 
 /// A nonactivating panel is never the key window, so AppKit spends the first click activating it
@@ -49,6 +50,10 @@ final class Island: NSObject, ObservableObject {
     /// Which question of the ask is on screen, and what has been chosen so far.
     @Published var questionStep = 0
     @Published var picks: [String: [String]] = [:]
+    /// Free text the reader typed instead of picking, keyed the same way as `picks`.
+    @Published var typed: [String: String] = [:]
+    /// Which question's field is live — the only time this panel takes keyboard focus.
+    @Published var typingFor: String?
     private let frames = FrameMeter()
     @Published var revealed = false
     @Published var notchWidth: CGFloat = 0
@@ -305,7 +310,16 @@ final class Island: NSObject, ObservableObject {
     }
 
     private func track() {
-        guard let window else { return }
+        guard window != nil else { return }
+        // A question nobody is waiting on is not a question. Drop it rather than leaving the
+        // card up for the rest of its window.
+        if case .question(let q) = state, q.abandoned {
+            releaseQuestion(q.id)
+            store.hooks.clearQuestion(q.id)
+            Hotkeys.shared.unbind()
+            dismissQuestion()
+            return
+        }
         // Only re-home while collapsed; moving a visible panel would yank it mid-interaction.
         if state == .collapsed { followActiveScreen() }
         let mouse = NSEvent.mouseLocation
@@ -511,7 +525,8 @@ final class Island: NSObject, ObservableObject {
         if case .question(let cur) = state,
            cur.id == question.id, cur.items.count == question.items.count,
            questionStep < question.items.count { resumable = true } else { resumable = false }
-        if !resumable { questionStep = 0; picks = [:] }
+        if !resumable { questionStep = 0; picks = [:]; typed = [:] }
+        endTyping()
         // Keys are bound per question as the sequence advances, so 1-4 always means "this
         // question's options" rather than a running index across the whole ask.
         bindKeys(question, step: questionStep)
@@ -554,6 +569,7 @@ final class Island: NSObject, ObservableObject {
     /// them all before committing to any. Clicking a pip lands here too.
     func goToStep(_ q: Question, _ step: Int) {
         guard q.items.indices.contains(step), step != questionStep else { return }
+        endTyping()     // the field belonged to the question being left
         questionStep = step
         bindKeys(q, step: step)
         withAnimation(.easeOut(duration: 0.16)) { state = .question(q) }
@@ -577,6 +593,9 @@ final class Island: NSObject, ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + max(1, q.deadline.timeIntervalSinceNow),
                                       execute: work)
     }
+
+    /// Same as `releaseQuestion`, for the one caller outside this type.
+    func releaseHeldQuestion(_ id: String) { releaseQuestion(id) }
 
     private func releaseQuestion(_ id: String) {
         guard heldQuestion == id else { return }
@@ -605,6 +624,7 @@ final class Island: NSObject, ObservableObject {
     /// question stays pending so the row can bring it back.
     func dismissQuestion() {
         guard case .question = state else { return }
+        endTyping()
         // The card goes away; the question does not. The agent is still blocked on it, so the
         // hook keeps waiting and the row's answer button brings the card straight back.
         questionWork?.cancel()
@@ -613,8 +633,8 @@ final class Island: NSObject, ObservableObject {
         presentNext()
     }
 
-    /// Record one answer and move on. The card only closes when the last question is answered,
-    /// so a four-question ask is one interaction rather than four separate cards.
+    /// Record one answer and move on. A four-question ask is one card rather than four, and
+    /// nothing commits until submit — moving off the last question is not an answer.
     func pick(_ question: Question, step: Int, option: String) {
         guard step < question.items.count else { return }
         let item = question.items[step]
@@ -630,14 +650,41 @@ final class Island: NSObject, ObservableObject {
 
     /// Confirm a multi-select question, or step past one already answered.
     func advance(_ question: Question, from step: Int) {
-        let next = step + 1
-        guard next < question.items.count else {
-            choose(question, picks: picks)
-            return
-        }
-        questionStep = next
-        bindKeys(question, step: next)
-        withAnimation(.easeOut(duration: 0.16)) { state = .question(question) }
+        // The last question never submits itself. Answering four and having the card vanish
+        // under the fourth click, with no way back to revise the first, was the loudest bug.
+        guard step + 1 < question.items.count else { return }
+        goToStep(question, step + 1)
+    }
+
+    /// Answered by a pick or by typing — either counts, neither is assumed.
+    func isAnswered(_ item: QuestionItem) -> Bool {
+        !(picks[item.text] ?? []).isEmpty
+            || !(typed[item.text] ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    func allAnswered(_ q: Question) -> Bool { q.items.allSatisfy(isAnswered) }
+
+    /// The only path that commits. Refuses a partial set rather than sending three of four.
+    func submit(_ question: Question) {
+        guard allAnswered(question) else { return }
+        endTyping()
+        choose(question, picks: picks)
+    }
+
+    /// Typing needs keyboard focus, which this panel refuses by default so that clicking an
+    /// option never pulls focus out of the editor behind. Take it for the field alone.
+    func beginTyping(_ key: String) {
+        guard typingFor != key else { return }
+        typingFor = key
+        (window as? Panel)?.keyable = true
+        window?.makeKeyAndOrderFront(nil)
+    }
+
+    func endTyping() {
+        guard typingFor != nil else { return }
+        typingFor = nil
+        (window as? Panel)?.keyable = false
+        NSApp.deactivate()          // hand focus back to whatever had it
     }
 
     func choose(_ question: Question, picks: [String: [String]]) {
@@ -656,7 +703,7 @@ final class Island: NSObject, ObservableObject {
                             body: "Answer arrived too late — answer it in the terminal instead",
                             key: question.session)
         }
-        guard Approvals.answer(question, picks: picks) else {
+        guard Approvals.answer(question, picks: picks, typed: typed) else {
             Diagnostics.log("question \(question.id): could not answer, leaving it to the terminal")
             questionWork?.cancel(); hold.end()
             store.hooks.clearQuestion(question.id)
@@ -775,10 +822,20 @@ private struct RootView: View {
                         agentName: store.name(for: q.session) ?? q.project ?? "agent",
                         step: island.questionStep,
                         picks: island.picks,
+                        typed: island.typed,
+                        typingFor: island.typingFor,
+                        allAnswered: island.allAnswered(q),
                         onPick: { island.pick(q, step: island.questionStep, option: $0) },
+                        onType: { island.typed[q.items[island.questionStep].text] = $0 },
+                        onBeginType: { island.beginTyping(q.items[island.questionStep].text) },
                         onConfirm: { island.advance(q, from: island.questionStep) },
+                        onSubmit: { island.submit(q) },
                         onStep: { island.goToStep(q, $0) },
                         onJump: {
+                            // Hand the question back before leaving, or the terminal shows
+                            // nothing until the hook's ceiling runs out.
+                            Approvals.skip(q.id)
+                            island.releaseHeldQuestion(q.id)
                             island.dismissQuestion()
                             if let row = store.rows.first(where: { $0.agent.sessionId == q.session }) {
                                 store.jumpToTerminal(row)

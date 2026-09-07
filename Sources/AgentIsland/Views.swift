@@ -819,15 +819,32 @@ struct QuestionCard: View {
     /// Which of the ask's questions is on screen, and what has been chosen so far.
     let step: Int
     let picks: [String: [String]]
+    /// Free text stands in for a pick; the card treats either as an answer.
+    let typed: [String: String]
+    let typingFor: String?
+    let allAnswered: Bool
     let onPick: (String) -> Void
+    let onType: (String) -> Void
+    let onBeginType: () -> Void
     let onConfirm: () -> Void
+    let onSubmit: () -> Void
     let onStep: (Int) -> Void
     /// Leave the card and land in the session's own terminal, question still pending.
     let onJump: () -> Void
     @State private var hot: String?
+    @FocusState private var writing: Bool
 
     private var item: QuestionItem { question.items[min(step, question.items.count - 1)] }
     private var chosen: [String] { picks[item.text] ?? [] }
+    private var text: String { typed[item.text] ?? "" }
+    private var typing: Bool { typingFor == item.text }
+    private var answered: Bool { !chosen.isEmpty || !text.trimmingCharacters(in: .whitespaces).isEmpty }
+    private func done(_ i: Int) -> Bool {
+        let q = question.items[i]
+        return !(picks[q.text] ?? []).isEmpty
+            || !(typed[q.text] ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+    }
+    private var doneCount: Int { question.items.indices.filter(done).count }
     /// The focused option decides what the preview shows; hover wins, else the first choice.
     private var focused: QuestionOption? {
         item.options.first { $0.label == hot } ?? item.options.first { chosen.contains($0.label) }
@@ -878,17 +895,23 @@ struct QuestionCard: View {
                     HStack(spacing: 3) {
                         ForEach(0..<question.items.count, id: \.self) { i in
                             Circle()
-                                .fill(i < step ? Theme.working : i == step ? Theme.waiting : Theme.faint)
-                                .opacity(i > step ? 0.4 : 1)
+                                .fill(done(i) ? Theme.working : Theme.faint)
+                                .opacity(done(i) || i == step ? 1 : 0.4)
                                 .frame(width: 6, height: 6)
-                                .padding(3)
+                                .overlay(Circle()
+                                    .stroke(Theme.waiting, lineWidth: i == step ? 1.5 : 0)
+                                    .frame(width: 11, height: 11))
+                                .padding(4)
                                 .contentShape(Rectangle())
                                 .onTapGesture { onStep(i) }
                         }
                     }
                     Text("\(step + 1) of \(question.items.count)")
                         .font(Theme.mono(9)).foregroundColor(Theme.faint)
-                    Text("⌘⌥⇧1–4").font(Theme.mono(8)).foregroundColor(Theme.faint.opacity(0.7))
+                    // Arrows belong to whatever is focused behind this panel, so the dots are
+                    // the way across and saying so beats leaving it to be discovered.
+                    Text("· click a dot to jump")
+                        .font(Theme.mono(8)).foregroundColor(Theme.faint.opacity(0.75))
                 }
             }
         }
@@ -935,10 +958,46 @@ struct QuestionCard: View {
                     .onHover { h in withAnimation(.easeOut(duration: 0.1)) { hot = h ? opt.label : nil } }
                     .onTapGesture { onPick(opt.label) }
                 }
+                other
             }
         }
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Typing beats hunting for the option that almost fits, and Claude's own picker offers it,
+    /// so its absence read as the notch losing an answer rather than never having taken one.
+    private var other: some View {
+        let on = !text.isEmpty
+        return HStack(alignment: .top, spacing: 9) {
+            Image(systemName: "pencil")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundColor(on || typing ? Theme.waiting : Theme.faint)
+                .frame(width: 15, height: 15)
+                .overlay(RoundedRectangle(cornerRadius: 4)
+                    .stroke(on ? Theme.waiting.opacity(0.4) : Theme.hairline))
+            if typing {
+                TextField("", text: Binding(get: { text }, set: onType))
+                    .textFieldStyle(.plain)
+                    .font(Theme.label(11.5)).foregroundColor(Theme.text)
+                    .focused($writing)
+                    .onAppear { writing = true }
+                    .onSubmit(onConfirm)
+            } else {
+                Text(on ? text : "or type your own answer")
+                    .font(Theme.label(11.5))
+                    .foregroundColor(on ? Theme.text : Theme.faint)
+                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 9).padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 8)
+            .fill(on ? Theme.waiting.opacity(0.10) : typing ? Theme.raised : Color.clear))
+        .overlay(RoundedRectangle(cornerRadius: 8)
+            .stroke(on || typing ? Theme.waiting.opacity(0.28) : Theme.hairline.opacity(0.6)))
+        .contentShape(Rectangle())
+        .onTapGesture { onBeginType() }
     }
 
     private var preview: some View {
@@ -962,10 +1021,10 @@ struct QuestionCard: View {
     /// unless something says so.
     private var footer: some View {
         let last = step == question.items.count - 1
-        let ready = !chosen.isEmpty
         return HStack(spacing: 10) {
-            Text(item.multi ? "\(chosen.count) selected · ⌘⌥1–4 toggles"
-                            : "⌘⌥1–4 to choose")
+            Text(typing ? (last ? "⏎ done — press submit" : "⏎ for the next question")
+                        : item.multi ? "\(chosen.count) selected · ⌘⌥1–4 toggles"
+                                     : "⌘⌥1–4 to choose")
                 .font(Theme.mono(9)).foregroundColor(Theme.faint)
             // Answering in the notch is one way; reading the whole thread is another.
             Text("open in terminal")
@@ -975,15 +1034,31 @@ struct QuestionCard: View {
                 .contentShape(Capsule())
                 .onTapGesture(perform: onJump)
             Spacer(minLength: 0)
-            Text(last ? "submit" : "next")
-                .font(Theme.label(10.5))
-                .foregroundColor(ready ? Theme.bg : Theme.faint)
-                .padding(.horizontal, 12).padding(.vertical, 5)
-                .background(Capsule().fill(ready ? Theme.waiting : Theme.raised))
-                .contentShape(Capsule())
-                .onTapGesture { if ready { onConfirm() } }
+            if question.items.count > 1 {
+                Text("\(doneCount) of \(question.items.count) answered")
+                    .font(Theme.mono(9))
+                    .foregroundColor(doneCount == question.items.count ? Theme.working : Theme.faint)
+            }
+            if !last {
+                button("next", filled: false, on: answered, action: onConfirm)
+            }
+            // Always present, never automatic: nothing is sent until this is pressed, and it
+            // stays inert until every question in the ask has an answer.
+            button("submit", filled: true, on: allAnswered, action: onSubmit)
         }
         .padding(.horizontal, 16)
+    }
+
+    private func button(_ title: String, filled: Bool, on: Bool,
+                        action: @escaping () -> Void) -> some View {
+        Text(title)
+            .font(Theme.label(10.5))
+            .foregroundColor(!on ? Theme.faint : filled ? Theme.bg : Theme.text)
+            .padding(.horizontal, 12).padding(.vertical, 5)
+            .background(Capsule().fill(on && filled ? Theme.waiting : Theme.raised))
+            .overlay(Capsule().stroke(on && !filled ? Theme.hairline : Color.clear))
+            .contentShape(Capsule())
+            .onTapGesture { if on { action() } }
     }
 }
 

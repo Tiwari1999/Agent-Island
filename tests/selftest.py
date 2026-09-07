@@ -574,8 +574,14 @@ check("cursor is not given a limit it does not publish",
 
 print("\n=== 9l. one click, and sessions that argv cannot name ===")
 isl5=open(os.path.join(REPO,"Sources/AgentIsland/Island.swift")).read()
-check("the panel never becomes key (a key panel eats the first click)",
-      "override var canBecomeKey: Bool { false }" in isl5)
+# A panel that can always become key eats the first click. It may become key only while a
+# free-text field is live, and it hands focus back the moment the field closes.
+check("the panel is not key by default (a key panel eats the first click)",
+      "override var canBecomeKey: Bool { keyable }" in isl5
+      and "var keyable = false" in isl5)
+check("only the field turns that on",
+      "func beginTyping" in isl5 and "keyable = true" in isl5
+      and isl5.count("keyable = true") == 1)
 check("the hosting view still accepts first mouse", "acceptsFirstMouse" in isl5)
 hk=open(os.path.join(REPO,"hooks/agentisland-hook.sh")).read()
 check("the event hook reports its parent, with no extra process",
@@ -1159,7 +1165,9 @@ check("question navigation uses a chord terminals do not own",
       "cmdOptShift" in _is7 and "leftArrow" not in _is7)
 
 # A card with no button reads as a card with nothing to do.
-check("submit is always visible", 'Text(last ? "submit" : "next")' in _vw7)
+check("submit is always visible, and separate from next",
+      'button("submit", filled: true, on: allAnswered' in _vw7
+      and 'button("next", filled: false, on: answered' in _vw7)
 check("and there is a way out to the terminal",
       "open in terminal" in _vw7 and "func jumpToTerminal" in
       open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read())
@@ -1237,7 +1245,7 @@ check("a queued card is shown, not re-queued",
       "if !queuedQuestions.isEmpty || !queuedApprovals.isEmpty { state = .collapsed }" in _is4)
 # An ask whose questions share wording cannot be answered by a map keyed on wording.
 check("an answer that cannot be written does not close the card",
-      "guard Approvals.answer(question, picks: picks) else {" in _is4
+      "guard Approvals.answer(question, picks: picks, typed: typed) else {" in _is4
       and "@discardableResult" in _ap4)
 check("an empty ask cannot subscript out of range",
       "guard !q.items.isEmpty else { return nil }" in _is4)
@@ -1267,7 +1275,8 @@ check("the card renders a preview beside the options", "focused?.preview" in _vw
 check("answers are rebuilt, never passed through", "answers = {}" in _qh2
       and 'updated["answers"] = answers' in _qh2)
 check("multiSelect shape is enforced both ways",
-      'if item["multi"]:' in _qh2 and "isinstance(want, str) or want not in labels" in _qh2)
+      'if item["multi"]:' in _qh2 and "isinstance(want, list) or not want" in _qh2
+      and "return w if w in labels else None" in _qh2)
 check("a repeated pick cannot be sent twice", "w not in want[:i]" in _qh2)
 check("the island writes one answer for the whole ask", "func answer(_ question: Question, picks:" in _ap3)
 check("an incomplete sequence is never submitted", "body.count == question.items.count" in _ap3)
@@ -1397,6 +1406,196 @@ check("question hook guards non-list questions", "isinstance(questions, list)" i
 check("rules hook guards non-object JSON", "isinstance(payload, dict)" in _r)
 _b=open(os.path.join(REPO,"tests/benchmark.py")).read()
 check("benchmark writes to its own spool by default", "agentisland-bench.jsonl" in _b)
+
+print("\n=== 25. typing an answer, and never submitting one by itself ===")
+# The reader asked for the manual input Claude's own picker offers. It has to cross the same
+# gate as a label without widening it: a mistyped label must still be refused.
+_ta = f"{RUN}-tyalive"
+open(_ta, "w").write("1")
+
+TQ = json.dumps({"session_id": "selftest", "hook_event_name": "PreToolUse",
+                 "tool_name": "AskUserQuestion", "tool_input": {"questions": [
+    {"question": "Which DB?", "header": "DB", "multiSelect": False,
+     "options": [{"label": "Postgres", "description": "r"}, {"label": "MongoDB", "description": "d"}]},
+    {"question": "Which caches?", "header": "Cache", "multiSelect": True,
+     "options": [{"label": "Redis", "description": "r"}, {"label": "Memcached", "description": "m"}]}]}})
+
+def _ask(decision, timeout="12"):
+    """Run the hook, answer it with `decision`, return the parsed answers or None."""
+    d, sp = f"{RUN}-ty{abs(hash(repr(decision))) % 99999}", None
+    sp = d + ".jsonl"
+    os.makedirs(d, exist_ok=True)
+    for f in os.listdir(d): os.remove(os.path.join(d, f))
+    if os.path.exists(sp): os.remove(sp)
+    box = {}
+    def go():
+        box["r"] = subprocess.run([qh], input=TQ, capture_output=True, text=True, timeout=25,
+            env=dict(os.environ, AGENTISLAND_ALIVE=_ta, AGENTISLAND_Q_TIMEOUT=timeout,
+                     AGENTISLAND_SPOOL=sp, AGENTISLAND_DECISIONS=d))
+    t = threading.Thread(target=go); t.start()
+    for _ in range(60):
+        if os.path.exists(sp) and open(sp).read().strip(): break
+        time.sleep(0.2)
+    qid = json.loads(open(sp).readline())["ap_question_id"]
+    open(os.path.join(d, qid), "w").write(json.dumps(decision))
+    t.join()
+    try: return json.loads(box["r"].stdout)["hookSpecificOutput"]["updatedInput"]["answers"]
+    except Exception: return None
+
+a = _ask({"Which DB?": {"other": "DuckDB, actually"}, "Which caches?": ["Redis"]})
+check("typed text answers a single-choice question", a == {"Which DB?": "DuckDB, actually",
+                                                           "Which caches?": ["Redis"]})
+
+a = _ask({"Which DB?": "MongoDB", "Which caches?": ["Redis", {"other": "Hazelcast"}]})
+check("typed text joins the labels on a multi-select",
+      a == {"Which DB?": "MongoDB", "Which caches?": ["Redis", "Hazelcast"]})
+
+# Marking is what keeps the label path strict: a bare string is still checked against the
+# options, so a typo can never arrive as if it had been offered.
+a = _ask({"Which DB?": "DuckDB", "Which caches?": ["Redis"]})
+check("an unmarked string is still refused", a is None)
+a = _ask({"Which DB?": {"other": "x", "extra": 1}, "Which caches?": ["Redis"]})
+check("a dict that is not a typed answer is refused", a is None)
+a = _ask({"Which DB?": {"other": 42}, "Which caches?": ["Redis"]})
+check("a non-string typed answer is refused", a is None)
+
+# Typed text is the one field a person composes freely, so it is bounded and flattened
+# rather than trusted to be one tidy line.
+a = _ask({"Which DB?": {"other": "line\nbreak\ttab\x07bell"}, "Which caches?": ["Redis"]})
+check("control characters are stripped from typed text",
+      a is not None and a["Which DB?"] == "linebreaktabbell")
+a = _ask({"Which DB?": {"other": "z" * 5000}, "Which caches?": ["Redis"]})
+check("typed text is capped", a is not None and len(a["Which DB?"]) == 2000)
+a = _ask({"Which DB?": {"other": "   "}, "Which caches?": ["Redis"]})
+check("whitespace is not an answer", a is None)
+
+_is5 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_vw5 = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
+_ap5 = open(os.path.join(REPO, "Sources/AgentIsland/Approvals.swift")).read()
+_hs5 = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()
+
+# Answering the fourth question used to send the ask and close the card under the click.
+check("moving past the last question never submits",
+      "guard step + 1 < question.items.count else { return }" in _is5
+      and "choose(question, picks: picks)" not in _is5.split("func advance")[1].split("func isAnswered")[0])
+check("submit is the only path that commits",
+      "func submit(_ question: Question)" in _is5
+      and "guard allAnswered(question) else { return }" in _is5)
+check("a partial ask cannot be submitted", "q.items.allSatisfy(isAnswered)" in _is5)
+check("either a pick or typed text counts as answered",
+      "!(picks[item.text] ?? []).isEmpty" in _is5 and '!(typed[item.text] ?? "")' in _is5)
+check("the submit button is always drawn", 'button("submit", filled: true, on: allAnswered' in _vw5)
+
+# Typing needs key focus, which this panel refuses so that clicking an option cannot pull
+# focus out of the editor behind it. It is taken for the field and handed straight back.
+check("the panel takes focus only for the field",
+      "var keyable = false" in _is5 and "override var canBecomeKey: Bool { keyable }" in _is5)
+check("focus is released again", "NSApp.deactivate()" in _is5 and "func endTyping()" in _is5)
+check("a new card starts with no typed text", "picks = [:]; typed = [:]" in _is5)
+check("leaving the card drops the field",
+      "endTyping()" in _is5.split("func dismissQuestion")[1].split("func pick")[0])
+
+check("typed text is marked on the way out", '["other": free]' in _ap5)
+check("the free-text row is measured into the card", "the free-text row" in _hs5)
+check("the reader is told the dots are the way across", "click a dot to jump" in _vw5)
+
+# Typing then finding the ask still pending read as a lost answer. Nothing was lost — the
+# card just showed position where it needed to show what was answered.
+check("return moves to the next question, it does not submit",
+      ".onSubmit(onConfirm)" in _vw5 and ".onSubmit(onSubmit)" not in _vw5)
+check("leaving a question closes its field",
+      "endTyping()" in _is5.split("func goToStep")[1].split("func holdQuestion")[0])
+check("a pip shows what is answered, not where you are",
+      "done(i) ? Theme.working : Theme.faint" in _vw5)
+check("typed text counts towards a pip too", '!(typed[q.text] ?? "")' in _vw5)
+check("an inert submit says how many are left", "of \\(question.items.count) answered" in _vw5)
+check("that count is not shown on a single question",
+      "if question.items.count > 1 {\n                Text(\"\\(doneCount)" in _vw5)
+check("the field says what return will do", "⏎ for the next question" in _vw5)
+
+print("\n=== 26. the deadline the harness actually enforces ===")
+# Claude Code SIGKILLs a hook at the timeout in settings.json, whatever the hook believes.
+# It was 60s while the hook waited up to 300, so every answer given after a minute was
+# written to disk and never read — the "I answered and it ignored me" bug, three times over.
+_ih = open(os.path.join(REPO, "scripts/install-hooks.py")).read()
+_qh6 = open(os.path.join(REPO, "hooks/agentisland-question.py")).read()
+_harness = int(re.search(r'"matcher": "AskUserQuestion", "timeout": (\d+)', _ih).group(1))
+_hard = int(float(re.search(r'AGENTISLAND_Q_HOLD_HARD", "(\d+)', _qh6).group(1)))
+check("the harness lets the hook outlive its own ceiling",
+      _harness > _hard, f"harness {_harness}s > hard {_hard}s")
+
+# An already-installed entry used to be left exactly as it was, so this fix would never have
+# reached anyone who had installed before it.
+# Take the function alone. Importing the script would run the real installer and rewrite the
+# settings of whoever is running the suite.
+import shlex as _shlex
+_fn = _ih[_ih.index("def add_hook("):]
+_fn = _fn[:_fn.index("\ndef ", 1)]
+_ns = {"json": json, "os": os, "shlex": _shlex,
+       "MARK": re.search(r'^MARK\s*=\s*"([^"]*)"', _ih, re.M).group(1)}
+exec(compile(_fn, "add_hook", "exec"), _ns)
+_ns["QUESTION"] = "'/tmp/agentisland/hooks/agentisland-question.py'"
+_cfg = {"hooks": {"PreToolUse": [{"matcher": "AskUserQuestion", "hooks": [
+    {"type": "command", "command": _ns["QUESTION"], "timeout": 60}]}]}}
+_changed = _ns["add_hook"](_cfg, "PreToolUse", _ns["QUESTION"],
+                           matcher="AskUserQuestion", timeout=310)
+_got = _cfg["hooks"]["PreToolUse"][0]["hooks"][0].get("timeout")
+check("a stale timeout is repaired, not left alone", _changed and _got == 310, f"now {_got}")
+_again = _ns["add_hook"](_cfg, "PreToolUse", _ns["QUESTION"],
+                         matcher="AskUserQuestion", timeout=310)
+check("and reinstalling an unchanged hook reports no change", not _again)
+
+# Answering in the terminal has to be possible at once: Claude cannot show its own picker
+# while this hook still holds the turn.
+_sd = f"{RUN}-skipdec"
+os.makedirs(_sd, exist_ok=True)
+for f in os.listdir(_sd): os.remove(os.path.join(_sd, f))
+_ss = f"{RUN}-skipspool.jsonl"
+if os.path.exists(_ss): os.remove(_ss)
+open(f"{RUN}-skipalive", "w").write("1")
+_box = {}
+def _runskip():
+    _t0 = time.time()
+    _box["r"] = subprocess.run([qh], input=QREQ, capture_output=True, text=True, timeout=60,
+        env=dict(os.environ, AGENTISLAND_ALIVE=f"{RUN}-skipalive", AGENTISLAND_Q_TIMEOUT="40",
+                 AGENTISLAND_SPOOL=_ss, AGENTISLAND_DECISIONS=_sd))
+    _box["took"] = time.time() - _t0
+_th = threading.Thread(target=_runskip); _th.start()
+for _ in range(60):
+    if os.path.exists(_ss) and open(_ss).read().strip(): break
+    time.sleep(0.2)
+_sid = json.loads(open(_ss).readline())["ap_question_id"]
+open(os.path.join(_sd, _sid + ".hold"), "w").write("")     # card is on screen
+time.sleep(1.0)
+open(os.path.join(_sd, _sid + ".skip"), "w").write("")     # reader chose the terminal
+_th.join()
+check("handing back to the terminal ends the wait at once",
+      _box["took"] < 6 and not _box["r"].stdout.strip(), f"{_box['took']:.1f}s")
+check("the handover cleans up after itself",
+      not os.path.exists(os.path.join(_sd, _sid + ".skip"))
+      and not os.path.exists(os.path.join(_sd, _sid + ".hold")))
+check("open in terminal hands the question back",
+      "Approvals.skip(q.id)" in _is5 and "static func skip(" in _ap5)
+
+# The window went from 45s to 300s, so a card whose hook has gone — an interrupted turn, a
+# cancelled tool — now lingers five minutes instead of one. It has to notice.
+_hs6 = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()
+check("a question knows which hook is waiting on it", "var hookPid: Int?" in _hs6)
+check("a question whose hook is gone is abandoned",
+      "var abandoned: Bool { hookPid.map { !Proc.alive($0) } ?? false }" in _hs6)
+check("abandoned questions are pruned", "pendingQuestions.filter { !$0.value.abandoned }" in _hs6)
+check("and the card on screen drops with them",
+      "if case .question(let q) = state, q.abandoned {" in _is5)
+
+# The id is the only place the waiting pid is recorded, so its shape is load-bearing.
+_ids = {"aq-24374-1788756269": 24374, "aq-1-2": 1, "nope": None, "aq-x-2": None}
+def _pid(i):
+    ps = i.split("-")
+    if len(ps) < 3: return None
+    try: return int(ps[1])
+    except ValueError: return None
+check("the waiting pid is recoverable from the id",
+      all(_pid(k) == v for k, v in _ids.items()))
 
 print("\n=== 23. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")

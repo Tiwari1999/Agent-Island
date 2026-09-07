@@ -116,6 +116,7 @@ def main():
 
     path = os.path.join(DECISIONS, req_id)
     hold = path + ".hold"
+    skip = path + ".skip"
     # The island refreshes <id>.hold while the card is on screen. Without this the question
     # expired after TIMEOUT even with the user mid-read, and the card simply vanished.
     started = time.time()
@@ -136,7 +137,23 @@ def main():
             if not isinstance(picked, dict) or not picked:
                 bail()
             # Rebuild rather than pass through: an answer must contain exactly the questions
-            # that were asked, in the shape each one allows, with only offered labels.
+            # that were asked, in the shape each one allows, with only offered labels — or
+            # text the reader typed, which the island marks so a mistyped label cannot pass
+            # for one.
+            def typed(v):
+                if not (isinstance(v, dict) and set(v) == {"other"}):
+                    return None
+                t = v["other"]
+                if not isinstance(t, str):
+                    return None
+                t = "".join(c for c in t if c.isprintable()).strip()
+                return t[:2000] or None
+
+            def one(w, labels):
+                if isinstance(w, str):
+                    return w if w in labels else None
+                return typed(w)
+
             answers = {}
             for item in items:
                 want = picked.get(item["question"])
@@ -145,13 +162,15 @@ def main():
                     if not isinstance(want, list) or not want:
                         bail()
                     seen = [w for i, w in enumerate(want) if w not in want[:i]]
-                    if any(w not in labels for w in seen):
+                    got = [one(w, labels) for w in seen]
+                    if any(g is None for g in got):
                         bail()
-                    answers[item["question"]] = seen
+                    answers[item["question"]] = got
                 else:
-                    if not isinstance(want, str) or want not in labels:
+                    got = one(want, labels)
+                    if got is None:
                         bail()
-                    answers[item["question"]] = want
+                    answers[item["question"]] = got
             updated = dict(tool_input)
             updated["answers"] = answers
             print(json.dumps({"hookSpecificOutput": {
@@ -161,12 +180,17 @@ def main():
                 "updatedInput": updated,
             }}))
             sys.exit(0)
+        # The reader chose to answer in the terminal. Stand down now: Claude cannot show its
+        # own picker while this hook is still holding the turn.
+        if os.path.exists(skip):
+            break
         time.sleep(0.12)
-    try:
-        os.remove(hold)
-    except OSError:
-        pass
-    bail()   # timed out — Claude asks normally
+    for f in (hold, skip):
+        try:
+            os.remove(f)
+        except OSError:
+            pass
+    bail()   # timed out, or handed over — Claude asks normally
 
 
 if __name__ == "__main__":
