@@ -9,7 +9,7 @@ Claude Code · Codex · Cursor — one panel, at a glance · jump to the exact t
 [![Platform](https://img.shields.io/badge/macOS-14%2B-000000?style=flat-square&logo=apple&logoColor=white)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-6.0-F05138?style=flat-square&logo=swift&logoColor=white)](https://swift.org)
 [![No Xcode](https://img.shields.io/badge/Xcode-not%20required-4BC51D?style=flat-square)](https://www.swift.org/getting-started/)
-[![Tests](https://img.shields.io/badge/self--tests-396-4BC51D?style=flat-square)](tests/selftest.py)
+[![Tests](https://img.shields.io/badge/self--tests-411-4BC51D?style=flat-square)](tests/selftest.py)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue?style=flat-square)](#-licence)
 
 </div>
@@ -51,7 +51,7 @@ Agent Island puts the answer where your eyes already are.
 ### 🚀 Act
 | | |
 |---|---|
-| 🎬 **Precise jump** | Click a row → land on that agent's **exact Warp tab**, not just the app |
+| 🎬 **Precise jump** | Click a row → land on that agent's **exact tab** — Warp, iTerm2 or Terminal.app — not just the app |
 | 💠 **Cost breakdown** | API-equivalent spend per model, today and this month — from the vendors' own token accounting |
 | 📋 **Plan review** | Read the full Markdown plan and approve it from the notch, with a 55s window instead of 20 |
 | 📊 **Pick your agent** | One control in the header switches which agent it reports on — that agent's own limit windows and its own spend, defaulting to whichever you use most |
@@ -66,9 +66,9 @@ Agent Island puts the answer where your eyes already are.
 | 🤖 **Auto-approve rules** | A regex allowlist that governs every agent — one rule covers Claude's `Bash` and Cursor's `Shell` alike |
 | 🔔 **Alerts that respect you** | Desktop notifications only when you're *not* already looking |
 
-## 🧭 The Warp jump
+## 🧭 The precise jump
 
-The interesting part. 👇
+The interesting part. 👇 (Warp is the neat case; iTerm2 and Terminal.app work too — the table below.)
 
 Other notch apps resolve Warp tabs by reading `warp.sqlite` and driving a **keystroke loop**, because the `warp://action/*` scheme is a closed whitelist that rejects focus intents. That approach can't tell apart tabs that share a working directory — so if all your agents live in one monorepo, it lands on the wrong one. Agent Island reads nothing from Warp's database: the session handle comes from the agent process's own environment, so there is no permission to grant and nothing to break when the schema changes.
 
@@ -86,6 +86,16 @@ claude agents --json  →  pid  →  WARP_FOCUS_URL from that process's env  →
 ```
 
 🗄️ No database. ⌨️ No synthetic keystrokes. 🔓 No Accessibility permission. And it resolves correctly **even when every tab shares one repo** — measured at 6/6 distinct tabs.
+
+The same idea generalises: the handle for *every* terminal comes from the agent process's own environment, and each is focused by that terminal's real API — no keystroke loops anywhere.
+
+| Terminal | Handle (from the process env) | How it's focused | Permission |
+|---|---|---|---|
+| Warp | `WARP_FOCUS_URL` | open the `warp://session/…` URL | none |
+| iTerm2 | `ITERM_SESSION_ID` (`wNtNpN:UUID`) | AppleScript `select` the session whose id is that UUID | Automation, asked once |
+| Terminal.app | the process's controlling **tty** (read by syscall) | AppleScript select the tab whose `tty` matches | Automation, asked once |
+
+The two subtle bugs worth calling out, because they read as "the jump is broken": iTerm2's env handle carries a `wNtNpN:` pane prefix its scripting id does **not**, so a whole-string match never hit — the fix matches on the UUID. And Terminal.app's `TERM_SESSION_ID` is a UUID it never surfaces in AppleScript, so the only usable handle is the controlling tty, read from the process by syscall. Both are covered by `tests/terminals-e2e.py`, which opens two real sessions per terminal and proves the jump lands on the intended one, not its neighbour.
 
 ## 💬 Answering from the notch
 
@@ -113,8 +123,10 @@ cd Agent-Island
 
 `install.sh` builds a release binary, assembles `~/Applications/AgentIsland.app`, registers the hooks, and launches it.
 
-macOS asks once for **notification permission** on first launch — that is the only permission it
-needs. No Accessibility, no Screen Recording, no Full Disk Access.
+macOS asks once for **notification permission** on first launch. That is all monitoring needs —
+no Accessibility, no Screen Recording, no Full Disk Access. The one extra prompt is on your first
+**jump into iTerm2 or Terminal**: macOS asks to let Agent Island *control* that app, because their
+focus APIs are AppleScript. Jumping into **Warp needs no permission at all** — it is a URL open.
 
 <details>
 <summary>🧹 What it touches, and how to undo it</summary>
@@ -143,7 +155,7 @@ Xcode is **not** required — Command Line Tools are enough.
 
 - 🍎 macOS 14+
 - 🤖 At least one of Claude Code, Codex or Cursor — whichever are installed are picked up automatically
-- 🖥️ Warp — for the precise-jump feature (everything else works without it)
+- 🖥️ A supported terminal for the **precise jump** — Warp, iTerm2, or Terminal.app (everything else works without one). Other terminals raise the app; the row says when a jump can't be precise
 
 ### What each agent supports
 
@@ -224,7 +236,7 @@ Two design rules earned the hard way:
 python3 tests/selftest.py
 ```
 
-396 checks: jump resolution against live Warp tabs, every hook contract (including that each failure path exits without blocking), the full question flow (free-text answers crossing the same validation as labels, state surviving a close/reopen, the sliding grace, no answer sent until submit), auto-approve decisions, panel geometry, the staleness window, and that the panel holds only real sessions — every vendor present on disk reaches it, no row is labelled with a bare session id, and no test data survives.
+411 checks: jump resolution against live Warp tabs, the per-terminal jump handles (iTerm2's UUID-after-prefix and Terminal.app's tty, with a full round-trip in `tests/terminals-e2e.py`), every hook contract (including that each failure path exits without blocking), the full question flow (free-text answers crossing the same validation as labels, state surviving a close/reopen, the sliding grace, no answer sent until submit), auto-approve decisions, panel geometry, the staleness window, and that the panel holds only real sessions — every vendor present on disk reaches it, no row is labelled with a bare session id, and no test data survives.
 
 ## 📄 Licence
 

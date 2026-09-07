@@ -69,7 +69,13 @@ enum HostTerminal: Equatable {
         if let w = i.kittyWindow { return .kitty(window: w) }
         if let p = i.weztermPane { return .wezterm(pane: p) }
         // Terminal.app also sets TERM_SESSION_ID, so only claim it when it really is Terminal.
-        if let s = i.appleSession, i.termProgram == "Apple_Terminal" { return .appleTerminal(session: s) }
+        // Its TERM_SESSION_ID is a UUID that maps to nothing in the scripting dictionary; the
+        // tty is the only handle that focuses the right tab, so carry that instead.
+        if i.appleSession != nil, i.termProgram == "Apple_Terminal" {
+            if let tty = i.tty { return .appleTerminal(session: tty) }
+            return .degraded(bundleID: i.bundleID ?? "com.apple.Terminal", name: "Terminal",
+                             reason: "no controlling tty — a restored session or a tmux/ssh layer")
+        }
         if let b = i.bundleID {
             // Warp does publish a per-session handle, so its absence means this session cannot
             // be resolved — not that Warp lacks the capability. Say so instead of guessing.
@@ -115,14 +121,18 @@ enum HostTerminal: Equatable {
             return true
 
         case .iterm(let session):
-            // iTerm2 publishes a real scripting dictionary, so the exact session can be selected.
+            // ITERM_SESSION_ID is "wNtNpN:UUID"; the scripting dictionary's `id of session` is
+            // the bare UUID. Matching the whole env string never hit, so the jump silently did
+            // nothing — the "doesn't work in iTerm2" report. Match on the UUID after the colon.
+            let sid = Self.appleSafe(session.split(separator: ":").last.map(String.init) ?? session)
+            guard !sid.isEmpty else { return false }
             return osascript("""
-            tell application "iTerm2"
+            tell application "iTerm"
               activate
               repeat with w in windows
                 repeat with t in tabs of w
                   repeat with s in sessions of t
-                    if id of s is "\(session)" then
+                    if id of s is "\(sid)" then
                       select w
                       select t
                       select s
@@ -135,8 +145,11 @@ enum HostTerminal: Equatable {
             """)
 
         case .appleTerminal(let session):
-            // Terminal.app has no session id in its dictionary; match on the tty it reports.
-            let tty = session.split(separator: ":").last.map(String.init) ?? session
+            // `session` is the controlling tty ("/dev/ttysNNN"); Terminal exposes `tty of tab`,
+            // so match the device name against it. TERM_SESSION_ID would never match — it is a
+            // UUID Terminal does not surface.
+            let tty = Self.appleSafe(session)
+            guard !tty.isEmpty else { return false }
             return osascript("""
             tell application "Terminal"
               activate
@@ -183,6 +196,16 @@ enum HostTerminal: Equatable {
         guard let app = apps.first else { return false }
         app.activate(options: [.activateAllWindows])
         return true
+    }
+
+    /// A session handle comes from a process env var, which is attacker-influenceable in
+    /// principle; it is interpolated into an AppleScript string, so strip it to the characters a
+    /// real iTerm UUID or a tty path uses. Anything else yields "" and the jump declines.
+    static func appleSafe(_ s: String) -> String {
+        String(s.unicodeScalars.filter {
+            CharacterSet(charactersIn:
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-/").contains($0)
+        }.prefix(128))
     }
 
     private func osascript(_ source: String) -> Bool {

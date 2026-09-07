@@ -10,6 +10,7 @@ enum ProcEnv {
         var focusURL: String?          // Warp
         var itermSession: String?      // iTerm2
         var appleSession: String?      // Terminal.app
+        var tty: String?               // controlling terminal, for Terminal.app focus
         var kittyWindow: String?       // kitty
         var weztermPane: String?       // WezTerm
         var termProgram: String?
@@ -46,6 +47,7 @@ enum ProcEnv {
             i.weztermPane = ae.env["WEZTERM_PANE"]
             i.termProgram = ae.env["TERM_PROGRAM"]
             i.bundleID = ae.env["__CFBundleIdentifier"]
+            i.tty = Proc.tty(pid: pid)
             i.jetbrains = ae.env["TERMINAL_EMULATOR"]?.contains("JetBrains") ?? false
             found[pid] = i
         }

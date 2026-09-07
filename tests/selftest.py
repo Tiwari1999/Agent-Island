@@ -1413,8 +1413,31 @@ check("poll is a backstop, not the primary path",
 print("\n=== 23. adversarial input and concurrency ===")
 # These run as their own suites because they are slow and destructive; assert they exist and
 # that the guards they proved are still in the source.
-for name in ("fuzz-hooks.py", "concurrency.py", "soak.py", "purge-synthetic.py"):
+for name in ("fuzz-hooks.py", "concurrency.py", "soak.py", "purge-synthetic.py", "terminals-e2e.py"):
     check(f"tests/{name} present", os.path.exists(os.path.join(REPO, "tests", name)))
+
+# Per-terminal jump correctness. Warp resolves a focus URL; iTerm2 and Terminal need the exact
+# handle the app matches on, and both were silently wrong before: iTerm2 matched the full
+# "wNtNpN:UUID" env string against the bare-UUID scripting id, and Terminal matched a UUID
+# against a tty. Assert the shipped logic uses the right handle for each.
+_ht = open(os.path.join(REPO, "Sources/AgentIsland/HostTerminal.swift")).read()
+_pe = open(os.path.join(REPO, "Sources/AgentIsland/ProcEnv.swift")).read()
+_pr = open(os.path.join(REPO, "Sources/AgentIsland/Proc.swift")).read()
+check("iTerm2 jump matches the UUID after the pane prefix, not the whole env string",
+      'ITERM_SESSION_ID is "wNtNpN:UUID"' in _ht
+      and 'let sid = Self.appleSafe(session.split(separator: ":").last' in _ht)
+check("Terminal jump matches on the controlling tty, not TERM_SESSION_ID",
+      "`session` is the controlling tty" in _ht and "tty of t contains" in _ht)
+check("resolve carries Terminal's tty, degrading when it has none",
+      "return .appleTerminal(session: tty)" in _ht and 'name: "Terminal"' in _ht)
+check("iTerm2 is claimed before Terminal, since iTerm2 also sets TERM_SESSION_ID",
+      _ht.index("i.itermSession") < _ht.index('i.termProgram == "Apple_Terminal"'))
+check("a handle from a process env is sanitised before entering AppleScript",
+      "static func appleSafe" in _ht
+      and "appleSafe(session" in _ht)
+check("the controlling tty is read by syscall, not a spawn",
+      "PROC_PIDTBSDINFO" in _pr and "devname(dev_t" in _pr and "static func tty(pid:" in _pr)
+check("the tty is captured per process during priming", "i.tty = Proc.tty(pid: pid)" in _pe)
 _q=open(os.path.join(REPO,"hooks/agentisland-question.py")).read()
 _r=open(os.path.join(REPO,"hooks/agentisland-rules.py")).read()
 check("question hook guards non-object JSON", "isinstance(payload, dict)" in _q)

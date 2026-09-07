@@ -105,6 +105,23 @@ enum Proc {
     }
 
     /// Working directory of one process — what lsof -d cwd answers, without the fork.
+    /// The process's controlling terminal as "/dev/ttysNNN", or nil if it has none. Terminal.app
+    /// exposes only the tty in its scripting dictionary — its TERM_SESSION_ID is a UUID that maps
+    /// to nothing there — so the tty is the only handle that can focus the right tab. Syscall, no
+    /// spawn, so it is safe on the refresh path.
+    static func tty(pid: Int) -> String? {
+        let PROC_PIDTBSDINFO: Int32 = 3
+        var info = proc_bsdinfo()
+        let n = withUnsafeMutablePointer(to: &info) {
+            proc_pidinfo(Int32(pid), PROC_PIDTBSDINFO, 0, $0, Int32(MemoryLayout<proc_bsdinfo>.size))
+        }
+        guard n >= Int32(MemoryLayout<proc_bsdinfo>.size), info.e_tdev != UInt32.max,
+              info.e_tdev != 0, let name = devname(dev_t(bitPattern: info.e_tdev), mode_t(S_IFCHR))
+        else { return nil }
+        let dev = String(cString: name)
+        return dev.isEmpty ? nil : "/dev/" + dev
+    }
+
     static func cwd(pid: Int) -> String? {
         // proc_vnodepathinfo: two vnode_info_path entries (cdir, rdir), each a 152-byte
         // vnode_info followed by a MAXPATHLEN path. The layout has been ABI-stable since 10.5.
