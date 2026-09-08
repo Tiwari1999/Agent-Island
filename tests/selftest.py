@@ -1438,6 +1438,13 @@ check("a handle from a process env is sanitised before entering AppleScript",
 check("the controlling tty is read by syscall, not a spawn",
       "PROC_PIDTBSDINFO" in _pr and "devname(dev_t" in _pr and "static func tty(pid:" in _pr)
 check("the tty is captured per process during priming", "i.tty = Proc.tty(pid: pid)" in _pe)
+# Notifications must come from the app's own channel, never osascript `display notification`,
+# which macOS brands as "Script Editor" — a stray, wrong-looking alert.
+_nt = open(os.path.join(REPO, "Sources/AgentIsland/Notifier.swift")).read()
+check("notifications never shell out to osascript",
+      "Process()" not in _nt and 'URL(fileURLWithPath: "/usr/bin/osascript")' not in _nt)
+check("notifications post only when the app itself is authorized",
+      "getNotificationSettings" in _nt and "authorizationStatus == .authorized" in _nt)
 # Opening iTerm2/Terminal from a Warp tab leaks WARP_FOCUS_URL into it; keying on that handle
 # first sent the jump to Warp. A real TERM_PROGRAM must win over a leaked Warp handle.
 check("a genuine iTerm2 TERM_PROGRAM beats a leaked Warp handle",

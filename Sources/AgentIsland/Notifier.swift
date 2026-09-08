@@ -6,7 +6,6 @@ import UserNotifications
 /// A notch toast is invisible if you are on another Space or a different app, which is exactly
 /// when a blocked agent sits unnoticed for minutes.
 enum Notifier {
-    private static var authorized: Bool?
     private static var lastSent: [String: Date] = [:]
 
     /// True when the user is plainly already watching the agent's terminal.
@@ -18,9 +17,7 @@ enum Notifier {
 
     static func requestAuthorization() {
         UNUserNotificationCenter.current()
-            .requestAuthorization(options: [.alert, .sound]) { granted, _ in
-                authorized = granted
-            }
+            .requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
     static func notify(title: String, body: String, key: String) {
@@ -29,28 +26,21 @@ enum Notifier {
         if let at = lastSent[key], Date().timeIntervalSince(at) < 60 { return }
         lastSent[key] = Date()
 
-        if authorized == true {
+        // Only ever the app's own notification channel. The old osascript fallback posted via
+        // `display notification`, which macOS brands as "Script Editor" — a stray, wrong-looking
+        // alert. Gate on the live authorization so an unauthorized build stays silent rather
+        // than borrowing another app's identity; grant AgentIsland in System Settings to see
+        // these.
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { settings in
+            guard settings.authorizationStatus == .authorized
+                    || settings.authorizationStatus == .provisional else { return }
             let content = UNMutableNotificationContent()
             content.title = title
             content.body = body
             content.sound = .default
-            UNUserNotificationCenter.current().add(
-                UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
-        } else {
-            // Ad-hoc signed builds are often refused by UNUserNotificationCenter; this path
-            // always works and keeps the feature honest rather than silently dead.
-            fallback(title: title, body: body)
-        }
-    }
-
-    private static func fallback(title: String, body: String) {
-        let esc = { (s: String) in s.replacingOccurrences(of: "\"", with: "\\\"") }
-        let script = "display notification \"\(esc(body))\" with title \"\(esc(title))\""
-        DispatchQueue.global(qos: .utility).async {
-            let t = Process()
-            t.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            t.arguments = ["-e", script]
-            try? t.run()
+            center.add(UNNotificationRequest(identifier: UUID().uuidString,
+                                             content: content, trigger: nil))
         }
     }
 }
