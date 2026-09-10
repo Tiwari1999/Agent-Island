@@ -608,7 +608,20 @@ check("discovery falls back to the hook binding only when argv could not bind",
       "guard a.pid == nil, let p = fromHooks[a.sessionId]" in st5)
 # Existence is not identity — a reused pid must not inherit a dead session's binding.
 check("a hook-reported pid is checked to still BE an agent",
-      '["claude", "codex", "cursor-agent", "agent"].contains(c)' in st5)
+      "Proc.matches(pid: p, comm: comms[Int32(p)], names: Proc.agentNames)" in st5)
+# p_comm is the basename of the resolved executable, so a versioned-symlink install
+# (~/.local/share/claude/versions/2.1.267) reports the version string, not "claude". The
+# comm-only match then bound no pid and every jump silently no-op'd. argv[0] still carries the
+# invoked name, so the match falls back to it.
+_pc = open(os.path.join(REPO, "Sources/AgentIsland/Proc.swift")).read()
+check("agent names live in one place", "static let agentNames: Set<String>" in _pc
+      and '["claude", "codex", "cursor-agent", "agent"]' not in st5)
+check("a process match falls back to argv[0] when p_comm is a version string",
+      "static func matches(pid: Int, comm: String?, names: Set<String>)" in _pc
+      and '(argv0 as NSString).lastPathComponent' in _pc)
+check("the ancestor walk uses the same fallback",
+      "matches(pid: Int(cur), comm: comm[cur], names: names)" in _pc)
+check("tests/procname.swift present", os.path.exists(os.path.join(REPO, "tests", "procname.swift")))
 
 print("\n=== 9m. pick the agent the header reports on ===")
 vw5=open(os.path.join(REPO,"Sources/AgentIsland/Views.swift")).read()

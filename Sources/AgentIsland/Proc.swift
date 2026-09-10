@@ -21,12 +21,28 @@ enum Proc {
         return out
     }
 
+    /// The names an agent CLI is invoked as. Kept in one place because binding a hook to its
+    /// agent process needs the same set everywhere.
+    static let agentNames: Set<String> = ["claude", "codex", "cursor-agent", "agent"]
+
+    /// Was the process at `pid` invoked as one of `names`? p_comm is the basename of the
+    /// *resolved* executable, so a versioned-symlink install (~/.local/share/claude/versions/
+    /// 2.1.267, where the version string IS the file) reports "2.1.267", never "claude" — and
+    /// every name match missed, so no session ever bound a pid and every jump silently no-op'd.
+    /// argv[0] still carries the invoked name, so fall back to its basename on a p_comm miss.
+    /// The fallback runs only on a miss (never for a normal install) and spawns nothing.
+    static func matches(pid: Int, comm: String?, names: Set<String>) -> Bool {
+        if let c = comm, names.contains(c) { return true }
+        guard let argv0 = argsEnv(pid: pid)?.argv.first else { return false }
+        return names.contains((argv0 as NSString).lastPathComponent)
+    }
+
     /// The nearest ancestor whose name matches, walking up from `pid`.
     static func ancestor(of pid: Int, named names: Set<String>, maxHops: Int = 8) -> Int? {
         let comm = all(), parent = parents()
         var cur = Int32(pid)
         for _ in 0..<maxHops {
-            if let c = comm[cur], names.contains(c) { return Int(cur) }
+            if matches(pid: Int(cur), comm: comm[cur], names: names) { return Int(cur) }
             guard let p = parent[cur], p > 1 else { return nil }
             cur = p
         }
