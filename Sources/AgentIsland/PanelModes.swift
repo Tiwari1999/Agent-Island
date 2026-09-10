@@ -9,9 +9,13 @@ enum PanelMode: Equatable {
 /// which makes a plan read as one grey paragraph. No tables or nesting, deliberately.
 struct MarkdownLite: View {
     let text: String
+    /// Plans are skimmed, so they stay dense and monospaced. Prose in the console is *read*,
+    /// and monospaced grey at 10.5 turns a paragraph into a wall.
+    enum Style { case compact, reading }
+    var style: Style = .compact
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: style == .reading ? 7 : 5) {
             ForEach(Array(Self.blocks(text).enumerated()), id: \.offset) { _, b in
                 block(b)
             }
@@ -56,13 +60,21 @@ struct MarkdownLite: View {
         switch b {
         case .heading(let level, let s):
             inline(s)
-                .font(Theme.label(level == 1 ? 13 : level == 2 ? 12 : 11))
+                .font(Theme.label(style == .reading
+                                  ? (level == 1 ? 13.5 : level == 2 ? 12.5 : 11.5)
+                                  : (level == 1 ? 13 : level == 2 ? 12 : 11)))
                 .foregroundColor(Theme.text)
-                .padding(.top, 4)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, style == .reading ? 5 : 4)
         case .bullet(let s):
-            HStack(alignment: .top, spacing: 6) {
+            HStack(alignment: .top, spacing: 7) {
                 Text("•").font(Theme.mono(10)).foregroundColor(Theme.faint)
-                inline(s).font(Theme.mono(10.5)).foregroundColor(Theme.muted)
+                if style == .reading {
+                    inline(s).font(Theme.name(11.5)).foregroundColor(Theme.text.opacity(0.82))
+                        .lineSpacing(2.5).fixedSize(horizontal: false, vertical: true)
+                } else {
+                    inline(s).font(Theme.mono(10.5)).foregroundColor(Theme.muted)
+                }
             }
         case .code(let s):
             Text(s)
@@ -73,7 +85,12 @@ struct MarkdownLite: View {
         case .rule:
             Rectangle().fill(Theme.hairline).frame(height: 0.7).padding(.vertical, 2)
         case .plain(let s):
-            inline(s).font(Theme.mono(10.5)).foregroundColor(Theme.muted)
+            if style == .reading {
+                inline(s).font(Theme.name(11.5)).foregroundColor(Theme.text.opacity(0.82))
+                    .lineSpacing(2.5).fixedSize(horizontal: false, vertical: true)
+            } else {
+                inline(s).font(Theme.mono(10.5)).foregroundColor(Theme.muted)
+            }
         }
     }
 

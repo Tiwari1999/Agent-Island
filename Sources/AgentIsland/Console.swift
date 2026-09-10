@@ -13,6 +13,13 @@ struct ConsoleEntry: Identifiable {
     var isSaid: Bool { if case .said = kind { return true }; return false }
 }
 
+/// A run of consecutive tool calls, or one thing the agent said.
+struct ConsoleChunk: Identifiable {
+    enum Kind { case said(String, Date?); case ran([ConsoleEntry]) }
+    let id: String
+    let kind: Kind
+}
+
 /// The agent's recent output: one tail of the transcript, parsed only when someone is looking.
 /// Measured at ~5 ms on a 198 MB transcript, because only the end is ever read.
 enum Console {
@@ -91,6 +98,26 @@ enum Console {
                 }
             }
         }
+        return out
+    }
+
+    /// Consecutive tool calls collapse into one block, so ten greps read as a single aside
+    /// rather than ten competing lines.
+    static func group(_ feed: [ConsoleEntry]) -> [ConsoleChunk] {
+        var out: [ConsoleChunk] = []
+        var run: [ConsoleEntry] = []
+        func flush() {
+            guard !run.isEmpty else { return }
+            out.append(ConsoleChunk(id: "r" + (run.first?.id ?? ""), kind: .ran(run)))
+            run = []
+        }
+        for e in feed {
+            switch e.kind {
+            case .said(let t): flush(); out.append(ConsoleChunk(id: e.id, kind: .said(t, e.at)))
+            case .ran: run.append(e)
+            }
+        }
+        flush()
         return out
     }
 

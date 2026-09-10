@@ -63,11 +63,11 @@ struct ConsoleView: View {
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 9) {
-                        ForEach(feed) { entry(for: $0) }
+                    LazyVStack(alignment: .leading, spacing: 14) {
+                        ForEach(Console.group(feed)) { chunk(for: $0) }
                         Color.clear.frame(height: 1).id("end")
                     }
-                    .padding(.horizontal, 14).padding(.vertical, 11)
+                    .padding(.horizontal, 15).padding(.vertical, 12)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 // A console reads from the bottom: the newest line is the one you came for.
@@ -81,29 +81,56 @@ struct ConsoleView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// Prose is what you came to read; the tools it ran are quiet annotations beside it.
     @ViewBuilder
-    private func entry(for e: ConsoleEntry) -> some View {
-        switch e.kind {
-        case .said(let text):
-            MarkdownLite(text: text)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        case .ran(let tool, let why, let seconds, let failed):
-            HStack(alignment: .top, spacing: 8) {
+    private func chunk(for c: ConsoleChunk) -> some View {
+        switch c.kind {
+        case .said(let text, let at):
+            VStack(alignment: .leading, spacing: 5) {
+                if let at { stamp(at) }
+                MarkdownLite(text: text, style: .reading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        case .ran(let items):
+            HStack(alignment: .top, spacing: 9) {
+                Rectangle().fill(Theme.hairline).frame(width: 1.5)
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(items) { ran($0) }
+                }
+            }
+            .padding(.leading, 2)
+        }
+    }
+
+    private func stamp(_ at: Date) -> some View {
+        Text(Self.clock.string(from: at))
+            .font(Theme.mono(8.5)).foregroundColor(Theme.faint.opacity(0.65))
+    }
+
+    @ViewBuilder
+    private func ran(_ e: ConsoleEntry) -> some View {
+        if case let .ran(tool, why, seconds, failed) = e.kind {
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
                 Text(tool)
-                    .font(Theme.mono(9.5))
-                    .foregroundColor(failed ? Theme.failed : Theme.waiting)
-                    .frame(width: 62, alignment: .leading)
+                    .font(Theme.mono(9))
+                    .foregroundColor(failed ? Theme.failed : Theme.muted)
+                    .frame(width: 56, alignment: .leading)
                 Text(why)
-                    .font(Theme.mono(9.5)).foregroundColor(Theme.faint)
+                    .font(Theme.mono(9)).foregroundColor(Theme.faint)
                     .lineLimit(1).truncationMode(.middle)
                 Spacer(minLength: 4)
-                if let s = seconds {
-                    Text(s < 1 ? String(format: "%.1fs", s) : String(format: "%.0fs", s))
-                        .font(Theme.mono(9)).foregroundColor(Theme.faint.opacity(0.8))
+                if let s = seconds, s >= 0.5 {
+                    Text(s < 60 ? String(format: "%.0fs", s)
+                                : String(format: "%.0fm", (s / 60).rounded()))
+                        .font(Theme.mono(8.5)).foregroundColor(Theme.faint.opacity(0.7))
                 }
             }
         }
     }
+
+    private static let clock: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "HH:mm"; return f
+    }()
 
     private func live(_ row: AgentRow) -> some View {
         HStack(spacing: 7) {

@@ -199,11 +199,18 @@ final class Island: NSObject, ObservableObject {
         }
 
         // One chord summons the console for whoever needs you most; pressing it again closes it.
-        Hotkeys.shared.bindLasting([(kVK_ANSI_K, Hotkeys.cmdOpt, { [weak self] in
-            guard let self else { return }
-            if case .console = self.state { self.closeConsole() }
-            else if let s = self.leadSession { self.openConsole(s) }
-        })])
+        Hotkeys.shared.bindLasting([
+            (kVK_ANSI_K, Hotkeys.cmdOpt, { [weak self] in
+                guard let self else { return }
+                if case .console = self.state { self.closeConsole() }
+                else if let s = self.leadSession { self.openConsole(s) }
+            }),
+            // Flipping materials without touching anything else is the only honest way to
+            // compare them — same panel, same content, same instant.
+            (kVK_ANSI_G, Hotkeys.cmdOpt, {
+                withAnimation(.easeOut(duration: 0.18)) { Surfaces.shared.toggle() }
+            }),
+        ])
 
         sensor.install(on: screen, notchWidth: notchWidth, notchHeight: notchHeight)
         sensor.onEnter = { [weak self] in
@@ -908,11 +915,7 @@ private struct RootView: View {
     var body: some View {
         VStack(spacing: 0) {
             ZStack {
-                NotchShape(radius: corner)
-                    .fill(Theme.bg)
-                    .overlay(NotchShape(radius: corner).stroke(Theme.hairline, lineWidth: 0.7))
-                    .shadow(color: .black.opacity(0.55),
-                            radius: island.state == .expanded ? 24 : 8, y: 6)
+                IslandBackground(corner: corner, expanded: island.state == .expanded)
 
                 switch island.state {
                 case .collapsed:

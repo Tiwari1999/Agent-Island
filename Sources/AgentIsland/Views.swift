@@ -502,6 +502,18 @@ struct PanelView: View {
     @State private var openCalls: [ToolCall] = []
     @State private var hooksReady = Setup.hooksInstalled()
     @State private var installing = false
+    @ObservedObject private var surfaces = Surfaces.shared
+
+    /// The same flip as ⌘⌥G, somewhere you can find without knowing the chord.
+    private var materialChip: some View {
+        Text(surfaces.choice.label)
+            .font(Theme.mono(9)).foregroundColor(Theme.faint)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(Capsule().stroke(Theme.hairline))
+            .contentShape(Capsule())
+            .onTapGesture { withAnimation(.easeOut(duration: 0.18)) { surfaces.toggle() } }
+            .help("panel material — \u{2318}\u{2325}G")
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -546,6 +558,7 @@ struct PanelView: View {
                         Setup.install { ok in installing = false; hooksReady = ok }
                     }
                 }
+                materialChip
                 costChip
                 if store.workingCount > 0 { pill("\(store.workingCount) working", Theme.working) }
                 if store.waitingCount > 0 { pill("\(store.waitingCount) waiting", Theme.waiting) }

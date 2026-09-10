@@ -1469,7 +1469,15 @@ check("tool output is deliberately not shown",
 check("the newest line is the one you land on", 'proxy.scrollTo("end", anchor: .bottom)' in _cv)
 check("the console scrolls", "ScrollView {" in _cv and "LazyVStack" in _cv)
 check("prose renders as markdown, reusing the plan reader",
-      "MarkdownLite(text: text)" in _cv)
+      "MarkdownLite(text: text, style: .reading)" in _cv)
+# Monospaced grey prose at 10.5 reads as a wall; plans stay dense, the console reads.
+check("prose is proportional and brighter than a plan's",
+      "case compact, reading" in open(os.path.join(REPO, "Sources/AgentIsland/PanelModes.swift")).read()
+      and "Theme.name(11.5)" in open(os.path.join(REPO, "Sources/AgentIsland/PanelModes.swift")).read())
+check("the plan reader keeps its dense style", "var style: Style = .compact" in
+      open(os.path.join(REPO, "Sources/AgentIsland/PanelModes.swift")).read())
+check("consecutive tool calls collapse into one aside", "static func group(" in _cs)
+check("and prose carries the time it was said", "private func stamp(" in _cv)
 
 # It is a reader. The panel must never take the cursor out of the editor behind it.
 check("the console never makes the panel key",
@@ -1884,6 +1892,32 @@ check("install verifies the app actually started",
       and "did not start" in _sh)
 check("and re-registers the bundle it just replaced", "lsregister" in _sh)
 check("a failed launch is a failed install", "exit 1" in _sh.split("==> launching")[1])
+
+print("\n=== 29. material toggle keeps the solid UI intact ===")
+_sf = open(os.path.join(REPO, "Sources/AgentIsland/Surface.swift")).read()
+_iv = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_vw = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
+check("solid is the default, so nobody is opted into glass by upgrading",
+      'UserDefaults.standard.string(forKey: Self.key) ?? "") ?? .solid' in _sf)
+check("the original solid fill is still the code that draws solid",
+      "shape.fill(Theme.bg)" in _sf and "case solid, glass" in _sf)
+# The whole point of the toggle is comparison, so both paths must survive in the binary.
+check("glass has a real path on macOS 26 and a blur fallback below it",
+      "if #available(macOS 26.0, *)" in _sf and ".glassEffect(" in _sf
+      and "NSVisualEffectView" in _sf)
+check("the blur samples the desktop, not our own content",
+      "blendingMode = .behindWindow" in _sf)
+check("and stays active on a panel that is never key", "state = .active" in _sf)
+check("Reduce Transparency overrides the preference",
+      "accessibilityDisplayShouldReduceTransparency" in _sf
+      and "? .solid : choice" in _sf)
+check("the choice survives a relaunch",
+      'UserDefaults.standard.set(choice.rawValue, forKey: Self.key)' in _sf)
+check("flipping is reachable without the panel open (lasting hotkey)",
+      "kVK_ANSI_G, Hotkeys.cmdOpt" in _iv and "Surfaces.shared.toggle()" in _iv)
+check("and discoverable in the header", "materialChip" in _vw)
+check("the shell reads the toggle instead of a hardcoded fill",
+      "IslandBackground(corner: corner" in _iv and ".fill(Theme.bg)" not in _iv)
 
 print("\n=== 23. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")

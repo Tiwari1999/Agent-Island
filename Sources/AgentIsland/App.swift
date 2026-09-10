@@ -59,6 +59,14 @@ struct AgentIslandApp {
                 }
             }
             print("chronological: \(ordered ? "yes" : "NO")")
+            let chunks = Console.group(feed)
+            let runs = chunks.filter { if case .ran = $0.kind { return true }; return false }
+            let sizes = runs.map { c -> Int in
+                if case .ran(let items) = c.kind { return items.count }; return 0
+            }
+            print("grouped into \(chunks.count) chunks "
+                  + "(\(chunks.count - runs.count) said, \(runs.count) tool-runs "
+                  + "of \(sizes.reduce(0,+)) calls; largest run \(sizes.max() ?? 0))")
             exit(0)
         }
         if let i = CommandLine.arguments.firstIndex(of: "--tool-calls"),
