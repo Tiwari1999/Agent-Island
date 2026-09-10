@@ -13,6 +13,10 @@ final class Hotkeys {
     private var refs: [EventHotKeyRef?] = []
     private var actions: [UInt32: () -> Void] = [:]
     private var installed = false
+    /// Registered once for the life of the app. Card keys come and go with `bind`/`unbind`; a
+    /// summon chord must outlive them, so it is kept in its own id range that unbind never clears.
+    private var lasting: [EventHotKeyRef?] = []
+    private static let lastingBase: UInt32 = 900
 
     /// Registered only while a card is on screen, so these keys stay free the rest of the time.
     func bind(_ bindings: [(key: Int, mods: Int, action: () -> Void)]) {
@@ -36,10 +40,29 @@ final class Hotkeys {
         }
     }
 
+    /// A chord that stays registered whatever the cards do.
+    func bindLasting(_ bindings: [(key: Int, mods: Int, action: () -> Void)]) {
+        installHandlerIfNeeded()
+        for (i, b) in bindings.enumerated() {
+            let id = Self.lastingBase + UInt32(i)
+            actions[id] = b.action
+            var ref: EventHotKeyRef?
+            let err = RegisterEventHotKey(UInt32(b.key), UInt32(b.mods),
+                                          EventHotKeyID(signature: OSType(0x41494C44), id: id),
+                                          GetApplicationEventTarget(), 0, &ref)
+            if err != noErr || ref == nil {
+                Diagnostics.log("hotkey: lasting key \(b.key) mods \(b.mods) unavailable (\(err))")
+                actions[id] = nil
+                continue
+            }
+            lasting.append(ref)
+        }
+    }
+
     func unbind() {
         for r in refs where r != nil { UnregisterEventHotKey(r!) }
         refs.removeAll()
-        actions.removeAll()
+        actions = actions.filter { $0.key >= Self.lastingBase }
     }
 
     private func installHandlerIfNeeded() {

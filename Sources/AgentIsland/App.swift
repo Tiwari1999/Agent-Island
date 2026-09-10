@@ -35,6 +35,32 @@ struct AgentIslandApp {
         if CommandLine.arguments.contains("--costs-json") { print(Costs.json()); exit(0) }
         if CommandLine.arguments.contains("--check-proc") { exit(ProcCheck.run()) }
         // Dump one session's recent tool calls, so the parser can be asserted on real data.
+        if let i = CommandLine.arguments.firstIndex(of: "--console"),
+           let session = CommandLine.arguments.dropFirst(i + 1).first {
+            let cwd = CommandLine.arguments.dropFirst(i + 2).first
+            let t0 = Date()
+            let feed = Console.recent(session: session, cwd: cwd)
+            let ms = Date().timeIntervalSince(t0) * 1000
+            let said = feed.filter(\.isSaid).count
+            print(String(format: "%d entries (%d said, %d ran) in %.1f ms",
+                         feed.count, said, feed.count - said, ms))
+            var ordered = true
+            var last: Date?
+            for e in feed {
+                if let a = last, let b = e.at, b < a { ordered = false }
+                last = e.at ?? last
+                switch e.kind {
+                case .said(let t):
+                    print("SAID " + t.replacingOccurrences(of: "\n", with: " ").prefix(88))
+                case .ran(let tool, let why, let secs, let failed):
+                    print("RAN  \(tool) · \(why.prefix(50)) · "
+                          + (secs.map { String(format: "%.1fs", $0) } ?? "-")
+                          + (failed ? " FAILED" : ""))
+                }
+            }
+            print("chronological: \(ordered ? "yes" : "NO")")
+            exit(0)
+        }
         if let i = CommandLine.arguments.firstIndex(of: "--tool-calls"),
            let session = CommandLine.arguments.dropFirst(i + 1).first {
             let cwd = CommandLine.arguments.dropFirst(i + 2).first

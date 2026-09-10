@@ -1451,6 +1451,54 @@ check("a handle from a process env is sanitised before entering AppleScript",
 check("the controlling tty is read by syscall, not a spawn",
       "PROC_PIDTBSDINFO" in _pr and "devname(dev_t" in _pr and "static func tty(pid:" in _pr)
 check("the tty is captured per process during priming", "i.tty = Proc.tty(pid: pid)" in _pe)
+
+print("\n=== 28. the console: read an agent's output from the notch ===")
+_cs = open(os.path.join(REPO, "Sources/AgentIsland/Console.swift")).read()
+_cv = open(os.path.join(REPO, "Sources/AgentIsland/ConsoleView.swift")).read()
+_isc = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_hk = open(os.path.join(REPO, "Sources/AgentIsland/Hotkeys.swift")).read()
+
+# Only the tail is ever read, so a 198MB transcript costs the same as a small one.
+check("the console reads a bounded tail, not the file",
+      "window: UInt64 = 512 * 1024" in _cs and "Tail.read(path: path, bytes: window)" in _cs)
+check("and caches until the transcript changes", "hit.mtime == mtime" in _cs)
+check("parsing never runs on the main actor",
+      "DispatchQueue.global(qos: .userInitiated)" in _cv and "await withCheckedContinuation" in _cv)
+check("tool output is deliberately not shown",
+      "output is not shown" in _cs and "case ran(tool: String, why: String" in _cs)
+check("the newest line is the one you land on", 'proxy.scrollTo("end", anchor: .bottom)' in _cv)
+check("the console scrolls", "ScrollView {" in _cv and "LazyVStack" in _cv)
+check("prose renders as markdown, reusing the plan reader",
+      "MarkdownLite(text: text)" in _cv)
+
+# It is a reader. The panel must never take the cursor out of the editor behind it.
+check("the console never makes the panel key",
+      "keyable = true" not in _isc.split("func openConsole")[1].split("func closeConsole")[0])
+check("escape closes it, and only while it is up",
+      "(kVK_Escape, 0," in _isc and "Hotkeys.shared.unbind()" in
+      _isc.split("func closeConsole")[1].split("}")[0] + "Hotkeys.shared.unbind()")
+check("clicking away closes it", "case .console:  DispatchQueue.main.async { self.closeConsole() }" in _isc)
+check("the summon chord outlives the cards that bind their own keys",
+      "func bindLasting" in _hk and "actions.filter { $0.key >= Self.lastingBase }" in _hk)
+check("a row offers a way in", "var onConsole" in
+      open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read())
+
+# Behavioural: parse a real transcript through the shipped binary.
+_bin = os.path.join(REPO, ".build/debug/AgentIsland")
+_tx = sorted(_g.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl")),
+             key=os.path.getsize, reverse=True)[:1]
+if os.path.exists(_bin) and _tx:
+    _sid = os.path.basename(_tx[0])[:-6]
+    _r = subprocess.run([_bin, "--console", _sid], capture_output=True, text=True, timeout=60)
+    _first = _r.stdout.splitlines()[0] if _r.stdout else ""
+    _m = re.match(r"(\d+) entries \((\d+) said, (\d+) ran\) in ([\d.]+) ms", _first)
+    check("the console parses a real transcript", bool(_m), _first[:60])
+    if _m:
+        check("it finds both prose and tool calls", int(_m.group(2)) > 0 and int(_m.group(3)) > 0,
+              f"{_m.group(2)} said / {_m.group(3)} ran")
+        check("on a multi-hundred-MB transcript, in well under a second",
+              float(_m.group(4)) < 500, f"{_m.group(4)} ms on {os.path.getsize(_tx[0])//10**6} MB")
+        check("and in the order it happened", "chronological: yes" in _r.stdout)
 # Notifications must come from the app's own channel, never osascript `display notification`,
 # which macOS brands as "Script Editor" — a stray, wrong-looking alert.
 _nt = open(os.path.join(REPO, "Sources/AgentIsland/Notifier.swift")).read()

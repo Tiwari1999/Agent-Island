@@ -213,6 +213,8 @@ struct AgentRowView: View {
     /// Present when this row has a question still waiting. A card that timed out is otherwise
     /// unreachable: the user has no way of knowing the row will bring it back.
     var onAnswer: (() -> Void)? = nil
+    /// Read this session's recent output without leaving the notch.
+    var onConsole: (() -> Void)? = nil
     /// Recent tool calls, parsed only while this row is open. Empty means collapsed.
     var calls: [ToolCall] = []
     var expanded = false
@@ -354,6 +356,17 @@ struct AgentRowView: View {
                         .background(Capsule().fill(Theme.waiting.opacity(0.14)))
                         .contentShape(Capsule())
                         .onTapGesture(perform: onAnswer)
+                    }
+                    if let onConsole {
+                        HStack(spacing: 3) {
+                            Image(systemName: "chevron.right").font(.system(size: 7, weight: .bold))
+                            Text("read").font(Theme.mono(8.5))
+                        }
+                        .foregroundColor(Theme.muted)
+                        .padding(.horizontal, 5).padding(.vertical, 1.5)
+                        .background(Capsule().stroke(Theme.hairline))
+                        .contentShape(Capsule())
+                        .onTapGesture(perform: onConsole)
                     }
                     if let onPlan {
                         HStack(spacing: 3) {
@@ -589,6 +602,7 @@ struct PanelView: View {
                                                  guard q.deadline > Date() else { return nil }
                                                  return { store.onRowActivate?(row) }
                                              },
+                                         onConsole: { store.onOpenConsole?(row.agent.sessionId) },
                                          calls: open ? openCalls : [],
                                          expanded: open,
                                          onToggle: { toggle(row) }) { store.jump(row) }

@@ -28,6 +28,7 @@ struct PeekPayload: Equatable {
 
 enum IslandState: Equatable {
     case collapsed, peek(PeekPayload), approval(Approval), question(Question), expanded
+    case console(String)
 }
 
 /// The window is created once at its maximum footprint and never resized — the window server
@@ -72,6 +73,9 @@ final class Island: NSObject, ObservableObject {
     @Published var notchHeight: CGFloat = 32
 
     static let maxSize = NSSize(width: 860, height: 420)
+    /// The console's footprint. Sized to be read at a glance rather than lived in; the window is
+    /// created once at maxSize, so growing this later costs nothing structurally.
+    static let consoleSize = NSSize(width: 640, height: 320)
     /// Breathing room under the camera housing — enough that text never touches the bezel,
     /// small enough that the card still reads as hanging off the notch rather than floating.
     static let notchClearance: CGFloat = 3
@@ -150,6 +154,7 @@ final class Island: NSObject, ObservableObject {
 
         heartbeat = Approvals.startHeartbeat()
 
+        store.onOpenConsole = { [weak self] sid in self?.openConsole(sid) }
         store.onBackgroundAttach = { [weak self] name in
             self?.peek(PeekPayload(session: "", title: name,
                                    message: "attach command copied — paste in the new tab",
@@ -192,6 +197,13 @@ final class Island: NSObject, ObservableObject {
                                   needsInput: needsInput))
             if needsInput { Notifier.notify(title: name, body: message, key: session) }
         }
+
+        // One chord summons the console for whoever needs you most; pressing it again closes it.
+        Hotkeys.shared.bindLasting([(kVK_ANSI_K, Hotkeys.cmdOpt, { [weak self] in
+            guard let self else { return }
+            if case .console = self.state { self.closeConsole() }
+            else if let s = self.leadSession { self.openConsole(s) }
+        })])
 
         sensor.install(on: screen, notchWidth: notchWidth, notchHeight: notchHeight)
         sensor.onEnter = { [weak self] in
@@ -280,6 +292,14 @@ final class Island: NSObject, ObservableObject {
         return CGSize(width: w, height: min(item.cardHeight(width: w), cap))
     }
 
+    private var consoleRect: NSRect {
+        guard let w = window else { return .zero }
+        let size = Island.consoleSize
+        let top = w.frame.maxY - notchHeight - Island.notchClearance
+        return NSRect(x: w.frame.midX - size.width / 2, y: top - size.height,
+                      width: size.width, height: size.height)
+    }
+
     private var questionRect: NSRect {
         guard let screen else { return .zero }
         guard case .question(let q) = state else { return .zero }
@@ -310,6 +330,7 @@ final class Island: NSObject, ObservableObject {
         case .peek:     live = peekRect.union(hotRect)
         case .approval: live = approvalRect.union(hotRect)
         case .question: live = questionRect.union(hotRect)
+        case .console:  live = consoleRect.union(hotRect)
         }
         window.ignoresMouseEvents = !live.insetBy(dx: -4, dy: -4).contains(mouse)
     }
@@ -352,8 +373,8 @@ final class Island: NSObject, ObservableObject {
         refreshHitRegion()
 
         switch state {
-        case .peek, .approval, .question:
-            return   // hold until dwell elapses or the user answers; hover must not steal it
+        case .peek, .approval, .question, .console:
+            return   // hold until dwell elapses or the user acts; hover must not steal it
         case .collapsed:
             // Hover belongs to HoverSensor's tracking area alone. This branch used to duplicate
             // it — setting `revealed` and calling expand() on its own schedule — so two paths
@@ -635,6 +656,34 @@ final class Island: NSObject, ObservableObject {
     /// Hand the question to the chat: release the hook so Claude shows its own picker, and
     /// leave the card up as a read-only mirror rather than dismissing it, so the question is
     /// visible in both places until it is answered.
+    /// Show the console for one session. It is a reader: the panel never becomes key, so a
+    /// glance can never take the cursor out of the editor behind it.
+    func openConsole(_ session: String) {
+        if case .console(let cur) = state, cur == session { closeConsole(); return }
+        guard !session.isEmpty else { return }
+        followActiveScreen()
+        peekWork?.cancel()
+        // Escape belongs to the console only while it is up, then goes straight back.
+        Hotkeys.shared.bind([(kVK_Escape, 0, { [weak self] in self?.closeConsole() })])
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) { state = .console(session) }
+        watchForOutsideClick()
+        refreshHitRegion()
+    }
+
+    func closeConsole() {
+        guard case .console = state else { return }
+        stopWatchingClicks()
+        Hotkeys.shared.unbind()
+        withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) { state = .collapsed }
+        refreshHitRegion()
+    }
+
+    /// The session a bare summon opens: whoever needs you, else whoever is working.
+    var leadSession: String? {
+        (store.rows.first { $0.waiting } ?? store.rows.first { $0.isWorking }
+            ?? store.rows.first)?.agent.sessionId
+    }
+
     func handToChat(_ q: Question) {
         Approvals.skip(q.id)
         handedOver.insert(q.id)
@@ -655,10 +704,14 @@ final class Island: NSObject, ObservableObject {
         stopWatchingClicks()
         outsideClick = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) {
             [weak self] _ in
-            guard let self, case .question = self.state else { return }
+            guard let self else { return }
             // Global monitors only see clicks outside our own windows, so arriving here is
             // already proof the click was elsewhere.
-            DispatchQueue.main.async { self.dismissQuestion() }
+            switch self.state {
+            case .question: DispatchQueue.main.async { self.dismissQuestion() }
+            case .console:  DispatchQueue.main.async { self.closeConsole() }
+            default: return
+            }
         }
     }
 
@@ -819,6 +872,7 @@ private struct RootView: View {
         case .peek:      return 380
         case .approval(let a):  return (a.plan != nil || island.approvalContext != nil) ? 640 : 560
         case .question(let q): return island.questionSize(q).width
+        case .console:   return Island.consoleSize.width
         case .expanded:  return PanelView.width
         }
     }
@@ -833,6 +887,8 @@ private struct RootView: View {
                 + ((a.plan != nil || island.approvalContext != nil) ? 300 : 46)
         case .question(let q):
             return island.notchHeight + Island.notchClearance + island.questionSize(q).height
+        case .console:
+            return island.notchHeight + Island.notchClearance + Island.consoleSize.height
         case .expanded:  return PanelView.height
         }
     }
@@ -844,6 +900,7 @@ private struct RootView: View {
         case .peek:      return 20
         case .approval:  return 22
         case .question:  return 22
+        case .console:   return 22
         case .expanded:  return 18
         }
     }
@@ -905,6 +962,18 @@ private struct RootView: View {
                                 store.jumpToTerminal(row)
                             }
                         })
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .padding(.bottom, 6)
+                case .console(let sid):
+                    ConsoleView(store: store, session: sid,
+                                onJump: {
+                                    island.closeConsole()
+                                    if let row = store.rows.first(where: {
+                                        $0.agent.sessionId == sid }) {
+                                        store.jumpToTerminal(row)
+                                    }
+                                },
+                                onClose: { island.closeConsole() })
                         .frame(maxHeight: .infinity, alignment: .bottom)
                         .padding(.bottom, 6)
                 case .expanded:

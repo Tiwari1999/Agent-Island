@@ -585,6 +585,8 @@ final class AgentStore: ObservableObject {
 
     /// Announced by the island so the user knows a command is waiting on the clipboard.
     var onBackgroundAttach: ((String) -> Void)?
+    /// Set by the island: open the console for a session from a row.
+    var onOpenConsole: ((String) -> Void)?
 }
 
 enum Transcript {

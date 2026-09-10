@@ -106,7 +106,7 @@ enum ToolCalls {
 
     /// The agent's stated intent, in the field each tool happens to use. Falls back to the
     /// argument itself, which for a file tool is already the clearest possible description.
-    private static func why(tool: String, input: [String: Any]) -> String {
+    static func why(tool: String, input: [String: Any]) -> String {
         for key in ["description", "query", "prompt", "instructions"] {
             if let v = input[key] as? String, !v.isEmpty { return firstLine(v) }
         }
@@ -121,7 +121,7 @@ enum ToolCalls {
     /// Strip the MCP namespace: "mcp__claude-in-chrome__computer" is server plus tool. The
     /// separator is a double underscore — splitting on single ones turned
     /// "mcp__harbor-prod__get_job_live_results" into the meaningless word "results".
-    private static func short(_ tool: String) -> String {
+    static func short(_ tool: String) -> String {
         guard tool.hasPrefix("mcp__") else { return tool }
         return tool.components(separatedBy: "__").last.flatMap { $0.isEmpty ? nil : $0 } ?? tool
     }
