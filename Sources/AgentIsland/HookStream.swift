@@ -245,8 +245,7 @@ final class HookStream: ObservableObject {
             if let ppid = obj["ai_ppid"] as? Int, let payload = obj["payload"] as? [String: Any] {
                 if let sid = payload["session_id"] as? String, resolvedPPID[sid] != ppid {
                     resolvedPPID[sid] = ppid
-                    if let agent = Proc.ancestor(of: ppid,
-                                                 named: ["claude", "codex", "cursor-agent", "agent"]) {
+                    if let agent = Proc.ancestor(of: ppid, named: Proc.agentNames) {
                         pidUpdates[sid] = agent
                     }
                 }

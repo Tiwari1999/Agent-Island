@@ -29,6 +29,26 @@ check("claude agents --json returns sessions", len(agents)>0, f"{len(agents)} se
 check("sessions expose sessionId+state", all("sessionId" in a for a in agents))
 
 print("\n=== 2. Warp jump resolution (the feature that was broken) ===")
+# A pid only binds to a session if the app recognises the process by name. p_comm is the
+# resolved binary's basename, which the versioned Claude installer makes a version string —
+# that bound no pids, left every host unknown, and made every jump a silent no-op.
+import shutil as _sh
+if not _sh.which("swiftc"):
+    # The rest of the suite runs prebuilt binaries, so a missing toolchain must skip this
+    # check rather than abort the other 400.
+    print("  SKIP  agent processes are recognised by name  — no swiftc on PATH")
+else:
+    _pn = subprocess.run(["swiftc", "-O", os.path.join(REPO, "Sources/AgentIsland/Proc.swift"),
+                          os.path.join(REPO, "tests/procname.swift"),
+                          "-o", RUN + "-procname"], capture_output=True, text=True)
+    if _pn.returncode != 0:
+        check("agent processes are recognised by name", False,
+              _pn.stderr.strip().splitlines()[-1] if _pn.stderr.strip() else "compile failed")
+    else:
+        _out = subprocess.run([RUN + "-procname"], capture_output=True, text=True).stdout.strip()
+        check("agent processes are recognised by name", _out == "ok", _out)
+
+
 def focus_url(pid):
     env=subprocess.run(["ps","eww","-p",str(pid),"-o","command="],capture_output=True,text=True).stdout
     return next((t.split("=",1)[1] for t in env.split() if t.startswith("WARP_FOCUS_URL=")),None)
@@ -608,7 +628,15 @@ check("discovery falls back to the hook binding only when argv could not bind",
       "guard a.pid == nil, let p = fromHooks[a.sessionId]" in st5)
 # Existence is not identity — a reused pid must not inherit a dead session's binding.
 check("a hook-reported pid is checked to still BE an agent",
-      '["claude", "codex", "cursor-agent", "agent"].contains(c)' in st5)
+      "Proc.matches(pid: p, comm: comms[Int32(p)]" in st5)
+# The name check must not rest on p_comm alone: a versioned installer makes that a version
+# string, and matching it against "claude" bound no pids at all.
+check("an agent is recognised by argv[0] when p_comm is not its name",
+      "static func invokedName" in pr and "argv.first" in pr
+      and "lastPathComponent" in pr)
+# argv[0] is fixed at exec, so the sweep must not re-read a pid it has already resolved.
+check("invoked names are cached for the process's life, and bounded to live pids",
+      "invoked[pid] = name" in pr and "invoked.filter { comm[$0.key] != nil }" in pr)
 
 print("\n=== 9m. pick the agent the header reports on ===")
 vw5=open(os.path.join(REPO,"Sources/AgentIsland/Views.swift")).read()
@@ -1378,7 +1406,8 @@ check("cwd comes from a syscall, not an lsof spawn", "Proc.cwd(pid:" in _cwd)
 check("cwd misses are recorded so they are not retried",
       'Proc.cwd(pid: pid) ?? ""' in open(os.path.join(REPO,"Sources/AgentIsland/Cwd.swift")).read())
 _cx=open(f"{src}/CodexSource.swift").read()
-check("codex liveness is an exact comm match in-process", 'Proc.pids(comm: "codex")' in _cx)
+check("codex liveness is resolved in-process, with no spawn",
+      'Proc.pids(named: ["codex"])' in _cx)
 
 print("\n=== 20. honest degradation ===")
 host=open(f"{src}/HostTerminal.swift").read()

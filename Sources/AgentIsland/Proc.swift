@@ -21,12 +21,59 @@ enum Proc {
         return out
     }
 
+    /// The process names that identify an agent, in the one place every caller reads them.
+    static let agentNames: Set<String> = ["claude", "codex", "cursor-agent", "agent"]
+
+    /// pid → the name it was invoked as, "" for a process whose argv cannot be read.
+    ///
+    /// `p_comm` is the basename of the *resolved* executable, which is not always the name the
+    /// tool is known by: Claude Code's native installer points ~/.local/bin/claude at a
+    /// version-named binary, so p_comm reads "2.1.267" and every match against "claude" fails.
+    /// argv[0] keeps the invoked name and is fixed at exec, so each pid is read once and held
+    /// for its life — a cold sweep of ~800 processes costs ~25ms, a warm one only the pids that
+    /// have appeared since.
+    private static var invoked: [Int32: String] = [:]
+    private static let invokedLock = NSLock()
+
+    /// The name `pid` was invoked as, or nil when its argv cannot be read.
+    static func invokedName(_ pid: Int32) -> String? {
+        invokedLock.lock()
+        if let hit = invoked[pid] { invokedLock.unlock(); return hit.isEmpty ? nil : hit }
+        invokedLock.unlock()
+        // Cached even when unreadable, so a kernel task is not re-asked every refresh.
+        let name = argsEnv(pid: Int(pid))?.argv.first
+            .map { ($0 as NSString).lastPathComponent } ?? ""
+        invokedLock.lock(); invoked[pid] = name; invokedLock.unlock()
+        return name.isEmpty ? nil : name
+    }
+
+    /// Is this process one of `names`? `p_comm` decides when it can; argv[0] when it cannot.
+    static func matches(pid: Int, comm: String?, names: Set<String>) -> Bool {
+        if let c = comm, names.contains(c) { return true }
+        guard let n = invokedName(Int32(pid)) else { return false }
+        return names.contains(n)
+    }
+
+    /// Pids of every process known by one of `names` — `pgrep -x`, without the fork, and
+    /// without trusting p_comm to carry the tool's name.
+    static func pids(named names: Set<String>) -> [Int] {
+        let comm = all()
+        invokedLock.lock()
+        invoked = invoked.filter { comm[$0.key] != nil }   // bounded to what is still alive
+        invokedLock.unlock()
+        return comm.compactMap { pid, c in
+            if names.contains(c) { return Int(pid) }
+            guard let n = invokedName(pid), names.contains(n) else { return nil }
+            return Int(pid)
+        }.sorted()
+    }
+
     /// The nearest ancestor whose name matches, walking up from `pid`.
     static func ancestor(of pid: Int, named names: Set<String>, maxHops: Int = 8) -> Int? {
         let comm = all(), parent = parents()
         var cur = Int32(pid)
         for _ in 0..<maxHops {
-            if let c = comm[cur], names.contains(c) { return Int(cur) }
+            if matches(pid: Int(cur), comm: comm[cur], names: names) { return Int(cur) }
             guard let p = parent[cur], p > 1 else { return nil }
             cur = p
         }
@@ -61,11 +108,6 @@ enum Proc {
                 each(kp)
             }
         }
-    }
-
-    /// Pids whose process name matches exactly — pgrep -x, without the fork.
-    static func pids(comm name: String) -> [Int] {
-        all().compactMap { $0.value == name ? Int($0.key) : nil }.sorted()
     }
 
     /// argv and environment of one process — `ps eww` for a single pid, without the fork.

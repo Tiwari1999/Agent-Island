@@ -437,8 +437,8 @@ final class AgentStore: ObservableObject {
                 // Existence alone is not identity: pids get reused, and binding a session to
                 // whatever now wears the number pointed jumps at innocent processes.
                 guard a.pid == nil, let p = fromHooks[a.sessionId],
-                      let c = comms[Int32(p)],
-                      ["claude", "codex", "cursor-agent", "agent"].contains(c) else { return a }
+                      Proc.matches(pid: p, comm: comms[Int32(p)],
+                                   names: Proc.agentNames) else { return a }
                 var b = a
                 b.pid = p
                 return b
