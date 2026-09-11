@@ -28,7 +28,7 @@ struct CollapsedView: View {
         // Resting is asymmetric too: a dot on one side, the usage line on the other. The usage
         // line grows with the day -- a fixed 158 fit today's numbers with 6pt to spare and cut
         // the moment spend reached six digits, so it follows its own text.
-        if quiet { return (30, max(158, min(240, 16 + CGFloat((usage ?? "").count) * 5.3))) }
+        if quiet { return (30, max(158, min(300, 16 + CGFloat((usage ?? "").count) * 5.3))) }
         if revealed { return (300, 86) }
         // pulse + avatar + gaps, then roughly one glyph width per character of activity.
         let needed = 46 + CGFloat(min((text ?? "").count, 30)) * 5.8
@@ -627,7 +627,8 @@ struct PanelView: View {
                                                  guard q.deadline > Date() else { return nil }
                                                  return { store.onRowActivate?(row) }
                                              },
-                                         onConsole: { store.onOpenConsole?(row.agent.sessionId) },
+                                         onConsole: row.agent.vendor == .claude
+                                             ? { store.onOpenConsole?(row.agent.sessionId) } : nil,
                                          calls: open ? openCalls : [],
                                          expanded: open,
                                          onToggle: { toggle(row) }) { store.jump(row) }

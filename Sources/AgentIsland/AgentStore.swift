@@ -429,6 +429,7 @@ final class AgentStore: ObservableObject {
             Titles.retain(ids)
             Narration.retain(ids)
             ToolCalls.retain(ids)      // parsed calls outlive the row that asked for them
+            Console.retain(ids)
             // A session started without `--resume` carries its id nowhere in argv, so discovery
             // cannot bind it. Its own hooks can: they report the process that ran them.
             let fromHooks = self.hookPids
@@ -596,11 +597,15 @@ enum Transcript {
     /// its transcript touched without any new content, so a 25-day-old conversation reported
     /// minutes. The last entry's own timestamp cannot be faked that way.
     private static var activeCache: [String: (mtime: Date, value: Date?)] = [:]
+    /// The refresh walks these on .utility while the console reads them on .userInitiated.
+    private static let lock = NSLock()
 
     /// Drop entries for sessions that are no longer listed.
     static func retain(_ ids: Set<String>) {
+        lock.lock()
         activeCache = activeCache.filter { ids.contains($0.key) }
         pathCache = pathCache.filter { ids.contains($0.key) }
+        lock.unlock()
     }
 
     static func lastActive(_ a: Agent) -> Date? {
@@ -609,18 +614,27 @@ enum Transcript {
         // neither has the answer — this was three process spawns per agent per refresh.
         let mtime = (try? FileManager.default.attributesOfItem(atPath: path)[.modificationDate]
                      as? Date) ?? .distantPast
-        if let hit = activeCache[a.sessionId], hit.mtime == mtime { return hit.value }
+        lock.lock(); let cached = activeCache[a.sessionId]; lock.unlock()
+        if let hit = cached, hit.mtime == mtime { return hit.value }
         let stamp = Tail.lastValue(of: "timestamp", in: Tail.read(path: path, bytes: 32768)) ?? ""
         if !stamp.isEmpty {
             let iso = ISO8601DateFormatter()
             iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let d = iso.date(from: stamp) { activeCache[a.sessionId] = (mtime, d); return d }
+            if let d = iso.date(from: stamp) { store(a.sessionId, mtime, d); return d }
             iso.formatOptions = [.withInternetDateTime]
-            if let d = iso.date(from: stamp) { activeCache[a.sessionId] = (mtime, d); return d }
+            if let d = iso.date(from: stamp) { store(a.sessionId, mtime, d); return d }
         }
         // Only fall back to mtime when the transcript carries no timestamps at all.
-        activeCache[a.sessionId] = (mtime, mtime)
+        store(a.sessionId, mtime, mtime)
         return mtime
+    }
+
+    private static func store(_ id: String, _ mtime: Date, _ value: Date?) {
+        lock.lock(); activeCache[id] = (mtime, value); lock.unlock()
+    }
+
+    private static func cachePath(_ id: String, _ path: String) {
+        lock.lock(); pathCache[id] = path; lock.unlock()
     }
 
     /// A transcript never moves, so the answer — including "there isn't one" — is resolved once.
@@ -634,20 +648,21 @@ enum Transcript {
         // The id is interpolated into a path. Real ones are UUIDs; anything else is either a
         // bug or a traversal, and every transcript read in the app comes through here.
         guard Approvals.validID(sessionId) else { return nil }
-        if let hit = pathCache[sessionId] { return hit.isEmpty ? nil : hit }
+        lock.lock(); let hit = pathCache[sessionId]; lock.unlock()
+        if let hit { return hit.isEmpty ? nil : hit }
         let fm = FileManager.default
         let projects = Home.path + "/.claude/projects"
         if let cwd {
             let slug = cwd.map { $0.isLetter || $0.isNumber ? $0 : "-" }.reduce(into: "") { $0.append($1) }
             let p = "\(projects)/\(slug)/\(sessionId).jsonl"
-            if fm.fileExists(atPath: p) { pathCache[sessionId] = p; return p }
+            if fm.fileExists(atPath: p) { cachePath(sessionId, p); return p }
         }
         // Scanning the project directories costs stats, not processes.
         for dir in (try? fm.contentsOfDirectory(atPath: projects)) ?? [] {
             let p = "\(projects)/\(dir)/\(sessionId).jsonl"
-            if fm.fileExists(atPath: p) { pathCache[sessionId] = p; return p }
+            if fm.fileExists(atPath: p) { cachePath(sessionId, p); return p }
         }
-        pathCache[sessionId] = ""
+        cachePath(sessionId, "")
         return nil
     }
 }

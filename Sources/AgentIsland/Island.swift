@@ -438,14 +438,19 @@ final class Island: NSObject, ObservableObject {
         if let m = clickInside { NSEvent.removeMonitor(m); clickInside = nil }
     }
 
-    func collapse() {
-        guard state != .collapsed else { return }
+    /// Everything the expanded panel must release, whatever replaces it.
+    private func tearDownPanel() {
         frames.stopAndReport()
         dwell?.cancel()
         removeClickMonitors()
         outsideTicks = 0
-        withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) { state = .collapsed }
         store.setPanelVisible(false)
+    }
+
+    func collapse() {
+        guard state != .collapsed else { return }
+        tearDownPanel()
+        withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) { state = .collapsed }
         repoll()
         // Every other transition refreshes this; collapse did not. The panel therefore kept
         // accepting events across its whole frame until the next poll — up to 750ms — and
@@ -668,27 +673,38 @@ final class Island: NSObject, ObservableObject {
     func openConsole(_ session: String) {
         if case .console(let cur) = state, cur == session { closeConsole(); return }
         guard !session.isEmpty else { return }
+        // A card owns teardown a glance must not skip — the approval hold file, the queue —
+        // and something waiting on you outranks looking at something else anyway.
+        switch state {
+        case .approval, .question: return
+        case .expanded: tearDownPanel()
+        default: break
+        }
         followActiveScreen()
         peekWork?.cancel()
-        // Escape belongs to the console only while it is up, then goes straight back.
-        Hotkeys.shared.bind([(kVK_Escape, 0, { [weak self] in self?.closeConsole() })])
         withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) { state = .console(session) }
         watchForOutsideClick()
+        // Without this the hit region keeps polling at the collapsed 0.75s cadence, so the
+        // first click into the console lands on the app behind it and reads as "dismiss".
+        repoll()
         refreshHitRegion()
     }
 
     func closeConsole() {
         guard case .console = state else { return }
         stopWatchingClicks()
-        Hotkeys.shared.unbind()
         withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) { state = .collapsed }
+        repoll()
         refreshHitRegion()
     }
 
     /// The session a bare summon opens: whoever needs you, else whoever is working.
+    /// Only Claude Code writes the transcripts Console reads, so a Codex or Cursor row would
+    /// open a console that can only ever say "nothing recorded".
     var leadSession: String? {
-        (store.rows.first { $0.waiting } ?? store.rows.first { $0.isWorking }
-            ?? store.rows.first)?.agent.sessionId
+        let readable = store.rows.filter { $0.agent.vendor == .claude }
+        return (readable.first { $0.waiting } ?? readable.first { $0.isWorking }
+            ?? readable.first)?.agent.sessionId
     }
 
     func handToChat(_ q: Question) {
@@ -902,6 +918,16 @@ private struct RootView: View {
         case .expanded:  return PanelView.height
         }
     }
+    /// Empty space each state leaves below its content, which is all the room the sleek
+    /// edge fade is allowed to use.
+    private var bottomInset: CGFloat {
+        switch island.state {
+        case .collapsed: return 10
+        case .expanded:  return PanelView.listPadding
+        default:         return 6
+        }
+    }
+
     private var corner: CGFloat {
         switch island.state {
         // Exactly the notch height. Anything shorter leaves a step where the bar meets the
@@ -918,7 +944,8 @@ private struct RootView: View {
     var body: some View {
         VStack(spacing: 0) {
             ZStack {
-                IslandBackground(corner: corner, expanded: island.state == .expanded)
+                IslandBackground(corner: corner, expanded: island.state == .expanded,
+                                 inset: bottomInset)
 
                 switch island.state {
                 case .collapsed:
@@ -995,5 +1022,9 @@ private struct RootView: View {
             Spacer(minLength: 0)
         }
         .frame(width: Island.maxSize.width, height: Island.maxSize.height, alignment: .top)
+        // Theme's tokens read Surfaces statically, which SwiftUI cannot see as a dependency:
+        // views whose stored properties are unchanged keep the old palette. Rebinding identity
+        // on the toggle rebuilds the subtree so every Theme read is re-evaluated.
+        .id(surfaces.choice)
     }
 }

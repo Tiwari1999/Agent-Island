@@ -10,6 +10,8 @@ struct ConsoleView: View {
 
     @State private var feed: [ConsoleEntry] = []
     @State private var loaded = false
+    /// Console.recent is mtime-cached, so re-reading an unchanged transcript costs a stat.
+    private let tick = Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()
 
     private var row: AgentRow? { store.rows.first { $0.agent.sessionId == session } }
 
@@ -22,6 +24,8 @@ struct ConsoleView: View {
         }
         .frame(width: Island.consoleSize.width, height: Island.consoleSize.height)
         .task(id: session) { await load() }
+        // Without this the feed froze at open time while the footer kept animating.
+        .onReceive(tick) { _ in Task { await load() } }
     }
 
     // MARK: - parts
@@ -40,7 +44,7 @@ struct ConsoleView: View {
                 .font(Theme.mono(10)).foregroundColor(Theme.muted).lineLimit(1)
             Spacer(minLength: 8)
             tag("open in terminal", action: onJump)
-            tag("esc", action: onClose)
+            tag("⌘⌥K", action: onClose)
         }
         .padding(.horizontal, 14).padding(.vertical, 9)
     }
@@ -71,7 +75,14 @@ struct ConsoleView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 // A console reads from the bottom: the newest line is the one you came for.
-                .onAppear { proxy.scrollTo("end", anchor: .bottom) }
+                // onAppear fires before the LazyVStack lays out, so the anchor is not yet
+                // realised and the request is silently dropped.
+                .onChange(of: feed.count) { _, _ in
+                    DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) }
+                }
+                .onAppear {
+                    DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) }
+                }
             }
         }
     }
@@ -155,7 +166,9 @@ struct ConsoleView: View {
                 k.resume(returning: Console.recent(session: id, cwd: cwd))
             }
         }
-        guard id == session else { return }
+        // `session` is a let on the captured view value, so comparing it to itself was a
+        // compile-time true. .task(id:) cancels the previous run, which this can actually see.
+        guard !Task.isCancelled else { return }
         feed = parsed
         loaded = true
     }

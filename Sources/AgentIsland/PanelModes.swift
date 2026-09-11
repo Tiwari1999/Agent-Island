@@ -64,7 +64,9 @@ struct MarkdownLite: View {
                                   ? (level == 1 ? 13.5 : level == 2 ? 12.5 : 11.5)
                                   : (level == 1 ? 13 : level == 2 ? 12 : 11)))
                 .foregroundColor(Theme.text)
-                .fixedSize(horizontal: false, vertical: true)
+                // Only in reading mode: fixedSize lets a Text exceed the height proposed to it,
+                // and the approval card reserves a hard-coded 300pt a wrapped heading would blow.
+                .fixedSize(horizontal: false, vertical: style == .reading)
                 .padding(.top, style == .reading ? 5 : 4)
         case .bullet(let s):
             HStack(alignment: .top, spacing: 7) {

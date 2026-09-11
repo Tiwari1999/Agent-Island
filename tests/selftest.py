@@ -1482,9 +1482,11 @@ check("and prose carries the time it was said", "private func stamp(" in _cv)
 # It is a reader. The panel must never take the cursor out of the editor behind it.
 check("the console never makes the panel key",
       "keyable = true" not in _isc.split("func openConsole")[1].split("func closeConsole")[0])
-check("escape closes it, and only while it is up",
-      "(kVK_Escape, 0," in _isc and "Hotkeys.shared.unbind()" in
-      _isc.split("func closeConsole")[1].split("}")[0] + "Hotkeys.shared.unbind()")
+# A bare Escape registered through Carbon is global: it was swallowed system-wide while the
+# console was up, so Esc never reached the editor behind it.
+check("escape is not stolen from the app behind the console", "kVK_Escape" not in _isc)
+check("and the console advertises the chord that does close it",
+      'tag("\u2318\u2325K"' in open(os.path.join(REPO, "Sources/AgentIsland/ConsoleView.swift")).read())
 check("clicking away closes it", "case .console:  DispatchQueue.main.async { self.closeConsole() }" in _isc)
 check("the summon chord outlives the cards that bind their own keys",
       "func bindLasting" in _hk and "actions.filter { $0.key >= Self.lastingBase }" in _hk)
@@ -1920,11 +1922,17 @@ check("there is no invented rim stroke on the sleek shell",
       "private var rim" not in _sf and "shape.stroke(Theme.hairline" in _sf)
 check("the soft edge is an alpha mask, as Droppy's DroppyEdgeFadeMask is",
       "dissolve(over:" in _sf and ".mask(" in _sf
-      and "Color.black.opacity(0)" in _sf.replace(".black.opacity(0)", "Color.black.opacity(0)"))
+      and ".black.opacity(0)" in _sf)
 check("and it scales so a short collapsed bar is not erased",
-      "min(Sleek.fadeLength, height * 0.3)" in _sf)
-check("light-chrome control tokens match the sampled pills",
-      "0.153" in _sf and "0.306" in _sf and "0.247" in _sf)
+      "min(Sleek.fadeLength, height * 0.3, max(0, inset))" in _sf)
+# 26pt of fade over 8pt of padding drew the last row over the desktop.
+check("the fade can never exceed the empty space below the content",
+      "var inset: CGFloat" in _sf and "inset: bottomInset" in _iv
+      and "case .expanded:  return PanelView.listPadding" in _iv
+      # the wiring existing is not the point; the clamp has to actually consume it
+      and "inset" in _sf.split("func dissolve")[1].split("\n    }")[0])
+check("no dead surface code is asserted on",
+      "SleekChip" not in _sf and "struct SleekChip" not in _sf)
 
 print("\n=== 30. idle bar spends its empty space on what is left ===")
 check("idle shows remaining, not consumed",
@@ -1937,6 +1945,51 @@ check("width is measured from the string the bar will actually print",
 # longer line clipped.
 check("so the quiet width can no longer disagree with the text",
       "usage: bar.quietUsageLine" in _iv)
+
+print("\n=== 31. code-review fixes ===")
+_ag = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
+_cv = open(os.path.join(REPO, "Sources/AgentIsland/ConsoleView.swift")).read()
+_cs = open(os.path.join(REPO, "Sources/AgentIsland/Console.swift")).read()
+_pm = open(os.path.join(REPO, "Sources/AgentIsland/PanelModes.swift")).read()
+
+# The console reads transcripts on .userInitiated while the refresh rewrites the same
+# dictionaries on .utility. Two threads reassigning one Dictionary is a use-after-free.
+check("Transcript's caches are locked, not raced",
+      "private static let lock = NSLock()" in _ag.split("enum Transcript")[1]
+      and "pathCache[sessionId] = p" not in _ag
+      and "activeCache[a.sessionId] = (mtime" not in _ag)
+check("every session cache is still bounded, including the new one",
+      "Console.retain(ids)" in _ag and "ToolCalls.retain(ids)" in _ag)
+check("Console.retain is no longer dead code", "static func retain" in _cs)
+
+check("a card that needs you outranks a glance",
+      "case .approval, .question: return" in _iv)
+check("and an open panel releases what it holds before the console takes over",
+      "private func tearDownPanel()" in _iv
+      and "case .expanded: tearDownPanel()" in _iv)
+check("the console polls its hit region at the interactive cadence",
+      "repoll()" in _iv.split("func openConsole")[1].split("func closeConsole")[0])
+
+check("the console feed refreshes instead of freezing at open time",
+      ".onReceive(tick)" in _cv and "Timer.publish(every:" in _cv)
+# `session` is a let on the captured view value, so comparing it to itself was always true.
+check("a stale read cannot overwrite a newer session",
+      "guard !Task.isCancelled else { return }" in _cv and "guard id == session" not in _cv)
+check("it opens at the newest entry, after layout",
+      ".onChange(of: feed.count)" in _cv)
+
+# Console can only resolve Claude transcripts, so other vendors opened an empty reader.
+check("the read chip is only offered where a transcript exists",
+      "row.agent.vendor == .claude" in _vw)
+check("and the summon chord skips vendors it cannot read",
+      "store.rows.filter { $0.agent.vendor == .claude }" in _iv)
+
+check("the plan reader cannot outgrow the height the card reserves",
+      "vertical: style == .reading" in _pm)
+check("the idle line's width cap fits what it now prints", "min(300," in _vw)
+# Theme reads Surfaces statically, which SwiftUI cannot track as a dependency.
+check("toggling the surface repaints every view, not just the observers",
+      ".id(surfaces.choice)" in _iv)
 
 print("\n=== 23. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")

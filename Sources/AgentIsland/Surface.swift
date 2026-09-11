@@ -32,13 +32,9 @@ final class Surfaces: ObservableObject {
 enum Sleek {
     static let body      = Color.black
     /// Droppy calls this `DroppyEdgeFadeMask`: ~63pt of near-linear alpha ramp, so the panel
-    /// dissolves instead of ending. Capped here because our content runs to the boundary.
+    /// dissolves instead of ending. Theirs can be that long because their panels end in empty
+    /// space; ours is clamped to whatever inset the state actually leaves below its content.
     static let fadeLength: CGFloat = 26
-    static let control   = Color(red: 0.153, green: 0.161, blue: 0.165)   // #27292A pill body
-    static let chip      = Color(red: 0.306, green: 0.310, blue: 0.314)   // #4E4F50 selected
-    static let chipRim   = Color(red: 0.247, green: 0.259, blue: 0.271)   // #3F4245 1px edge
-    static let glyph     = Color.white
-    static let glyphIdle = Color(red: 0.576, green: 0.580, blue: 0.584)   // #939495
 }
 
 /// The island's shell in whichever material is selected.
@@ -46,6 +42,8 @@ struct IslandBackground: View {
     @ObservedObject private var surfaces = Surfaces.shared
     let corner: CGFloat
     let expanded: Bool
+    /// Empty space below the content. The fade may not exceed it, or text renders over desktop.
+    var inset: CGFloat = 6
 
     private var shape: NotchShape { NotchShape(radius: corner) }
 
@@ -67,33 +65,11 @@ struct IslandBackground: View {
 
     /// Scaled to the panel, so a 32pt collapsed bar is softened rather than erased.
     private func dissolve(over height: CGFloat) -> LinearGradient {
-        let len = min(Sleek.fadeLength, height * 0.3)
+        let len = min(Sleek.fadeLength, height * 0.3, max(0, inset))
         return LinearGradient(
             stops: [.init(color: .black, location: 0),
                     .init(color: .black, location: max(0, (height - len) / max(height, 1))),
                     .init(color: .black.opacity(0), location: 1)],
             startPoint: .top, endPoint: .bottom)
-    }
-}
-
-/// Droppy's controls are what actually read as glass: the only bright thing on a black ground.
-struct SleekChip<Content: View>: View {
-    var selected: Bool = false
-    @ViewBuilder var content: Content
-    @ObservedObject private var surfaces = Surfaces.shared
-
-    var body: some View {
-        if surfaces.sleek {
-            content
-                .foregroundColor(selected ? Sleek.glyph : Sleek.glyphIdle)
-                .padding(.horizontal, 7).padding(.vertical, 2.5)
-                .background(Capsule().fill(selected ? Sleek.chip : Sleek.control))
-                .overlay(Capsule().stroke(Sleek.chipRim, lineWidth: 0.8))
-        } else {
-            content
-                .foregroundColor(Theme.muted)
-                .padding(.horizontal, 7).padding(.vertical, 2.5)
-                .background(Capsule().stroke(Theme.hairline))
-        }
     }
 }
