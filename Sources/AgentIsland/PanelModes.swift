@@ -24,6 +24,7 @@ struct MarkdownLite: View {
 
     enum Block: Equatable {
         case heading(Int, String), bullet(String), code(String), rule, plain(String)
+        case table([[String]])
     }
 
     static func blocks(_ raw: String) -> [Block] {
@@ -48,12 +49,52 @@ struct MarkdownLite: View {
                 out.append(.rule)
             } else if t.hasPrefix("- ") || t.hasPrefix("* ") {
                 out.append(.bullet(String(t.dropFirst(2))))
+            } else if t.hasPrefix("|"), t.dropFirst().contains("|") {
+                // Rendered as prose these read as "| a | b |" — the literal wall of words.
+                let cells = t.split(separator: "|", omittingEmptySubsequences: false)
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .dropFirst().dropLast()
+                let row = Array(cells)
+                if row.allSatisfy({ $0.allSatisfy { "-: ".contains($0) } && !$0.isEmpty }) {
+                    continue        // the |---|---| separator carries no content
+                }
+                if case .table(let rows)? = out.last {
+                    out[out.count - 1] = .table(rows + [row])
+                } else {
+                    out.append(.table([row]))
+                }
             } else {
                 out.append(.plain(t))
             }
         }
         if inFence, !fence.isEmpty { out.append(.code(fence.joined(separator: "\n"))) }
         return out
+    }
+
+    /// Columns aligned, header carrying the weight — the first row of a markdown table is a
+    /// header by convention, so it earns the contrast the rest of the rows give up.
+    @ViewBuilder private func grid(_ rows: [[String]]) -> some View {
+        let cols = rows.map(\.count).max() ?? 0
+        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { i, row in
+                GridRow {
+                    ForEach(0..<cols, id: \.self) { c in
+                        inline(c < row.count ? row[c] : "")
+                            .font(i == 0 ? Theme.label(style == .reading ? 10.5 : 9.5)
+                                         : Theme.mono(style == .reading ? 10 : 9.5))
+                            .foregroundColor(i == 0 ? Theme.text : Theme.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                if i == 0 {
+                    GridRow {
+                        Rectangle().fill(Theme.hairline).frame(height: 0.7)
+                            .gridCellColumns(max(1, cols))
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 3)
     }
 
     @ViewBuilder private func block(_ b: Block) -> some View {
@@ -84,6 +125,8 @@ struct MarkdownLite: View {
                 .padding(8)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Theme.raised))
+        case .table(let rows):
+            grid(rows)
         case .rule:
             Rectangle().fill(Theme.hairline).frame(height: 0.7).padding(.vertical, 2)
         case .plain(let s):

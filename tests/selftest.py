@@ -2049,6 +2049,21 @@ check("the row prints it ahead of idle",
 check("and distinguishes it by weight, not a new hue",
       "row.justCompleted ? Theme.muted : Theme.faint" in _vw6)
 
+print("\n=== 35. the console renders tables, not pipe soup ===")
+# Markdown tables fell through to .plain and rendered as "| a | b |" — literally the wall of
+# words the console exists to avoid. This runs the SHIPPED parser, not a copy of it.
+_mt = subprocess.run([sys.executable, os.path.join(REPO, "tests/markdown_table.py")],
+                     capture_output=True, text=True)
+check("the real parser turns a markdown table into one table block",
+      _mt.returncode == 0, _mt.stdout.strip() or _mt.stderr.strip()[:80])
+_pm = open(os.path.join(REPO, "Sources/AgentIsland/PanelModes.swift")).read()
+check("the |---|---| separator row carries no content and is dropped",
+      'allSatisfy { "-: ".contains($0) }' in _pm)
+check("columns align in a Grid rather than wrapping as prose",
+      "Grid(alignment: .leading" in _pm and "GridRow" in _pm)
+check("the header row carries the weight the body gives up",
+      "i == 0 ? Theme.text : Theme.muted" in _pm)
+
 print("\n=== 23. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")
 check("binary exists", os.path.exists(b))
