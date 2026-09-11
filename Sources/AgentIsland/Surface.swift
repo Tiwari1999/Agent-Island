@@ -27,10 +27,13 @@ final class Surfaces: ObservableObject {
     var sleek: Bool { choice == .sleek }
 }
 
-/// Measured off Droppy over a dark *and* a bright desktop: it reads `#000000` on both, so the
-/// glass everyone likes is opaque black with a lit rim, not translucency.
+/// Measured off Droppy over a dark *and* a bright desktop: it reads `#000000` on both, and its
+/// edge goes background-to-black in a single pixel with no highlight anywhere.
 enum Sleek {
     static let body      = Color.black
+    /// Droppy calls this `DroppyEdgeFadeMask`: ~63pt of near-linear alpha ramp, so the panel
+    /// dissolves instead of ending. Capped here because our content runs to the boundary.
+    static let fadeLength: CGFloat = 26
     static let control   = Color(red: 0.153, green: 0.161, blue: 0.165)   // #27292A pill body
     static let chip      = Color(red: 0.306, green: 0.310, blue: 0.314)   // #4E4F50 selected
     static let chipRim   = Color(red: 0.247, green: 0.259, blue: 0.271)   // #3F4245 1px edge
@@ -49,8 +52,11 @@ struct IslandBackground: View {
     var body: some View {
         ZStack {
             if surfaces.sleek {
-                shape.fill(Sleek.body)
-                rim
+                // No stroke of any kind: Droppy's edge is one hard pixel, and the lit rim that
+                // replaced it read as a drawn-on white line rather than light.
+                GeometryReader { g in
+                    shape.fill(Sleek.body).mask(dissolve(over: g.size.height))
+                }
             } else {
                 shape.fill(Theme.bg)
                 shape.stroke(Theme.hairline, lineWidth: 0.7)
@@ -59,15 +65,14 @@ struct IslandBackground: View {
         .shadow(color: .black.opacity(0.55), radius: expanded ? 24 : 8, y: 6)
     }
 
-    /// Light catching one edge reads as glass; blur across the whole face reads as fog.
-    private var rim: some View {
-        shape.stroke(
-            LinearGradient(
-                stops: [.init(color: .white.opacity(0.26), location: 0.0),
-                        .init(color: .white.opacity(0.07), location: 0.28),
-                        .init(color: .white.opacity(0.03), location: 1.0)],
-                startPoint: .top, endPoint: .bottom),
-            lineWidth: 1)
+    /// Scaled to the panel, so a 32pt collapsed bar is softened rather than erased.
+    private func dissolve(over height: CGFloat) -> LinearGradient {
+        let len = min(Sleek.fadeLength, height * 0.3)
+        return LinearGradient(
+            stops: [.init(color: .black, location: 0),
+                    .init(color: .black, location: max(0, (height - len) / max(height, 1))),
+                    .init(color: .black.opacity(0), location: 1)],
+            startPoint: .top, endPoint: .bottom)
     }
 }
 
