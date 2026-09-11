@@ -862,6 +862,7 @@ private struct RootView: View {
     @ObservedObject var island: Island
     @ObservedObject var store: AgentStore
     @ObservedObject var status: StatusStore
+    @ObservedObject private var surfaces = Surfaces.shared
 
 
     /// Nothing running, nothing waiting, pointer elsewhere.
@@ -872,9 +873,11 @@ private struct RootView: View {
     private var shellWidth: CGFloat {
         switch island.state {
         case .collapsed:
-            let lead = store.rows.first { $0.waiting } ?? store.rows.first { $0.isWorking }
+            // Ask the bar itself what it will print, so the width and the text cannot disagree.
+            let bar = CollapsedView(store: store, status: status, notchWidth: island.notchWidth,
+                                    revealed: island.revealed, quiet: quiet)
             let w = CollapsedView.sides(revealed: island.revealed, quiet: quiet,
-                                        text: lead.map { $0.activity ?? $0.displayName })
+                                        text: bar.leadText, usage: bar.quietUsageLine)
             return island.notchWidth + w.left + w.right + 2 * CollapsedView.notchMargin
         case .peek:      return 380
         case .approval(let a):  return (a.plan != nil || island.approvalContext != nil) ? 640 : 560

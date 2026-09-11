@@ -4,13 +4,29 @@ import SwiftUI
 /// pressure. A preattentive channel only works while it is rare, so everything else is neutral
 /// and differentiated by weight and size instead.
 enum Theme {
-    static let bg        = Color(red: 0.055, green: 0.059, blue: 0.071)
-    static let raised    = Color(red: 0.094, green: 0.102, blue: 0.122)
-    static let hairline  = Color.white.opacity(0.08)
+    private static var sleek: Bool { Surfaces.shared.sleek }
 
-    static let text      = Color(red: 0.937, green: 0.945, blue: 0.960)
-    static let muted     = Color(red: 0.541, green: 0.576, blue: 0.639)
-    static let faint     = Color(red: 0.353, green: 0.384, blue: 0.443)
+    // Sampled off Droppy: a pure-black ground with brighter, neutral controls. Ours were
+    // blue-tinted and dim, which is why the same layout read as flat beside it.
+    static var bg: Color { sleek ? .black : Color(red: 0.055, green: 0.059, blue: 0.071) }
+    static var raised: Color {
+        sleek ? Color(red: 0.153, green: 0.161, blue: 0.165)      // #27292A
+              : Color(red: 0.094, green: 0.102, blue: 0.122)
+    }
+    static var hairline: Color { Color.white.opacity(sleek ? 0.13 : 0.08) }
+
+    static var text: Color {
+        sleek ? Color(red: 0.976, green: 0.976, blue: 0.980)
+              : Color(red: 0.937, green: 0.945, blue: 0.960)
+    }
+    static var muted: Color {
+        sleek ? Color(red: 0.576, green: 0.580, blue: 0.584)      // #939495
+              : Color(red: 0.541, green: 0.576, blue: 0.639)
+    }
+    static var faint: Color {
+        sleek ? Color(red: 0.420, green: 0.424, blue: 0.427)
+              : Color(red: 0.353, green: 0.384, blue: 0.443)
+    }
 
     static let working   = Color(red: 0.243, green: 0.788, blue: 0.588)   // teal-green
     static let waiting   = Color(red: 0.478, green: 0.647, blue: 1.000)   // soft blue

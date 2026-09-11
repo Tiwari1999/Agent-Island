@@ -651,7 +651,7 @@ check("it still has a floor and a ceiling", "max(112, min(210" in vw6)
 check("the pulse is kept off the rounded corner", ".padding(.leading, 4)" in vw6)
 isl6=open(os.path.join(REPO,"Sources/AgentIsland/Island.swift")).read()
 check("the shell sizes itself from the same text the bar prints",
-      "text: lead.map { $0.activity ?? $0.displayName }" in isl6)
+      "text: bar.leadText" in isl6 and "CollapsedView(store: store, status: status" in isl6)
 
 print("\n=== 9o. idle reports what the day consumed ===")
 vw7=open(os.path.join(REPO,"Sources/AgentIsland/Views.swift")).read()
@@ -1897,27 +1897,39 @@ print("\n=== 29. material toggle keeps the solid UI intact ===")
 _sf = open(os.path.join(REPO, "Sources/AgentIsland/Surface.swift")).read()
 _iv = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
 _vw = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
-check("solid is the default, so nobody is opted into glass by upgrading",
+check("solid is the default, so nobody is opted into sleek by upgrading",
       'UserDefaults.standard.string(forKey: Self.key) ?? "") ?? .solid' in _sf)
 check("the original solid fill is still the code that draws solid",
-      "shape.fill(Theme.bg)" in _sf and "case solid, glass" in _sf)
-# The whole point of the toggle is comparison, so both paths must survive in the binary.
-check("glass has a real path on macOS 26 and a blur fallback below it",
-      "if #available(macOS 26.0, *)" in _sf and ".glassEffect(" in _sf
-      and "NSVisualEffectView" in _sf)
-check("the blur samples the desktop, not our own content",
-      "blendingMode = .behindWindow" in _sf)
-check("and stays active on a panel that is never key", "state = .active" in _sf)
-check("Reduce Transparency overrides the preference",
-      "accessibilityDisplayShouldReduceTransparency" in _sf
-      and "? .solid : choice" in _sf)
+      "shape.fill(Theme.bg)" in _sf and "case solid, sleek" in _sf)
 check("the choice survives a relaunch",
-      'UserDefaults.standard.set(choice.rawValue, forKey: Self.key)' in _sf)
+      "UserDefaults.standard.set(choice.rawValue, forKey: Self.key)" in _sf)
 check("flipping is reachable without the panel open (lasting hotkey)",
       "kVK_ANSI_G, Hotkeys.cmdOpt" in _iv and "Surfaces.shared.toggle()" in _iv)
 check("and discoverable in the header", "materialChip" in _vw)
 check("the shell reads the toggle instead of a hardcoded fill",
       "IslandBackground(corner: corner" in _iv and ".fill(Theme.bg)" not in _iv)
+
+# Measured off Droppy over a dark AND a bright desktop: #000000 both times. The previous
+# attempt frosted the whole face, which the user called sandpaper. Guard against regressing.
+check("sleek is opaque black, not a frosted panel",
+      "static let body      = Color.black" in _sf
+      and "NSVisualEffectView" not in _sf and "hudWindow" not in _sf)
+check("the glass read comes from a lit rim, not blur",
+      "private var rim" in _sf and "LinearGradient" in _sf)
+check("light-chrome control tokens match the sampled pills",
+      "0.153" in _sf and "0.306" in _sf and "0.247" in _sf)
+
+print("\n=== 30. idle bar spends its empty space on what is left ===")
+check("idle shows remaining, not consumed",
+      "max(0, 100 - pct))% left" in _vw)
+check("and when it refills", "Quota.short(r.timeIntervalSinceNow)" in _vw)
+check("the reset is only shown while it is still in the future", "r > Date()" in _vw)
+check("width is measured from the string the bar will actually print",
+      "text: bar.leadText, usage: bar.quietUsageLine" in _iv)
+# The old call passed no usage at all, so the quiet width sat on its 158pt floor and a
+# longer line clipped.
+check("so the quiet width can no longer disagree with the text",
+      "usage: bar.quietUsageLine" in _iv)
 
 print("\n=== 23. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")

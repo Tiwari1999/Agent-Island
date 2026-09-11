@@ -38,11 +38,13 @@ struct CollapsedView: View {
     /// The limit belonging to the agent this person actually uses, measured by how much of the
     /// panel is theirs. Showing the largest number instead surfaced a tool with six sessions
     /// over the one with twenty-one, which is a statistic rather than a status.
-    private var primaryLimit: (String, Int)? {
-        func limit(_ v: Vendor) -> (String, Int)? {
+    private var primaryLimit: (String, Int, Date?)? {
+        func limit(_ v: Vendor) -> (String, Int, Date?)? {
             switch v {
-            case .claude: return status.quota.fiveHourPct.map { ("claude", $0) }
-            case .codex:  return CodexSource.quota.fiveHourPct.map { ("codex", $0) }
+            case .claude: return status.quota.fiveHourPct.map {
+                ("claude", $0, status.quota.fiveHourResets) }
+            case .codex:  return CodexSource.quota.fiveHourPct.map {
+                ("codex", $0, CodexSource.quota.fiveHourResets) }
             case .cursor: return nil        // publishes no quota; never invent one
             }
         }
@@ -59,8 +61,14 @@ struct CollapsedView: View {
     /// The resting line, assembled once so the width and the rendered text cannot disagree.
     var quietUsageLine: String? {
         guard quiet else { return nil }
-        let parts = [primaryLimit.map { "\($0.0) \($0.1)%" }, usageToday]
-            .compactMap { $0 }
+        // Idle is when the bar has room, so it spends it on the number you act on: what is
+        // left and when it refills, not the percentage already burned.
+        let limit = primaryLimit.map { name, used, resets -> String in
+            let left = "\(name) \(max(0, 100 - used))% left"
+            guard let r = resets, r > Date() else { return left }
+            return "\(left) · \(Quota.short(r.timeIntervalSinceNow))"
+        }
+        let parts = [limit, usageToday].compactMap { $0 }
         return parts.isEmpty ? "idle" : parts.joined(separator: " · ")
     }
 
@@ -119,9 +127,13 @@ struct CollapsedView: View {
                 if quiet {
                     // Idle is not news. What the day cost is.
                     HStack(spacing: 5) {
-                        if let (name, pct) = primaryLimit {
-                            Text("\(name) \(pct)%")
+                        if let (name, pct, resets) = primaryLimit {
+                            Text("\(name) \(max(0, 100 - pct))% left")
                                 .font(Theme.mono(8.5)).foregroundColor(Quota.tint(pct))
+                            if let r = resets, r > Date() {
+                                Text(Quota.short(r.timeIntervalSinceNow))
+                                    .font(Theme.mono(8.5)).foregroundColor(Theme.faint)
+                            }
                         }
                         if let u = usageToday {
                             Text("·").font(Theme.mono(8.5)).foregroundColor(Theme.hairline)

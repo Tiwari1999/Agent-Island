@@ -1,13 +1,13 @@
 import AppKit
 import SwiftUI
 
-/// What the panel is made of. Solid is the original look and stays the default; glass sits
+/// What the panel is made of. Solid is the original look and stays the default; sleek sits
 /// beside it so the two can be compared on the same UI instead of one replacing the other.
 enum Surface: String {
-    case solid, glass
+    case solid, sleek
 
     var label: String { rawValue }
-    var next: Surface { self == .solid ? .glass : .solid }
+    var next: Surface { self == .solid ? .sleek : .solid }
 }
 
 final class Surfaces: ObservableObject {
@@ -23,27 +23,19 @@ final class Surfaces: ObservableObject {
     }
 
     func toggle() { choice = choice.next }
-
-    /// Reduce Transparency is a legibility setting, not a preference — glass yields to it.
-    var current: Surface {
-        NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency ? .solid : choice
-    }
+    var current: Surface { choice }
+    var sleek: Bool { choice == .sleek }
 }
 
-/// An `NSVisualEffectView` blurring what is behind the *window* — the only blending mode that
-/// reads as glass over the desktop rather than over our own content.
-private struct Backdrop: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let v = NSVisualEffectView()
-        v.material = .hudWindow
-        v.blendingMode = .behindWindow
-        // Defaults to following window state, and this panel is deliberately never key — so the
-        // material would render inactive and flat exactly while it is on screen.
-        v.state = .active
-        return v
-    }
-
-    func updateNSView(_ v: NSVisualEffectView, context: Context) { v.state = .active }
+/// Measured off Droppy over a dark *and* a bright desktop: it reads `#000000` on both, so the
+/// glass everyone likes is opaque black with a lit rim, not translucency.
+enum Sleek {
+    static let body      = Color.black
+    static let control   = Color(red: 0.153, green: 0.161, blue: 0.165)   // #27292A pill body
+    static let chip      = Color(red: 0.306, green: 0.310, blue: 0.314)   // #4E4F50 selected
+    static let chipRim   = Color(red: 0.247, green: 0.259, blue: 0.271)   // #3F4245 1px edge
+    static let glyph     = Color.white
+    static let glyphIdle = Color(red: 0.576, green: 0.580, blue: 0.584)   // #939495
 }
 
 /// The island's shell in whichever material is selected.
@@ -56,26 +48,47 @@ struct IslandBackground: View {
 
     var body: some View {
         ZStack {
-            if surfaces.current == .glass {
-                glass
+            if surfaces.sleek {
+                shape.fill(Sleek.body)
+                rim
             } else {
                 shape.fill(Theme.bg)
+                shape.stroke(Theme.hairline, lineWidth: 0.7)
             }
         }
-        .overlay(shape.stroke(Theme.hairline, lineWidth: 0.7))
         .shadow(color: .black.opacity(0.55), radius: expanded ? 24 : 8, y: 6)
     }
 
-    /// The tint is not decoration: `Theme`'s text colours are fixed RGB tuned for a near-black
-    /// ground, and would lose contrast over a bright desktop without it.
-    @ViewBuilder
-    private var glass: some View {
-        if #available(macOS 26.0, *) {
-            Color.clear.glassEffect(.regular.tint(Theme.bg.opacity(0.62)), in: shape)
+    /// Light catching one edge reads as glass; blur across the whole face reads as fog.
+    private var rim: some View {
+        shape.stroke(
+            LinearGradient(
+                stops: [.init(color: .white.opacity(0.26), location: 0.0),
+                        .init(color: .white.opacity(0.07), location: 0.28),
+                        .init(color: .white.opacity(0.03), location: 1.0)],
+                startPoint: .top, endPoint: .bottom),
+            lineWidth: 1)
+    }
+}
+
+/// Droppy's controls are what actually read as glass: the only bright thing on a black ground.
+struct SleekChip<Content: View>: View {
+    var selected: Bool = false
+    @ViewBuilder var content: Content
+    @ObservedObject private var surfaces = Surfaces.shared
+
+    var body: some View {
+        if surfaces.sleek {
+            content
+                .foregroundColor(selected ? Sleek.glyph : Sleek.glyphIdle)
+                .padding(.horizontal, 7).padding(.vertical, 2.5)
+                .background(Capsule().fill(selected ? Sleek.chip : Sleek.control))
+                .overlay(Capsule().stroke(Sleek.chipRim, lineWidth: 0.8))
         } else {
-            Backdrop()
-                .clipShape(shape)
-                .overlay(shape.fill(Theme.bg.opacity(0.62)))
+            content
+                .foregroundColor(Theme.muted)
+                .padding(.horizontal, 7).padding(.vertical, 2.5)
+                .background(Capsule().stroke(Theme.hairline))
         }
     }
 }
