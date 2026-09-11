@@ -24,7 +24,11 @@ enum Blocked {
             let p = "\(dir)/\(job)/state.json"
             guard let data = FileManager.default.contents(atPath: p),
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  (obj["state"] as? String) == "blocked" else { continue }
+                  (obj["state"] as? String) == "blocked",
+                  // `state` turns "blocked" the moment any turn ends, so every conversation
+                  // awaiting a reply qualified. `tempo` stays "active" while a human is still
+                  // tending it, and only goes "blocked" when the agent is genuinely stuck.
+                  (obj["tempo"] as? String) != "active" else { continue }
             if let needs = (obj["needs"] as? String) ?? (obj["detail"] as? String), !needs.isEmpty {
                 found[String(job.prefix(8))] = needs
             }

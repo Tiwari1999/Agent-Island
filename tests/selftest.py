@@ -2014,11 +2014,17 @@ print("\n=== 33. blocked means stalled, not 'your turn' ===")
 _as = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
 # The harness marks every bg job "blocked" the moment its turn ends, so an ordinary
 # conversation awaiting a reply was badged and promoted above working rows.
-check("dormantBlocked actually checks dormancy",
-      "static let dormantAfter" in _as
+_bl = open(os.path.join(REPO, "Sources/AgentIsland/Blocked.swift")).read()
+# `state` flips to "blocked" the instant ANY turn ends, so a time threshold could only ever
+# delay the false badge, never prevent it. `tempo` is the field that actually discriminates.
+check("blocked is filtered on tempo, not just state",
+      '(obj["tempo"] as? String) != "active"' in _bl
+      and '(obj["state"] as? String) == "blocked"' in _bl)
+check("so a chat you are slow to answer is never badged, at any delay",
+      "!= \"active\"" in _bl)
+check("the time heuristic is only a backstop now, and an hour",
+      "static let dormantAfter: TimeInterval = 3600" in _as
       and "Date().timeIntervalSince(seen) > Self.dormantAfter" in _as)
-check("a chat you just replied in is not blocked",
-      "guard let seen = lastActive else { return true }" in _as)
 check("and blocked still outranks working once it is real",
       "if r.dormantBlocked { return 1 }" in _as and "r.isWorking ? 2 : 3" in _as)
 check("liveness and the working guard are still required",

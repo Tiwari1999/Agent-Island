@@ -169,10 +169,10 @@ struct AgentRow: Identifiable {
     /// Needs you *right now*: a hook fired inside the live window. This is what earns an alarm.
     // A pending ask from a killed process is moot; without this the badge outlived the CLI.
     var waiting: Bool { (live?.waiting ?? false) && (agent.pid.map(Proc.alive) ?? true) }
-    /// A background job is marked "blocked" the instant its turn ends, so every ordinary
-    /// conversation awaiting your next message qualifies. Only one that has then sat unanswered
-    /// is worth a badge and a place above working rows.
-    static let dormantAfter: TimeInterval = 300
+    /// Backstop only: `Blocked` now filters on the job's `tempo`, which is the honest signal.
+    /// This catches job files written without one, and is an hour so a conversation you are
+    /// slow to answer never trips it.
+    static let dormantAfter: TimeInterval = 3600
 
     /// Blocked on a question asked earlier, rather than one that just arrived. The job file
     /// outlives the run that wrote it, so without the liveness check the header counted
