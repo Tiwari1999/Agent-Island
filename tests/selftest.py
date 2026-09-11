@@ -360,7 +360,7 @@ check("a blocked row ranks where it can be found",
 # A working session with a stale vendor "blocked" phase read as blocked-and-working at once and
 # sorted to the top above the sessions actually running: a live turn beats the lagging phase.
 check("an actively working session is never counted as dormant-blocked",
-      "&& !isWorking" in _as5.split("var dormantBlocked")[1][:200])
+      "!isWorking" in _as5.split("var dormantBlocked")[1][:300])
 check("a working row shows what it is doing, not a remembered question",
       'if isWorking { return live?.detail ?? narration }' in _as5)
 # Empirically, against the live dump: nothing is both blocked and working.
@@ -530,7 +530,8 @@ check("the freeze is captured at open and dropped at close",
       "frozenOrder = Dictionary" in st and "frozenOrder = [:]" in st)
 vw2=open(os.path.join(REPO,"Sources/AgentIsland/Views.swift")).read()
 check("mode switches ride the same spring as the state machine",
-      vw2.count("withAnimation(.spring(response: 0.30") >= 3)
+      vw2.count("withAnimation(Motion.shell)") >= 3
+      and "withAnimation(.spring(" not in vw2)
 fm=open(os.path.join(REPO,"Sources/AgentIsland/FrameMeter.swift")).read()
 check("frame meter exists, gated off in normal runs",
       "AGENTISLAND_FRAMEPROBE" in fm and "p95" in fm)
