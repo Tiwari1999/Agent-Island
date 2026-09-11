@@ -169,12 +169,22 @@ struct AgentRow: Identifiable {
     /// Needs you *right now*: a hook fired inside the live window. This is what earns an alarm.
     // A pending ask from a killed process is moot; without this the badge outlived the CLI.
     var waiting: Bool { (live?.waiting ?? false) && (agent.pid.map(Proc.alive) ?? true) }
+    /// A background job is marked "blocked" the instant its turn ends, so every ordinary
+    /// conversation awaiting your next message qualifies. Only one that has then sat unanswered
+    /// is worth a badge and a place above working rows.
+    static let dormantAfter: TimeInterval = 300
+
     /// Blocked on a question asked earlier, rather than one that just arrived. The job file
     /// outlives the run that wrote it, so without the liveness check the header counted
     /// sessions that had been dead a fortnight and pointed at rows nobody could find.
     var dormantBlocked: Bool {
-        blockedQuestion != nil && !(live?.waiting ?? false) && !isWorking
-            && (agent.pid.map(Proc.alive) ?? (agent.remoteHost != nil))
+        guard blockedQuestion != nil, !(live?.waiting ?? false), !isWorking,
+              agent.pid.map(Proc.alive) ?? (agent.remoteHost != nil)
+        else { return false }
+        // The name and the comment above always promised this; only the check was missing,
+        // which is how the chat you are typing into showed as blocked and led the list.
+        guard let seen = lastActive else { return true }
+        return Date().timeIntervalSince(seen) > Self.dormantAfter
     }
 
     var ago: String {
