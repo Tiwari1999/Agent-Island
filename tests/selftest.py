@@ -1914,8 +1914,15 @@ check("the shell reads the toggle instead of a hardcoded fill",
 check("sleek is opaque black, not a frosted panel",
       "static let body      = Color.black" in _sf
       and "NSVisualEffectView" not in _sf and "hudWindow" not in _sf)
-check("the glass read comes from a lit rim, not blur",
-      "private var rim" in _sf and "LinearGradient" in _sf)
+# Droppy's edge is background-to-black in ONE pixel with no highlight; the rim that was
+# here rendered as a #414141 line across the top and had to go.
+check("there is no invented rim stroke on the sleek shell",
+      "private var rim" not in _sf and "shape.stroke(Theme.hairline" in _sf)
+check("the soft edge is an alpha mask, as Droppy's DroppyEdgeFadeMask is",
+      "dissolve(over:" in _sf and ".mask(" in _sf
+      and "Color.black.opacity(0)" in _sf.replace(".black.opacity(0)", "Color.black.opacity(0)"))
+check("and it scales so a short collapsed bar is not erased",
+      "min(Sleek.fadeLength, height * 0.3)" in _sf)
 check("light-chrome control tokens match the sampled pills",
       "0.153" in _sf and "0.306" in _sf and "0.247" in _sf)
 
