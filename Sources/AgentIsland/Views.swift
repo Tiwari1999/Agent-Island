@@ -438,9 +438,12 @@ struct AgentRowView: View {
                         Text(row.tasks?.current
                              ?? row.activity
                              ?? (row.waiting ? "waiting for your input"
-                                 : row.isWorking ? "working" : "idle"))   // never the raw phase
+                                 : row.isWorking ? "working"
+                                 : row.justCompleted ? "completed" : "idle"))  // never raw phase
                             .font(Theme.mono(9.5))
-                            .foregroundColor(row.waiting ? Theme.waiting : Theme.faint)
+                            // Weight, not hue: the palette keeps its three semantic colours.
+                            .foregroundColor(row.waiting ? Theme.waiting
+                                             : row.justCompleted ? Theme.muted : Theme.faint)
                             .lineLimit(1).truncationMode(.middle)
                     }
                 }

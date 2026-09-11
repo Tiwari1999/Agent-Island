@@ -2025,6 +2025,24 @@ check("liveness and the working guard are still required",
       "!(live?.waiting ?? false), !isWorking" in _as
       and "Proc.alive" in _as.split("var dormantBlocked")[1].split("}")[0] + _as.split("var dormantBlocked")[1][:400])
 
+print("\n=== 34. finished work reads as completed, then decays to idle ===")
+_as6 = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
+_vw6 = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
+check("there is a completed window, and it is an hour",
+      "static let completedFor: TimeInterval = 3600" in _as6)
+check("it decays to idle past the window",
+      "Date().timeIntervalSince(seen) <= Self.completedFor" in _as6)
+# "completed" must never shadow a state that needs attention.
+check("working, waiting, died and blocked all outrank it",
+      "guard !isWorking, !waiting, died == nil, !dormantBlocked," in _as6)
+check("a session with no activity at all is idle, not completed",
+      "let seen = lastActive else { return false }" in _as6.split("var justCompleted")[1][:300])
+check("the row prints it ahead of idle",
+      'row.justCompleted ? "completed" : "idle"' in _vw6)
+# The palette rule is three semantic hues; this distinction is carried by weight.
+check("and distinguishes it by weight, not a new hue",
+      "row.justCompleted ? Theme.muted : Theme.faint" in _vw6)
+
 print("\n=== 23. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")
 check("binary exists", os.path.exists(b))

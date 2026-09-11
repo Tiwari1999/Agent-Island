@@ -187,6 +187,16 @@ struct AgentRow: Identifiable {
         return Date().timeIntervalSince(seen) > Self.dormantAfter
     }
 
+    /// Work that landed recently reads differently from a session sitting untouched: "idle"
+    /// on something that finished a minute ago hides the thing you came back to look at.
+    static let completedFor: TimeInterval = 3600
+
+    var justCompleted: Bool {
+        guard !isWorking, !waiting, died == nil, !dormantBlocked,
+              let seen = lastActive else { return false }
+        return Date().timeIntervalSince(seen) <= Self.completedFor
+    }
+
     var ago: String {
         guard let lastActive else { return "" }
         let s = Date().timeIntervalSince(lastActive)
