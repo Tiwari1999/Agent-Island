@@ -149,7 +149,7 @@ struct CollapsedView: View {
                         Text("\(store.workingCount)")
                             .font(Theme.label(9.5)).foregroundColor(Theme.working)
                             .contentTransition(.numericText(value: Double(store.workingCount)))
-                            .animation(.snappy(duration: 0.25), value: store.workingCount)
+                            .animation(Motion.value, value: store.workingCount)
                     }
                 }
                 if !quiet, store.blockedCount > 0, store.waitingCount == 0 {
@@ -164,14 +164,14 @@ struct CollapsedView: View {
                         Text("\(store.waitingCount)")
                             .font(Theme.label(9.5)).foregroundColor(Theme.waiting)
                             .contentTransition(.numericText(value: Double(store.waitingCount)))
-                            .animation(.snappy(duration: 0.25), value: store.waitingCount)
+                            .animation(Motion.value, value: store.waitingCount)
                     }
                 }
                 if !quiet, let pct = status.quota.fiveHourPct {
                     Text("\(pct)%")
                         .font(Theme.mono(9)).foregroundColor(Quota.tint(pct))
                         .contentTransition(.numericText(value: Double(pct)))
-                        .animation(.snappy(duration: 0.3), value: pct)
+                        .animation(Motion.value, value: pct)
                 }
                 Spacer(minLength: 0)
             }
@@ -458,7 +458,7 @@ struct AgentRowView: View {
                 .fill(hover && row.canJump ? Theme.raised : Color.clear)
         )
         .contentShape(Rectangle())
-        .onHover { h in withAnimation(.easeOut(duration: 0.12)) { hover = h } }
+        .onHover { h in withAnimation(Motion.hover) { hover = h } }
         .onTapGesture { if row.canJump { onJump() } }
         .help(row.isBackground ? "Background session — opens a tab, attach command copied"
               : row.precise ? "Jump to this session in \(row.terminal)"
@@ -482,16 +482,16 @@ struct PanelView: View {
     /// here — a refresh never touches it, so the idle cost of the panel is unchanged.
     private func toggle(_ row: AgentRow) {
         if openRow == row.agent.sessionId {
-            withAnimation(.easeOut(duration: 0.16)) { openRow = nil; openCalls = [] }
+            withAnimation(Motion.content) { openRow = nil; openCalls = [] }
             return
         }
         let id = row.agent.sessionId, cwd = row.agent.cwd
-        withAnimation(.easeOut(duration: 0.16)) { openRow = id; openCalls = [] }
+        withAnimation(Motion.content) { openRow = id; openCalls = [] }
         DispatchQueue.global(qos: .userInitiated).async {
             let calls = ToolCalls.recent(session: id, cwd: cwd)
             DispatchQueue.main.async {
                 guard openRow == id else { return }   // closed again while we were reading
-                withAnimation(.easeOut(duration: 0.16)) { openCalls = calls }
+                withAnimation(Motion.content) { openCalls = calls }
             }
         }
     }
@@ -523,7 +523,7 @@ struct PanelView: View {
             .padding(.horizontal, 6).padding(.vertical, 2)
             .background(Capsule().stroke(Theme.hairline))
             .contentShape(Capsule())
-            .onTapGesture { withAnimation(.easeOut(duration: 0.18)) { surfaces.toggle() } }
+            .onTapGesture { withAnimation(Motion.quick) { surfaces.toggle() } }
             .help("panel material — \u{2318}\u{2325}G")
     }
 
@@ -616,7 +616,7 @@ struct PanelView: View {
                             let open = openRow == row.agent.sessionId
                             AgentRowView(row: row, model: status.quota.model,
                                          onPlan: store.hooks.plans[row.agent.sessionId].map { _ in
-                                             { withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) {
+                                             { withAnimation(Motion.shell) {
                                                    mode = .plan(session: row.agent.sessionId,
                                                                 title: row.displayName)
                                                } }
@@ -671,6 +671,7 @@ struct PanelView: View {
                 .font(.system(size: 9)).foregroundColor(Theme.agentTint)
             Text(v.label).font(Theme.label(10)).foregroundColor(Theme.text)
                 .lineLimit(1).fixedSize(horizontal: true, vertical: false)   // never wrap the name
+                .contentTransition(.opacity)
             if many {
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 7)).foregroundColor(Theme.faint)
@@ -679,7 +680,11 @@ struct PanelView: View {
         .padding(.horizontal, 6).padding(.vertical, 2)
         .background(Capsule().fill(Theme.raised))
         .contentShape(Capsule())
-        .onTapGesture { withAnimation(.snappy(duration: 0.2)) { store.cycleVendor() } }
+        // The names differ in width, so the pill has to resize on the same curve the label
+        // crossfades on or the two read as separate events.
+        .animation(Motion.content, value: v)
+        .contentShape(Capsule())
+        .onTapGesture { withAnimation(Motion.content) { store.cycleVendor() } }
     }
 
     /// The selected agent's own limits. Claude reports through its status line, Codex in its
@@ -693,7 +698,7 @@ struct PanelView: View {
     }
 
     private func back() {
-        withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) { mode = .sessions }
+        withAnimation(Motion.shell) { mode = .sessions }
     }
 
     private var costChip: some View {
@@ -708,7 +713,7 @@ struct PanelView: View {
         .background(Capsule().fill(Theme.raised))
         .contentShape(Capsule())
         .onTapGesture {
-            withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) {
+            withAnimation(Motion.shell) {
                 if case .costs = mode { mode = .sessions } else { mode = .costs }
             }
             if case .costs = mode { store.refreshCosts() }
@@ -847,7 +852,7 @@ struct ApprovalCard: View {
             .background(RoundedRectangle(cornerRadius: 7)
                 .fill(hot ? tint : tint.opacity(0.14)))
             .contentShape(Rectangle())
-            .onHover { h in withAnimation(.easeOut(duration: 0.1)) { hover(h) } }
+            .onHover { h in withAnimation(Motion.hover) { hover(h) } }
             .onTapGesture(perform: act)
     }
 }
@@ -1015,7 +1020,7 @@ struct QuestionCard: View {
                     .overlay(RoundedRectangle(cornerRadius: 8)
                         .stroke(on ? Theme.waiting.opacity(0.28) : Color.clear))
                     .contentShape(Rectangle())
-                    .onHover { h in withAnimation(.easeOut(duration: 0.1)) { hot = h ? opt.label : nil } }
+                    .onHover { h in withAnimation(Motion.hover) { hot = h ? opt.label : nil } }
                     .onTapGesture { if !handedOver { onPick(opt.label) } }
                 }
                 if !handedOver { other }

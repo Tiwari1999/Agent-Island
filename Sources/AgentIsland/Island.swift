@@ -208,7 +208,7 @@ final class Island: NSObject, ObservableObject {
             // Flipping materials without touching anything else is the only honest way to
             // compare them — same panel, same content, same instant.
             (kVK_ANSI_G, Hotkeys.cmdOpt, {
-                withAnimation(.easeOut(duration: 0.18)) { Surfaces.shared.toggle() }
+                withAnimation(Motion.quick) { Surfaces.shared.toggle() }
             }),
         ])
 
@@ -216,7 +216,7 @@ final class Island: NSObject, ObservableObject {
         sensor.onEnter = { [weak self] in
             guard let self else { return }
             // Reveal is instant (the 100ms affordance rule); expanding waits for intent.
-            withAnimation(.easeOut(duration: 0.14)) { self.revealed = true }
+            withAnimation(Motion.quick) { self.revealed = true }
             self.dwell?.cancel()
             let work = DispatchWorkItem { [weak self] in
                 guard let self, self.state == .collapsed else { return }
@@ -232,7 +232,7 @@ final class Island: NSObject, ObservableObject {
             // on it. Gating this on `.collapsed` stranded `revealed = true` whenever a question
             // or peek arrived mid-hover, so the bar drew at its wide hover width once the card
             // dismissed — an oversized resting bar that only a fresh hover cycle fixed.
-            withAnimation(.easeOut(duration: 0.16)) { self.revealed = false }
+            withAnimation(Motion.content) { self.revealed = false }
         }
 
         repoll()
@@ -401,7 +401,7 @@ final class Island: NSObject, ObservableObject {
     func expand() {
         guard state != .expanded else { return }
         if let v = window?.contentView { frames.start(on: v) }
-        withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) { state = .expanded }
+        withAnimation(Motion.shell) { state = .expanded }
         store.setPanelVisible(true)
         repoll()
         installClickMonitors()
@@ -450,7 +450,7 @@ final class Island: NSObject, ObservableObject {
     func collapse() {
         guard state != .collapsed else { return }
         tearDownPanel()
-        withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) { state = .collapsed }
+        withAnimation(Motion.shell) { state = .collapsed }
         repoll()
         // Every other transition refreshes this; collapse did not. The panel therefore kept
         // accepting events across its whole frame until the next poll — up to 750ms — and
@@ -458,7 +458,7 @@ final class Island: NSObject, ObservableObject {
         // exactly why the first move to the notch did nothing and the second worked.
         refreshHitRegion()
         if !hotRect.contains(NSEvent.mouseLocation) {
-            withAnimation(.easeOut(duration: 0.16)) { revealed = false }
+            withAnimation(Motion.content) { revealed = false }
         }
     }
 
@@ -469,11 +469,11 @@ final class Island: NSObject, ObservableObject {
         followActiveScreen()
         guard state != .expanded else { return }
         peekWork?.cancel()
-        withAnimation(.spring(response: 0.34, dampingFraction: 0.80)) { state = .peek(payload) }
+        withAnimation(Motion.shell) { state = .peek(payload) }
         refreshHitRegion()
         let work = DispatchWorkItem { [weak self] in
             guard let self, case .peek = self.state else { return }
-            withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) { self.state = .collapsed }
+            withAnimation(Motion.shell) { self.state = .collapsed }
         }
         peekWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 4.0, execute: work)
@@ -508,7 +508,7 @@ final class Island: NSObject, ObservableObject {
         if !queuedQuestions.isEmpty || !queuedApprovals.isEmpty { state = .collapsed }
         if !queuedQuestions.isEmpty { ask(queuedQuestions.removeFirst()); return }
         if !queuedApprovals.isEmpty { present(queuedApprovals.removeFirst()); return }
-        withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) { state = .collapsed }
+        withAnimation(Motion.shell) { state = .collapsed }
     }
 
     /// Expand the visible approval: assemble context off-main, hold the hook open, re-arm the
@@ -530,7 +530,7 @@ final class Island: NSObject, ObservableObject {
             let ctx = ApprovalContext.gather(for: a, trail: trail)
             Task { @MainActor in
                 guard let self, case .approval(let cur) = self.state, cur.id == a.id else { return }
-                withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+                withAnimation(Motion.shell) {
                     self.approvalContext = ctx
                 }
                 self.refreshHitRegion()
@@ -554,7 +554,7 @@ final class Island: NSObject, ObservableObject {
             (kVK_ANSI_D, Hotkeys.cmdOpt, { [weak self] in self?.answer(approval, allow: false) }),
             (kVK_ANSI_E, Hotkeys.cmdOpt, { [weak self] in self?.expandApproval() }),
         ])
-        withAnimation(.spring(response: 0.34, dampingFraction: 0.80)) { state = .approval(approval) }
+        withAnimation(Motion.shell) { state = .approval(approval) }
         refreshHitRegion()
         // Drop the card when the hook stops waiting, so a dead prompt can't linger.
         let work = DispatchWorkItem { [weak self] in
@@ -601,7 +601,7 @@ final class Island: NSObject, ObservableObject {
         // Keys are bound per question as the sequence advances, so 1-4 always means "this
         // question's options" rather than a running index across the whole ask.
         bindKeys(question, step: questionStep)
-        withAnimation(.spring(response: 0.34, dampingFraction: 0.80)) { state = .question(question) }
+        withAnimation(Motion.shell) { state = .question(question) }
         // Keep the hook waiting while the card is on screen: it used to expire underneath the
         // reader after 45 seconds, taking the only way to answer with it.
         holdQuestion(question)
@@ -644,7 +644,7 @@ final class Island: NSObject, ObservableObject {
         endTyping()     // the field belonged to the question being left
         questionStep = step
         bindKeys(q, step: step)
-        withAnimation(.easeOut(duration: 0.16)) { state = .question(q) }
+        withAnimation(Motion.content) { state = .question(q) }
         refreshHitRegion()
     }
 
@@ -682,7 +682,7 @@ final class Island: NSObject, ObservableObject {
         }
         followActiveScreen()
         peekWork?.cancel()
-        withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) { state = .console(session) }
+        withAnimation(Motion.shell) { state = .console(session) }
         watchForOutsideClick()
         // Without this the hit region keeps polling at the collapsed 0.75s cadence, so the
         // first click into the console lands on the app behind it and reads as "dismiss".
@@ -693,7 +693,7 @@ final class Island: NSObject, ObservableObject {
     func closeConsole() {
         guard case .console = state else { return }
         stopWatchingClicks()
-        withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) { state = .collapsed }
+        withAnimation(Motion.shell) { state = .collapsed }
         repoll()
         refreshHitRegion()
     }
@@ -870,7 +870,7 @@ final class Island: NSObject, ObservableObject {
         if let row = store.rows.first(where: { $0.agent.sessionId == payload.session }) {
             store.jump(row)
         }
-        withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) { state = .collapsed }
+        withAnimation(Motion.shell) { state = .collapsed }
     }
 }
 
@@ -947,6 +947,7 @@ private struct RootView: View {
                 IslandBackground(corner: corner, expanded: island.state == .expanded,
                                  inset: bottomInset)
 
+                Group {
                 switch island.state {
                 case .collapsed:
                     CollapsedView(store: store, status: status, notchWidth: island.notchWidth,
@@ -1015,6 +1016,8 @@ private struct RootView: View {
                     PanelView(store: store, status: status)
                         .padding(.top, island.notchHeight + Island.notchClearance)
                 }
+                }
+                .transition(.opacity.animation(Motion.content))
             }
             .frame(width: shellWidth, height: shellHeight)
             .contentShape(NotchShape(radius: corner))

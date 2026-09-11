@@ -43,6 +43,17 @@ enum Theme {
     static func mono(_ s: CGFloat) -> Font { .system(size: s, weight: .regular, design: .monospaced) }
 }
 
+/// One vocabulary for every moving thing. Eleven different curves were in play — a vendor
+/// switch on .snappy(0.2) beside a shell on .spring(0.30/0.85) — so things that move together
+/// ran on different clocks, which is what reads as rough.
+enum Motion {
+    static let shell   = Animation.spring(response: 0.32, dampingFraction: 0.84)
+    static let content = Animation.spring(response: 0.26, dampingFraction: 0.90)
+    static let quick   = Animation.easeOut(duration: 0.15)
+    static let hover   = Animation.easeOut(duration: 0.11)
+    static let value   = Animation.snappy(duration: 0.24)
+}
+
 /// Flush to the screen edge on top, rounded below — reads as part of the hardware.
 struct NotchShape: Shape {
     var radius: CGFloat

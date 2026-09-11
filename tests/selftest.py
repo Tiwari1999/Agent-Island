@@ -1991,6 +1991,24 @@ check("the idle line's width cap fits what it now prints", "min(300," in _vw)
 check("toggling the surface repaints every view, not just the observers",
       ".id(surfaces.choice)" in _iv)
 
+print("\n=== 32. one motion vocabulary ===")
+_th = open(os.path.join(REPO, "Sources/AgentIsland/Theme.swift")).read()
+check("there is a single named motion set", "enum Motion {" in _th
+      and all(k in _th for k in ["static let shell", "static let content",
+                                 "static let quick", "static let hover", "static let value"]))
+# Eleven ad-hoc curves meant things moving together ran on different clocks.
+_raw = []
+for f in ("Island.swift", "Views.swift"):
+    body = open(os.path.join(REPO, "Sources/AgentIsland", f)).read()
+    for lit in (".spring(response:", ".snappy(duration:", ".easeOut(duration:"):
+        if lit in body:
+            _raw += [f"{f}:{lit}" for _ in range(body.count(lit))]
+check("no view spells its own curve any more", not _raw, f"{len(_raw)} left: {_raw[:3]}")
+check("the shell's content crossfades instead of popping",
+      ".transition(.opacity.animation(Motion.content))" in _iv)
+check("the vendor pill morphs rather than jumping",
+      ".contentTransition(.opacity)" in _vw and ".animation(Motion.content, value: v)" in _vw)
+
 print("\n=== 23. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")
 check("binary exists", os.path.exists(b))
