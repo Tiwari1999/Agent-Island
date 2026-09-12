@@ -154,10 +154,9 @@ struct AgentRow: Identifiable {
     /// Needs you *right now*: a hook fired inside the live window. This is what earns an alarm.
     // A pending ask from a killed process is moot; without this the badge outlived the CLI.
     var waiting: Bool { (live?.waiting ?? false) && (agent.pid.map(Proc.alive) ?? true) }
-    /// Backstop only: `Blocked` now filters on the job's `tempo`, which is the honest signal.
-    /// This catches job files written without one, and is an hour so a conversation you are
-    /// slow to answer never trips it.
-    static let dormantAfter: TimeInterval = 3600
+    /// A grace period, not a filter: `Blocked.isInteractive` is what keeps a conversation you
+    /// are slow to answer from being badged, so this only has to outlast a momentary block.
+    static let dormantAfter: TimeInterval = 60
 
     /// Blocked on a question asked earlier, rather than one that just arrived. The job file
     /// outlives the run that wrote it, so without the liveness check the header counted

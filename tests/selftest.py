@@ -2040,9 +2040,13 @@ check("and the cruder signals are still required alongside it",
       and '(obj["state"] as? String) == "blocked"' in _bl)
 check("so a chat you are slow to answer is never badged, at any delay",
       "!= \"active\"" in _bl)
-check("the time heuristic is only a backstop now, and an hour",
-      "static let dormantAfter: TimeInterval = 3600" in _as
+# The hour existed to protect chats from false badges; isInteractive does that precisely now,
+# so this is just a grace period against a momentary block — and an inert badge helps nobody.
+check("the time heuristic is a short grace period, not an hour",
+      "static let dormantAfter: TimeInterval = 60" in _as
       and "Date().timeIntervalSince(seen) > Self.dormantAfter" in _as)
+check("and the completed window is untouched at an hour",
+      "static let completedFor: TimeInterval = 3600" in _as)
 check("and blocked still outranks working once it is real",
       "if r.dormantBlocked { return 1 }" in _as and "r.isWorking ? 2 : 3" in _as)
 check("liveness and the working guard are still required",
