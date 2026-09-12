@@ -7,6 +7,8 @@ struct ConsoleView: View {
     let session: String
     let onJump: () -> Void
     let onClose: () -> Void
+    /// nil when the console was summoned by the chord rather than from the list.
+    var onBack: (() -> Void)? = nil
 
     @State private var feed: [ConsoleEntry] = []
     @State private var loaded = false
@@ -32,6 +34,9 @@ struct ConsoleView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
+            if let onBack {
+                tag("\u{2039} agents", action: onBack)
+            }
             Circle()
                 .fill(row?.waiting == true ? Theme.waiting
                       : row?.isWorking == true ? Theme.working : Theme.faint)

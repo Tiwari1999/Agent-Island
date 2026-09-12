@@ -670,6 +670,10 @@ final class Island: NSObject, ObservableObject {
     /// visible in both places until it is answered.
     /// Show the console for one session. It is a reader: the panel never becomes key, so a
     /// glance can never take the cursor out of the editor behind it.
+    /// True when the console replaced the expanded panel, so closing returns you to the list
+    /// rather than dropping all the way to the bar.
+    private(set) var consoleFromPanel = false
+
     func openConsole(_ session: String) {
         if case .console(let cur) = state, cur == session { closeConsole(); return }
         guard !session.isEmpty else { return }
@@ -677,8 +681,8 @@ final class Island: NSObject, ObservableObject {
         // and something waiting on you outranks looking at something else anyway.
         switch state {
         case .approval, .question: return
-        case .expanded: tearDownPanel()
-        default: break
+        case .expanded: consoleFromPanel = true; tearDownPanel()
+        default: consoleFromPanel = false
         }
         followActiveScreen()
         peekWork?.cancel()
@@ -693,9 +697,18 @@ final class Island: NSObject, ObservableObject {
     func closeConsole() {
         guard case .console = state else { return }
         stopWatchingClicks()
+        if consoleFromPanel { consoleFromPanel = false; expand(); return }
         withAnimation(Motion.shell) { state = .collapsed }
         repoll()
         refreshHitRegion()
+    }
+
+    /// Back to the agent list, specifically — distinct from dismissing the console outright.
+    func consoleBackToPanel() {
+        guard case .console = state else { return }
+        stopWatchingClicks()
+        consoleFromPanel = false
+        expand()
     }
 
     /// The session a bare summon opens: whoever needs you, else whoever is working.
@@ -922,7 +935,9 @@ private struct RootView: View {
     /// edge fade is allowed to use.
     private var bottomInset: CGFloat {
         switch island.state {
-        case .collapsed: return 10
+        // Razor sides with a 20px smeared bottom reads as broken on a 37pt bar, and the
+        // reference island is crisp here too — the dissolve belongs on the big panels.
+        case .collapsed: return 0
         case .expanded:  return PanelView.listPadding
         default:         return 6
         }
@@ -1007,7 +1022,9 @@ private struct RootView: View {
                                         store.jumpToTerminal(row)
                                     }
                                 },
-                                onClose: { island.closeConsole() })
+                                onClose: { island.closeConsole() },
+                                onBack: island.consoleFromPanel
+                                    ? { island.consoleBackToPanel() } : nil)
                         .frame(maxHeight: .infinity, alignment: .bottom)
                         .padding(.bottom, 6)
                 case .expanded:
@@ -1017,7 +1034,6 @@ private struct RootView: View {
                         .padding(.top, island.notchHeight + Island.notchClearance)
                 }
                 }
-                .transition(.opacity.animation(Motion.content))
             }
             .frame(width: shellWidth, height: shellHeight)
             .contentShape(NotchShape(radius: corner))

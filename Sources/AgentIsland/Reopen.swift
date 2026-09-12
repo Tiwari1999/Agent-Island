@@ -19,9 +19,12 @@ enum Reopen {
         }
         switch agent.vendor {
         case .claude:
-            // Only a session with a transcript can be attached; one stopped before its first
-            // response must be respawned instead, and `attach` says so rather than working.
-            return "\(Shell.claude) attach \(String(agent.sessionId.prefix(8)))"
+            // `attach` opens a session that is still *running*; a finished one has nothing to
+            // attach to. --resume continues it in place — same id, same transcript, no fork.
+            if agent.pid != nil {
+                return "\(Shell.claude) attach \(String(agent.sessionId.prefix(8)))"
+            }
+            return "\(Shell.claude) --resume \(agent.sessionId)"
         case .codex:
             return "codex resume \(agent.sessionId)"
         case .cursor:

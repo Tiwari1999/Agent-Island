@@ -1967,7 +1967,7 @@ check("a card that needs you outranks a glance",
       "case .approval, .question: return" in _iv)
 check("and an open panel releases what it holds before the console takes over",
       "private func tearDownPanel()" in _iv
-      and "case .expanded: tearDownPanel()" in _iv)
+      and "tearDownPanel()" in _iv.split("func openConsole")[1][:600])
 check("the console polls its hit region at the interactive cadence",
       "repoll()" in _iv.split("func openConsole")[1].split("func closeConsole")[0])
 
@@ -2005,8 +2005,11 @@ for f in ("Island.swift", "Views.swift"):
         if lit in body:
             _raw += [f"{f}:{lit}" for _ in range(body.count(lit))]
 check("no view spells its own curve any more", not _raw, f"{len(_raw)} left: {_raw[:3]}")
-check("the shell's content crossfades instead of popping",
-      ".transition(.opacity.animation(Motion.content))" in _iv)
+# Was: assert the content crossfades. That crossfade drew the outgoing and incoming card
+# together and never finished, which is the ghosting the video caught. Section 36 now asserts
+# its absence; what survives here is the shell spring, which was the good half.
+check("the shell still springs between sizes on one curve",
+      "withAnimation(Motion.shell) { state = " in _iv)
 check("the vendor pill morphs rather than jumping",
       ".contentTransition(.opacity)" in _vw and ".animation(Motion.content, value: v)" in _vw)
 
@@ -2063,6 +2066,44 @@ check("columns align in a Grid rather than wrapping as prose",
       "Grid(alignment: .leading" in _pm and "GridRow" in _pm)
 check("the header row carries the weight the body gives up",
       "i == 0 ? Theme.text : Theme.muted" in _pm)
+
+print("\n=== 36. video-reported regression + three fixes ===")
+_iv6 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_cv6 = open(os.path.join(REPO, "Sources/AgentIsland/ConsoleView.swift")).read()
+_rp6 = open(os.path.join(REPO, "Sources/AgentIsland/Reopen.swift")).read()
+_as7 = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
+
+# A crossfade on the state arm drew the outgoing and incoming card together, and the 0.06s
+# poll restarted it before it could finish — leaving both copies on screen for good.
+check("the state arm does not crossfade its content",
+      ".transition(.opacity.animation(Motion.content))" not in _iv6)
+
+# Razor sides with a 20px smeared bottom; the reference island is crisp here too.
+check("the collapsed bar has no edge fade",
+      "case .collapsed: return 0" in _iv6.split("private var bottomInset")[1][:400])
+check("but the panels that end in empty space still do",
+      "case .expanded:  return PanelView.listPadding" in _iv6)
+
+check("the console remembers whether it replaced the list",
+      "private(set) var consoleFromPanel" in _iv6
+      and "case .expanded: consoleFromPanel = true" in _iv6)
+check("closing it returns you there instead of to the bar",
+      "if consoleFromPanel { consoleFromPanel = false; expand(); return }" in _iv6)
+check("and there is an explicit way back to the agent list",
+      "func consoleBackToPanel()" in _iv6 and "onBack" in _cv6)
+# The chord can summon the console with no list behind it; a back arrow would lie there.
+check("the back control is hidden when there is no list to go back to",
+      "island.consoleFromPanel" in _iv6 and "var onBack: (() -> Void)? = nil" in _cv6)
+
+# `claude attach` opens a session that is still running; a finished one has nothing to attach
+# to, which is why those rows looked clickable and did nothing.
+check("a finished Claude session resumes rather than attaching",
+      'return "\\(Shell.claude) --resume \\(agent.sessionId)"' in _rp6
+      and "if agent.pid != nil {" in _rp6)
+check("and jump() actually reopens it instead of returning",
+      "if let note = Reopen.run(row.agent, in: row.agent.cwd)" in _as7)
+check("canJump no longer promises something jump() refuses",
+      "Reopen.command(for: agent) != nil" in _as7)
 
 print("\n=== 23. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")

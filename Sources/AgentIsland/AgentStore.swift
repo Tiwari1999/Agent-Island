@@ -594,7 +594,12 @@ final class AgentStore: ObservableObject {
             onBackgroundAttach?("\(row.displayName) — path copied, session not resolvable")
             return
         }
-        guard row.agent.pid != nil else { return }
+        // A finished session has no terminal to focus, and returning here is why those rows
+        // looked clickable and did nothing. Reopen knows how to continue each vendor.
+        guard row.agent.pid != nil else {
+            if let note = Reopen.run(row.agent, in: row.agent.cwd) { onBackgroundAttach?(note) }
+            return
+        }
         guard row.agent.vendor == .claude else { return }   // only Claude has an attach command
         let cmd = "\(Shell.claude) attach \(String(row.agent.sessionId.prefix(8)))"
         NSPasteboard.general.clearContents()
