@@ -119,6 +119,7 @@ final class Island: NSObject, ObservableObject {
         if let current = pinned, current.frame == target.frame { return false }
         pinned = target
         measureNotch(target)
+        applySpaceBehavior()
         let size = Self.maxSize
         window.setFrame(NSRect(x: target.frame.midX - size.width / 2,
                                y: target.frame.maxY - size.height,
@@ -147,10 +148,10 @@ final class Island: NSObject, ObservableObject {
         panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.isExcludedFromWindowsMenu = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.contentView = FirstMouseHostingView(rootView: RootView(island: self, store: store, status: status))
         panel.orderFrontRegardless()
         window = panel
+        applySpaceBehavior()
 
         heartbeat = Approvals.startHeartbeat()
 
@@ -212,6 +213,19 @@ final class Island: NSObject, ObservableObject {
             }),
         ])
 
+        // Mirroring, docking and resolution changes invalidate everything measureNotch read,
+        // and `pinned` holds a screen that may no longer exist. Re-home from scratch.
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.pinned = nil
+                self.followActiveScreen()
+                self.refreshHitRegion()
+            }
+        }
+
         sensor.install(on: screen, notchWidth: notchWidth, notchHeight: notchHeight)
         sensor.onEnter = { [weak self] in
             guard let self else { return }
@@ -236,6 +250,15 @@ final class Island: NSObject, ObservableObject {
         }
 
         repoll()
+    }
+
+    /// In a notch the island occupies dead pixels, so floating over a fullscreen app costs
+    /// nothing. Without one those same pixels are the app's own content — its tab strip.
+    private func applySpaceBehavior() {
+        var behavior: NSWindow.CollectionBehavior = [.canJoinAllSpaces, .stationary]
+        if (screen?.safeAreaInsets.top ?? 0) > 0 { behavior.insert(.fullScreenAuxiliary) }
+        window?.collectionBehavior = behavior
+        sensor.spaces = behavior
     }
 
     private func measureNotch(_ screen: NSScreen) {

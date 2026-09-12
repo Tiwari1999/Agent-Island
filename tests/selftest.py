@@ -2197,6 +2197,26 @@ check("no dead declarations survive the sweep",
       "var unsupported: String?" not in _as5 and "static let sheen" not in
       open(os.path.join(REPO, "Sources/AgentIsland/Theme.swift")).read())
 
+print("\n=== 40. the island does not steal a screen that has no notch ===")
+_iv8 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_hs8 = open(os.path.join(REPO, "Sources/AgentIsland/HoverSensor.swift")).read()
+# In a notch these pixels are dead. On an external display or a mirrored one they are the top
+# of somebody's window — which is how a fullscreen Chrome lost its tab strip.
+check("floating over fullscreen is decided by the display, not hardcoded",
+      "private func applySpaceBehavior()" in _iv8
+      and "if (screen?.safeAreaInsets.top ?? 0) > 0 { behavior.insert(.fullScreenAuxiliary) }" in _iv8)
+check("so neither panel hardcodes fullScreenAuxiliary any more",
+      "[.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]" not in _iv8
+      and "panel.collectionBehavior = spaces" in _hs8)
+check("and the sensor follows the same decision, or hover outlives the bar",
+      "sensor.spaces = behavior" in _iv8 and "var spaces: NSWindow.CollectionBehavior" in _hs8)
+# Mirroring swaps the screen out from under `pinned`; nothing re-measured until the next expand.
+check("a display change re-homes the island instead of leaving it stale",
+      "NSApplication.didChangeScreenParametersNotification" in _iv8
+      and "self.pinned = nil" in _iv8)
+check("and the behavior is re-applied when it moves screens",
+      _iv8.count("applySpaceBehavior()") >= 3)
+
 print("\n=== 23. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")
 check("binary exists", os.path.exists(b))
