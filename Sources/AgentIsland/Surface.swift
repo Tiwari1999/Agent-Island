@@ -23,7 +23,6 @@ final class Surfaces: ObservableObject {
     }
 
     func toggle() { choice = choice.next }
-    var current: Surface { choice }
     var sleek: Bool { choice == .sleek }
 }
 

@@ -2020,7 +2020,11 @@ _as = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
 _bl = open(os.path.join(REPO, "Sources/AgentIsland/Blocked.swift")).read()
 # `state` flips to "blocked" the instant ANY turn ends, so a time threshold could only ever
 # delay the false badge, never prevent it. `tempo` is the field that actually discriminates.
-check("blocked is filtered on tempo, not just state",
+# `state` flips when any turn ends and `tempo` follows it 20s later (measured), so neither
+# separates a stalled agent from a chat awaiting a reply. interactiveLineage does.
+check("a session a human is conversing with is never badged blocked",
+      '(obj["interactiveLineage"] as? Bool) != true' in _bl)
+check("and the cruder signals are still required alongside it",
       '(obj["tempo"] as? String) != "active"' in _bl
       and '(obj["state"] as? String) == "blocked"' in _bl)
 check("so a chat you are slow to answer is never badged, at any delay",
@@ -2097,6 +2101,14 @@ check("the back control is hidden when there is no list to go back to",
 
 # `claude attach` opens a session that is still running; a finished one has nothing to attach
 # to, which is why those rows looked clickable and did nothing.
+# Warp is not scriptable, its launch-config URL does not execute, and a timed paste can land
+# in whatever the user was working in — Terminal runs it outright instead.
+check("the resume command is actually executed, not just copied",
+      'tell application \\"Terminal\\" to do script' in _rp6)
+check("and the path is quoted, since project dirs can contain spaces",
+      "shellQuote(dir)" in _rp6 and "appleQuote(script)" in _rp6)
+check("no timed paste into an unverified window survives",
+      "maskCommand" not in _rp6 and "keyboardSetUnicodeString" not in _rp6)
 check("a finished Claude session resumes rather than attaching",
       'return "\\(Shell.claude) --resume \\(agent.sessionId)"' in _rp6
       and "if agent.pid != nil {" in _rp6)
@@ -2104,6 +2116,18 @@ check("and jump() actually reopens it instead of returning",
       "if let note = Reopen.run(row.agent, in: row.agent.cwd)" in _as7)
 check("canJump no longer promises something jump() refuses",
       "Reopen.command(for: agent) != nil" in _as7)
+
+print("\n=== 37. the question card does not flake on hover ===")
+_vw7 = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
+# Per-option, crossing the gap between rows cleared `hot`, dropped the 230pt preview pane and
+# snapped the card narrower, then back on the next row.
+check("the preview slot is decided by the question, not the hovered row",
+      "item.options.contains { !$0.preview.isEmpty }" in _vw7)
+check("so hovering cannot change the card's width",
+      "!(focused?.preview ?? \"\").isEmpty" not in _vw7)
+check("no dead surface helper is left behind",
+      "var current: Surface" not in open(
+          os.path.join(REPO, "Sources/AgentIsland/Surface.swift")).read())
 
 print("\n=== 23. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")

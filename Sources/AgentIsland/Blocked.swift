@@ -25,9 +25,11 @@ enum Blocked {
             guard let data = FileManager.default.contents(atPath: p),
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   (obj["state"] as? String) == "blocked",
-                  // `state` turns "blocked" the moment any turn ends, so every conversation
-                  // awaiting a reply qualified. `tempo` stays "active" while a human is still
-                  // tending it, and only goes "blocked" when the agent is genuinely stuck.
+                  // `state` flips the moment any turn ends, and `tempo` follows it 20s later,
+                  // so neither separates a stalled agent from a chat awaiting your reply.
+                  // `interactiveLineage` does: it marks the sessions a human is conversing
+                  // with, and those are never blocked — it is simply your turn.
+                  (obj["interactiveLineage"] as? Bool) != true,
                   (obj["tempo"] as? String) != "active" else { continue }
             if let needs = (obj["needs"] as? String) ?? (obj["detail"] as? String), !needs.isEmpty {
                 found[String(job.prefix(8))] = needs

@@ -905,7 +905,12 @@ struct QuestionCard: View {
         item.options.first { $0.label == hot } ?? item.options.first { chosen.contains($0.label) }
             ?? item.options.first
     }
-    private var showsPreview: Bool { !(focused?.preview ?? "").isEmpty }
+    /// Decided by the question, not by whichever row the cursor is over. Per-option, crossing
+    /// the gap between two options cleared `hot`, dropped the pane, and snapped the card 230pt
+    /// narrower — then back on the next row. That oscillation is the flake in the recording,
+    /// and it also matches the tool's own contract: any option with a preview puts the whole
+    /// question in the side-by-side layout.
+    private var showsPreview: Bool { item.options.contains { !$0.preview.isEmpty } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {

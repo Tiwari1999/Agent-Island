@@ -4,7 +4,7 @@ import AppKit
 ///
 /// A jump focuses a live terminal. Most sessions in the list are not live — they are history you
 /// might want to continue — and each vendor resumes differently. Rather than leaving those rows
-/// dead, hand over the exact command and open a terminal to paste it into.
+/// dead, run the vendor's own resume command in a terminal, in the session's directory.
 enum Reopen {
     /// The command that continues this session, or nil if the vendor has no resume path.
     static func command(for agent: Agent) -> String? {
@@ -32,25 +32,35 @@ enum Reopen {
         }
     }
 
-    /// Put the command on the clipboard and open a terminal in the session's directory.
-    /// Returns a short line describing what happened, for the toast.
+    /// Run the resume command in a terminal at the session's directory. The command also goes
+    /// on the clipboard, so a remote session — which must resume on its own machine — is still
+    /// one paste away. Returns a short line for the toast.
     @discardableResult
     static func run(_ agent: Agent, in cwd: String?) -> String? {
         guard let cmd = command(for: agent) else { return nil }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(cmd, forType: .string)
 
-        // Warp opens a tab in the right directory; the command is one paste away. Launching it
-        // directly would mean choosing a shell and a profile on the user's behalf.
-        // A remote path means nothing to the local Warp, so it gets a plain tab.
-        if agent.remoteHost != nil {
-            if let u = URL(string: "warp://action/new_tab") { NSWorkspace.shared.open(u) }
-        } else if let dir = cwd, !dir.isEmpty {
-            _ = Shell.runSync("/usr/bin/open", ["-a", "Warp", dir])
-        } else if let u = URL(string: "warp://action/new_tab") {
-            NSWorkspace.shared.open(u)
+        // Warp is not scriptable, its launch-config URL does not execute, and a timed ⌘V can
+        // land in whatever the user was working in. Terminal.app runs it outright.
+        if agent.remoteHost == nil, let dir = cwd, !dir.isEmpty,
+           FileManager.default.fileExists(atPath: dir) {
+            let script = "cd \(shellQuote(dir)) && \(cmd)"
+            _ = Shell.runSync("/usr/bin/osascript",
+                              ["-e", "tell application \"Terminal\" to do script \(appleQuote(script))",
+                               "-e", "tell application \"Terminal\" to activate"])
+            return "\(agent.vendor.label) resuming in Terminal"
         }
+        if let u = URL(string: "warp://action/new_tab") { NSWorkspace.shared.open(u) }
         return "\(agent.vendor.label) resume command copied"
+    }
+
+    private static func shellQuote(_ s: String) -> String {
+        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+    private static func appleQuote(_ s: String) -> String {
+        "\"" + s.replacingOccurrences(of: "\\", with: "\\\\")
+                 .replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 
     /// Open the session's project in Cursor — the natural destination for a Cursor chat, which
