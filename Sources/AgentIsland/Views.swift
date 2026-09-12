@@ -1074,18 +1074,23 @@ struct QuestionCard: View {
     }
 
     private var preview: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("PREVIEW")
-                .font(Theme.mono(8)).foregroundColor(Theme.agentTint).tracking(1.2)
-            Text(focused?.preview ?? "")
-                .font(Theme.mono(9)).foregroundColor(Theme.faint)
-                .fixedSize(horizontal: false, vertical: true)
+        // The column is reserved for the whole question so hovering cannot resize the card,
+        // but an option with no preview shows empty space rather than a label over nothing.
+        let text = focused?.preview ?? ""
+        return VStack(alignment: .leading, spacing: 6) {
+            if !text.isEmpty {
+                Text("PREVIEW")
+                    .font(Theme.mono(8)).foregroundColor(Theme.agentTint).tracking(1.2)
+                Text(text)
+                    .font(Theme.mono(9)).foregroundColor(Theme.faint)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 14).padding(.top, 2)
         .frame(width: 230, alignment: .leading)
         .overlay(alignment: .leading) {
-            Rectangle().fill(Theme.hairline).frame(width: 1)
+            Rectangle().fill(text.isEmpty ? Color.clear : Theme.hairline).frame(width: 1)
         }
     }
 

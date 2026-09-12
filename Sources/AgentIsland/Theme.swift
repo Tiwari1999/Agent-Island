@@ -138,11 +138,6 @@ struct Dot: View {
 
 
 extension Theme {
-    /// Depth without colour noise — a faint top sheen so panels read as glass, not paint.
-    static let sheen = LinearGradient(
-        colors: [Color.white.opacity(0.06), Color.white.opacity(0.0)],
-        startPoint: .top, endPoint: .bottom)
-
     static func surface(_ raised: Bool) -> LinearGradient {
         LinearGradient(colors: raised
             ? [Color(red: 0.118, green: 0.126, blue: 0.149), Color(red: 0.086, green: 0.094, blue: 0.114)]

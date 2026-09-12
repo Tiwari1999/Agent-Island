@@ -697,7 +697,9 @@ final class Island: NSObject, ObservableObject {
     func closeConsole() {
         guard case .console = state else { return }
         stopWatchingClicks()
-        if consoleFromPanel { consoleFromPanel = false; expand(); return }
+        // Dismiss means dismiss, for the outside click, the chord and the chord's tag alike.
+        // Only the `‹ agents` control goes back to the list, via consoleBackToPanel().
+        consoleFromPanel = false
         withAnimation(Motion.shell) { state = .collapsed }
         repoll()
         refreshHitRegion()

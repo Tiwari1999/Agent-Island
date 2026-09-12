@@ -3,15 +3,16 @@ import Foundation
 enum Shell {
     /// Resolved, not assumed: Homebrew's path is an Apple-silicon default, and the CLI is just
     /// as often under /usr/local or ~/.local on someone else's machine.
-    static let claude: String = {
-        let candidates = ["/opt/homebrew/bin/claude", "/usr/local/bin/claude",
-                          NSHomeDirectory() + "/.local/bin/claude",
-                          NSHomeDirectory() + "/.claude/local/claude"]
-        if let hit = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
-            return hit
-        }
-        return "claude"   // fall back to whatever the user's PATH resolves
-    }()
+    static func resolve(_ name: String, extra: [String] = []) -> String {
+        let dirs = ["/opt/homebrew/bin", "/usr/local/bin", NSHomeDirectory() + "/.local/bin"]
+        let candidates = dirs.map { "\($0)/\(name)" } + extra
+        // Fall back to whatever the user's PATH resolves.
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) } ?? name
+    }
+
+    static let claude = resolve("claude", extra: [NSHomeDirectory() + "/.claude/local/claude"])
+    static let codex = resolve("codex")
+    static let cursorAgent = resolve("cursor-agent")
 
     /// Process creation is the dominant energy cost in a poller, so it is counted rather than
     /// guessed at: the panel is meant to sit in the notch all day.

@@ -77,16 +77,6 @@ struct AgentRow: Identifiable {
 
     /// The agent's own description of the session, and only then the generated `mono-17` handle.
     var displayName: String { aiTitle ?? agent.label }
-    /// What this row cannot show, because its vendor does not publish it. Shown in place of a
-    /// blank, so an unsupported capability never reads as a broken one.
-    var unsupported: String? {
-        switch agent.vendor {
-        case .claude: return nil
-        case .codex:  return tasks == nil ? "no task list" : nil
-        case .cursor: return "no quota data"
-        }
-    }
-
     /// Context pressure — the compaction cliff is at 90%.
     var contextPct: Int? { agent.contextPctOverride ?? status?.contextPct }
 
@@ -173,7 +163,8 @@ struct AgentRow: Identifiable {
     /// outlives the run that wrote it, so without the liveness check the header counted
     /// sessions that had been dead a fortnight and pointed at rows nobody could find.
     var dormantBlocked: Bool {
-        guard blockedQuestion != nil, !(live?.waiting ?? false), !isWorking,
+        guard blockedQuestion != nil, !Blocked.isInteractive(agent.sessionId),
+              !(live?.waiting ?? false), !isWorking,
               agent.pid.map(Proc.alive) ?? (agent.remoteHost != nil)
         else { return false }
         // The name and the comment above always promised this; only the check was missing,
@@ -276,6 +267,9 @@ final class AgentStore: ObservableObject {
     }
 
     private func applyOrder(_ rows: [AgentRow]) -> [AgentRow] {
+        // tier() reads Blocked; refresh once up front so the comparator sees a fixed snapshot
+        // rather than one that can expire between two comparisons of the same sort.
+        Blocked.refresh()
         let frozen = panelVisible && !frozenOrder.isEmpty
         return rows.sorted { a, b in
             let (ta, tb) = (Self.tier(a), Self.tier(b))
@@ -561,19 +555,12 @@ final class AgentStore: ObservableObject {
             onBackgroundAttach?("\(row.displayName) — path copied, session not resolvable")
             return
         }
-        // A finished session has no terminal to focus, and returning here is why those rows
-        // looked clickable and did nothing. Reopen knows how to continue each vendor.
-        guard row.agent.pid != nil else {
-            if let note = Reopen.run(row.agent, in: row.agent.cwd) { onBackgroundAttach?(note) }
-            return
+        // Nothing left to focus: a finished session, or a live one in a terminal we cannot
+        // address. Reopen continues either — `command` already picks attach over resume.
+        let announce: (String) -> Void = { [weak self] in self?.onBackgroundAttach?($0) }
+        if !Reopen.run(row.agent, in: row.agent.cwd, note: announce) {
+            onBackgroundAttach?("\(row.displayName) — no resume path for this session")
         }
-        guard row.agent.vendor == .claude else { return }   // only Claude has an attach command
-        let cmd = "\(Shell.claude) attach \(String(row.agent.sessionId.prefix(8)))"
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(cmd, forType: .string)
-        if let u = URL(string: "warp://action/new_tab") { NSWorkspace.shared.open(u) }
-        // A silent clipboard write is indistinguishable from a dead button.
-        onBackgroundAttach?(row.displayName)
     }
 
     /// Announced by the island so the user knows a command is waiting on the clipboard.

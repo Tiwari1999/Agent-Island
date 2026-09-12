@@ -2025,8 +2025,16 @@ _bl = open(os.path.join(REPO, "Sources/AgentIsland/Blocked.swift")).read()
 # delay the false badge, never prevent it. `tempo` is the field that actually discriminates.
 # `state` flips when any turn ends and `tempo` follows it 20s later (measured), so neither
 # separates a stalled agent from a chat awaiting a reply. interactiveLineage does.
+_as5 = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
 check("a session a human is conversing with is never badged blocked",
-      '(obj["interactiveLineage"] as? Bool) != true' in _bl)
+      '!Blocked.isInteractive(agent.sessionId)' in _as5)
+# Filtering those sessions out of the cache also deleted the question from the collapsed bar,
+# the row line and the console footer — every reader of `activity` shares that cache.
+check("but it still carries what it is asking, since activity reads the same cache",
+      'if (obj["interactiveLineage"] as? Bool) == true { chatting.insert(key) }' in _bl
+      and "found[key] = needs" in _bl)
+check("and the cache is locked, being reachable from a nonisolated comparator",
+      "private static let lock = NSLock()" in _bl and "Blocked.refresh()" in _as5)
 check("and the cruder signals are still required alongside it",
       '(obj["tempo"] as? String) != "active"' in _bl
       and '(obj["state"] as? String) == "blocked"' in _bl)
@@ -2094,8 +2102,11 @@ check("but the panels that end in empty space still do",
 check("the console remembers whether it replaced the list",
       "private(set) var consoleFromPanel" in _iv6
       and "case .expanded: consoleFromPanel = true" in _iv6)
-check("closing it returns you there instead of to the bar",
-      "if consoleFromPanel { consoleFromPanel = false; expand(); return }" in _iv6)
+# Putting back-navigation inside closeConsole() silently repurposed the outside-click monitor,
+# the chord and the chord's own tag, so dismissing the console re-opened the panel.
+check("dismissing the console collapses, and only the back control returns to the list",
+      "if consoleFromPanel { consoleFromPanel = false; expand(); return }" not in _iv6
+      and _iv6.index("func consoleBackToPanel()") > _iv6.index("func closeConsole()"))
 check("and there is an explicit way back to the agent list",
       "func consoleBackToPanel()" in _iv6 and "onBack" in _cv6)
 # The chord can summon the console with no list behind it; a back arrow would lie there.
@@ -2110,13 +2121,20 @@ check("the resume command is actually executed, not just copied",
       'tell application \\"Terminal\\" to do script' in _rp6)
 check("and the path is quoted, since project dirs can contain spaces",
       "shellQuote(dir)" in _rp6 and "appleQuote(script)" in _rp6)
+# A timed paste would be CGEvent plus a delay. Assert against that shape, and for the
+# positive mechanism — the command goes to a named application, not to whatever has focus.
 check("no timed paste into an unverified window survives",
-      "maskCommand" not in _rp6 and "keyboardSetUnicodeString" not in _rp6)
+      "CGEvent" not in _rp6 and "asyncAfter" not in _rp6
+      and 'tell application \\"Terminal\\" to do script' in _rp6)
 check("a finished Claude session resumes rather than attaching",
       'return "\\(Shell.claude) --resume \\(agent.sessionId)"' in _rp6
       and "if agent.pid != nil {" in _rp6)
 check("and jump() actually reopens it instead of returning",
-      "if let note = Reopen.run(row.agent, in: row.agent.cwd)" in _as7)
+      "if !Reopen.run(row.agent, in: row.agent.cwd, note: announce)" in _as7)
+# The claude-only guard below the fix meant a live Codex or Cursor row in an unrecognised
+# terminal still highlighted on hover and did nothing on click.
+check("including a live session whose terminal could not be resolved",
+      "guard row.agent.vendor == .claude else { return }" not in _as7)
 check("canJump no longer promises something jump() refuses",
       "Reopen.command(for: agent) != nil" in _as7)
 
@@ -2131,6 +2149,49 @@ check("so hovering cannot change the card's width",
 check("no dead surface helper is left behind",
       "var current: Surface" not in open(
           os.path.join(REPO, "Sources/AgentIsland/Surface.swift")).read())
+
+print("\n=== 38. the resume command is executed, so its inputs are inputs ===")
+_rp7 = open(os.path.join(REPO, "Sources/AgentIsland/Reopen.swift")).read()
+_sh7 = open(os.path.join(REPO, "Sources/AgentIsland/Shell.swift")).read()
+_sf7 = open(os.path.join(REPO, "Sources/AgentIsland/Surface.swift")).read()
+_vw8 = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
+# Session ids come from parsed transcripts and directory names. While the command was only
+# copied that was harmless; it is now run, so an id is untrusted input to a shell.
+check("a session id is validated before it enters a command that runs",
+      "guard Approvals.validID(agent.sessionId) else { return nil }" in _rp7)
+check("and so is the remote host, which is interpolated unquoted into ssh",
+      "guard Approvals.validID(sid), validHost(host) else { return nil }" in _rp7)
+check("which makes command(for:) genuinely optional, so canJump means something",
+      _rp7.count("return nil") >= 2)
+# AppleScript string literals cannot span lines and have no escape for control characters.
+check("a path AppleScript cannot hold falls back to the clipboard",
+      "private static func scriptable(" in _rp7 and "scriptable(dir)" in _rp7
+      and "$0.value < 0x20" in _rp7)
+# The first run raises the Automation consent prompt; runSync would block the island on it.
+check("the terminal launch does not block the main actor",
+      "Shell.runSync" not in _rp7 and "Shell.run(" in _rp7)
+check("and the toast reports what actually happened",
+      "status == 0 ?" in _rp7)
+check("a repeat click does not resume one transcript twice",
+      "Date().timeIntervalSince(last.at) < 5" in _rp7)
+check("every vendor's CLI is resolved, not just claude's",
+      "static let codex = resolve(" in _sh7 and "static let cursorAgent = resolve(" in _sh7
+      and "Shell.codex) resume" in _rp7 and "Shell.cursorAgent) --resume" in _rp7)
+# ssh runs on the far machine, where our local paths mean nothing.
+check("but the ssh arms stay bare, since the remote PATH resolves them",
+      "ssh -t \\(host) claude --resume" in _rp7)
+
+print("\n=== 39. work the island does not need to do ===")
+check("the edge fade is skipped when there is no room to fade",
+      "if inset > 0 {" in _sf7)
+check("and an option with no preview is not given a label over nothing",
+      'Rectangle().fill(text.isEmpty ? Color.clear : Theme.hairline)' in _vw8
+      and "if !text.isEmpty {" in _vw8)
+check("the preview column keeps its width regardless, so the card cannot jump",
+      ".frame(width: 230, alignment: .leading)" in _vw8)
+check("no dead declarations survive the sweep",
+      "var unsupported: String?" not in _as5 and "static let sheen" not in
+      open(os.path.join(REPO, "Sources/AgentIsland/Theme.swift")).read())
 
 print("\n=== 23. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")

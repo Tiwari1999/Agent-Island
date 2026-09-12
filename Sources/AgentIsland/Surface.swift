@@ -51,8 +51,14 @@ struct IslandBackground: View {
             if surfaces.sleek {
                 // No stroke of any kind: Droppy's edge is one hard pixel, and the lit rim that
                 // replaced it read as a drawn-on white line rather than light.
-                GeometryReader { g in
-                    shape.fill(Sleek.body).mask(dissolve(over: g.size.height))
+                // The fade is bounded by `inset`, so at zero the mask is a no-op — skip it and
+                // the offscreen pass it forces, which is the collapsed bar's whole life.
+                if inset > 0 {
+                    GeometryReader { g in
+                        shape.fill(Sleek.body).mask(dissolve(over: g.size.height))
+                    }
+                } else {
+                    shape.fill(Sleek.body)
                 }
             } else {
                 shape.fill(Theme.bg)
