@@ -623,6 +623,20 @@ check("a process match falls back to argv[0] when p_comm is a version string",
 check("the ancestor walk uses the same fallback",
       "matches(pid: Int(cur), comm: comm[cur], names: names)" in _pc)
 check("tests/procname.swift present", os.path.exists(os.path.join(REPO, "tests", "procname.swift")))
+# The same layout breaks the exact comm scan discovery uses, which is a separate call site from
+# the match above: with sessions live it returned none, so only the hook fallback bound a pid.
+check("discovery asks for a process by name, not by an exact p_comm",
+      "static func pids(named names: Set<String>)" in _pc
+      and "func pids(comm" not in _pc)
+_cs = open(os.path.join(REPO, "Sources/AgentIsland/CursorSource.swift")).read()
+_cd = open(os.path.join(REPO, "Sources/AgentIsland/CodexSource.swift")).read()
+check("claude and codex discovery both use it",
+      'Proc.pids(named: ["claude"])' in _cs and 'Proc.pids(named: ["codex"])' in _cd)
+# A whole-table sweep is only affordable because argv[0] is fixed at exec: read once per pid,
+# and dropped when the pid dies so the cache cannot grow without bound.
+check("invoked names are cached for the process's life, and bounded to live pids",
+      "static func invokedName" in _pc and "invoked[pid] = name" in _pc
+      and "invoked.filter { comm[$0.key] != nil }" in _pc)
 
 print("\n=== 9m. pick the agent the header reports on ===")
 vw5=open(os.path.join(REPO,"Sources/AgentIsland/Views.swift")).read()
@@ -1392,7 +1406,10 @@ check("cwd comes from a syscall, not an lsof spawn", "Proc.cwd(pid:" in _cwd)
 check("cwd misses are recorded so they are not retried",
       'Proc.cwd(pid: pid) ?? ""' in open(os.path.join(REPO,"Sources/AgentIsland/Cwd.swift")).read())
 _cx=open(f"{src}/CodexSource.swift").read()
-check("codex liveness is an exact comm match in-process", 'Proc.pids(comm: "codex")' in _cx)
+# Was an exact comm match; a versioned install reports a version string there, so it now asks
+# by name. Still one sysctl, still no spawn.
+check("codex liveness is resolved in-process, with no spawn",
+      'Proc.pids(named: ["codex"])' in _cx)
 
 print("\n=== 20. honest degradation ===")
 host=open(f"{src}/HostTerminal.swift").read()

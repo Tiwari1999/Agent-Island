@@ -33,8 +33,30 @@ enum Proc {
     /// The fallback runs only on a miss (never for a normal install) and spawns nothing.
     static func matches(pid: Int, comm: String?, names: Set<String>) -> Bool {
         if let c = comm, names.contains(c) { return true }
-        guard let argv0 = argsEnv(pid: pid)?.argv.first else { return false }
-        return names.contains((argv0 as NSString).lastPathComponent)
+        guard let n = invokedName(Int32(pid)) else { return false }
+        return names.contains(n)
+    }
+
+    /// pid → the name it was invoked as, "" for a process whose argv cannot be read.
+    ///
+    /// argv[0] is fixed at exec, so a pid is read once and held for its life. That is what
+    /// makes a whole-table sweep affordable: cold it costs ~25ms across ~800 processes, warm
+    /// only the pids that have appeared since. Still no spawns — one sysctl per new pid.
+    private static var invoked: [Int32: String] = [:]
+    private static let invokedLock = NSLock()
+
+    /// The name `pid` was invoked as, or nil when its argv cannot be read.
+    static func invokedName(_ pid: Int32) -> String? {
+        invokedLock.lock()
+        if let hit = invoked[pid] { invokedLock.unlock(); return hit.isEmpty ? nil : hit }
+        invokedLock.unlock()
+        // Cached even when unreadable, so a kernel task is not re-asked every refresh.
+        var name = ""
+        if let argv0 = argsEnv(pid: Int(pid))?.argv.first {
+            name = (argv0 as NSString).lastPathComponent
+        }
+        invokedLock.lock(); invoked[pid] = name; invokedLock.unlock()
+        return name.isEmpty ? nil : name
     }
 
     /// The nearest ancestor whose name matches, walking up from `pid`.
@@ -79,9 +101,22 @@ enum Proc {
         }
     }
 
-    /// Pids whose process name matches exactly — pgrep -x, without the fork.
-    static func pids(comm name: String) -> [Int] {
-        all().compactMap { $0.value == name ? Int($0.key) : nil }.sorted()
+    /// Pids of every process known by one of `names` — pgrep -x, without the fork, and
+    /// without trusting p_comm to carry the tool's name.
+    ///
+    /// The same versioned-symlink layout that broke `matches` breaks an exact comm scan, and
+    /// this is the one discovery uses: with fourteen claude sessions live it returned none, so
+    /// no session bound a pid from its own argv and only the hook fallback bound anything.
+    static func pids(named names: Set<String>) -> [Int] {
+        let comm = all()
+        invokedLock.lock()
+        invoked = invoked.filter { comm[$0.key] != nil }   // bounded to what is still alive
+        invokedLock.unlock()
+        return comm.compactMap { pid, c in
+            if names.contains(c) { return Int(pid) }
+            guard let n = invokedName(pid), names.contains(n) else { return nil }
+            return Int(pid)
+        }.sorted()
     }
 
     /// argv and environment of one process — `ps eww` for a single pid, without the fork.
