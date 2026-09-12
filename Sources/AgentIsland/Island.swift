@@ -69,6 +69,8 @@ final class Island: NSObject, ObservableObject {
     @Published var handedOver: Set<String> = []
     private let frames = FrameMeter()
     @Published var revealed = false
+    /// The collapsed bar has gone quiet and stepped out of the way.
+    @Published var autoHidden = false
     @Published var notchWidth: CGFloat = 0
     @Published var notchHeight: CGFloat = 32
 
@@ -109,6 +111,41 @@ final class Island: NSObject, ObservableObject {
             ?? NSScreen.main ?? NSScreen.screens.first
     }
     private var pinned: NSScreen?
+    private var hideTimer: Timer?
+
+    /// How long the bar stays up before stepping aside.
+    static let autoHideAfter: TimeInterval = 4
+
+    /// Only where the bar sits on somebody's content. In a notch it occupies dead pixels, so
+    /// hiding it buys nothing and costs the glance the island exists for.
+    private var autoHides: Bool { (screen?.safeAreaInsets.top ?? 0) == 0 }
+
+    /// A coarse identity for what the bar is currently saying, so the view can wake it when
+    /// that changes without Island having to hear about every individual event.
+    var stateTag: String {
+        switch state {
+        case .collapsed: return "collapsed"
+        case .peek:      return "peek"
+        case .approval:  return "approval"
+        case .question:  return "question"
+        case .console:   return "console"
+        case .expanded:  return "expanded"
+        }
+    }
+
+    /// Show the bar and restart its clock. Called on hover, and whenever what it says changes.
+    func wake() {
+        hideTimer?.invalidate()
+        if autoHidden { withAnimation(Motion.content) { autoHidden = false } }
+        guard autoHides else { return }
+        hideTimer = Timer.scheduledTimer(withTimeInterval: Self.autoHideAfter,
+                                         repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.state == .collapsed, !self.revealed else { return }
+                withAnimation(Motion.content) { self.autoHidden = true }
+            }
+        }
+    }
     private var screen: NSScreen? { pinned ?? activeScreen }
 
     /// Re-home the window on the active display. Safe to do while collapsed because nothing is
@@ -119,7 +156,6 @@ final class Island: NSObject, ObservableObject {
         if let current = pinned, current.frame == target.frame { return false }
         pinned = target
         measureNotch(target)
-        applySpaceBehavior()
         let size = Self.maxSize
         window.setFrame(NSRect(x: target.frame.midX - size.width / 2,
                                y: target.frame.maxY - size.height,
@@ -148,10 +184,10 @@ final class Island: NSObject, ObservableObject {
         panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.isExcludedFromWindowsMenu = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.contentView = FirstMouseHostingView(rootView: RootView(island: self, store: store, status: status))
         panel.orderFrontRegardless()
         window = panel
-        applySpaceBehavior()
 
         heartbeat = Approvals.startHeartbeat()
 
@@ -227,9 +263,11 @@ final class Island: NSObject, ObservableObject {
         }
 
         sensor.install(on: screen, notchWidth: notchWidth, notchHeight: notchHeight)
+        wake()
         sensor.onEnter = { [weak self] in
             guard let self else { return }
             // Reveal is instant (the 100ms affordance rule); expanding waits for intent.
+            self.wake()
             withAnimation(Motion.quick) { self.revealed = true }
             self.dwell?.cancel()
             let work = DispatchWorkItem { [weak self] in
@@ -250,15 +288,6 @@ final class Island: NSObject, ObservableObject {
         }
 
         repoll()
-    }
-
-    /// In a notch the island occupies dead pixels, so floating over a fullscreen app costs
-    /// nothing. Without one those same pixels are the app's own content — its tab strip.
-    private func applySpaceBehavior() {
-        var behavior: NSWindow.CollectionBehavior = [.canJoinAllSpaces, .stationary]
-        if (screen?.safeAreaInsets.top ?? 0) > 0 { behavior.insert(.fullScreenAuxiliary) }
-        window?.collectionBehavior = behavior
-        sensor.spaces = behavior
     }
 
     private func measureNotch(_ screen: NSScreen) {
@@ -919,6 +948,12 @@ private struct RootView: View {
     @ObservedObject private var surfaces = Surfaces.shared
 
 
+    /// What the bar is currently saying, coarsely. When this changes the bar has news, so it
+    /// comes back up rather than staying hidden until the pointer happens to pass.
+    private var wakeKey: String {
+        "\(island.stateTag)|\(store.workingCount)|\(store.waitingCount)|\(store.blockedCount)"
+    }
+
     /// Nothing running, nothing waiting, pointer elsewhere.
     private var quiet: Bool {
         store.workingCount == 0 && store.waitingCount == 0 && !island.revealed
@@ -992,6 +1027,8 @@ private struct RootView: View {
                 case .collapsed:
                     CollapsedView(store: store, status: status, notchWidth: island.notchWidth,
                                   revealed: island.revealed, quiet: quiet)
+                        .onAppear { island.wake() }
+                        .onChange(of: wakeKey) { _, _ in island.wake() }
                 case .peek(let p):
                     PeekView(title: p.title, message: p.message,
                              needsInput: p.needsInput, notchWidth: island.notchWidth)
@@ -1062,6 +1099,9 @@ private struct RootView: View {
             }
             .frame(width: shellWidth, height: shellHeight)
             .contentShape(NotchShape(radius: corner))
+            // The whole shell, not just its contents: fading the bar's text while the shape
+            // kept painting left an opaque black block sitting on the tab strip.
+            .opacity(island.autoHidden ? 0 : 1)
 
             Spacer(minLength: 0)
         }

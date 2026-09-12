@@ -19,11 +19,6 @@ final class HoverSensor {
         get { view.onExit } set { view.onExit = newValue }
     }
 
-    /// Driven by Island: whether this display's top strip is dead space or somebody's content.
-    var spaces: NSWindow.CollectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary] {
-        didSet { window?.collectionBehavior = spaces }
-    }
-
     /// Covers the notch plus the visible bar's inner span. Sizing it to the notch alone meant
     /// most of what the user can see had no sensor under it, so hovering the bar did nothing.
     func install(on screen: NSScreen, notchWidth: CGFloat, notchHeight: CGFloat) {
@@ -48,7 +43,7 @@ final class HoverSensor {
         panel.hasShadow = false
         panel.ignoresMouseEvents = false      // must stay false or tracking never fires
         panel.isExcludedFromWindowsMenu = true
-        panel.collectionBehavior = spaces
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.contentView = view
         panel.orderFrontRegardless()
         window = panel

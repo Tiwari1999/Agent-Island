@@ -2197,25 +2197,34 @@ check("no dead declarations survive the sweep",
       "var unsupported: String?" not in _as5 and "static let sheen" not in
       open(os.path.join(REPO, "Sources/AgentIsland/Theme.swift")).read())
 
-print("\n=== 40. the island does not steal a screen that has no notch ===")
-_iv8 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
-_hs8 = open(os.path.join(REPO, "Sources/AgentIsland/HoverSensor.swift")).read()
-# In a notch these pixels are dead. On an external display or a mirrored one they are the top
-# of somebody's window — which is how a fullscreen Chrome lost its tab strip.
-check("floating over fullscreen is decided by the display, not hardcoded",
-      "private func applySpaceBehavior()" in _iv8
-      and "if (screen?.safeAreaInsets.top ?? 0) > 0 { behavior.insert(.fullScreenAuxiliary) }" in _iv8)
-check("so neither panel hardcodes fullScreenAuxiliary any more",
-      "[.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]" not in _iv8
-      and "panel.collectionBehavior = spaces" in _hs8)
-check("and the sensor follows the same decision, or hover outlives the bar",
-      "sensor.spaces = behavior" in _iv8 and "var spaces: NSWindow.CollectionBehavior" in _hs8)
-# Mirroring swaps the screen out from under `pinned`; nothing re-measured until the next expand.
+print("\n=== 40. the bar steps out of the way on a screen with no notch ===")
+_iv9 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+# Mirroring swaps the screen out from under `pinned`, and followActiveScreen bails when the
+# frame looks unchanged, so nothing re-measured until the next expand.
 check("a display change re-homes the island instead of leaving it stale",
-      "NSApplication.didChangeScreenParametersNotification" in _iv8
-      and "self.pinned = nil" in _iv8)
-check("and the behavior is re-applied when it moves screens",
-      _iv8.count("applySpaceBehavior()") >= 3)
+      "NSApplication.didChangeScreenParametersNotification" in _iv9
+      and "self.pinned = nil" in _iv9)
+# In a notch the bar sits in dead pixels. On any other display it sits on somebody content,
+# and in fullscreen that is the tab strip.
+check("auto-hide is limited to displays where the bar covers something",
+      "private var autoHides: Bool { (screen?.safeAreaInsets.top ?? 0) == 0 }" in _iv9)
+check("the whole shell fades, not just its contents",
+      ".opacity(island.autoHidden ? 0 : 1)" in _iv9
+      and _iv9.index(".opacity(island.autoHidden ? 0 : 1)")
+          > _iv9.index(".contentShape(NotchShape(radius: corner))"))
+# Fading CollapsedView alone left IslandBackground painting an opaque black block on the tabs.
+check("so the background cannot keep painting once the bar is hidden",
+      "CollapsedView(store: store, status: status, notchWidth: island.notchWidth,\n                                  revealed: island.revealed, quiet: quiet)\n                        .opacity(" not in _iv9)
+check("hovering brings it back",
+      "self.wake()" in _iv9 and "func wake()" in _iv9)
+check("and so does anything changing what the bar says",
+      ".onChange(of: wakeKey) { _, _ in island.wake() }" in _iv9
+      and "private var wakeKey: String" in _iv9)
+check("the timer does not fire over an island the user is using",
+      "guard let self, self.state == .collapsed, !self.revealed else { return }" in _iv9)
+check("superseded strip-yielding machinery is gone",
+      "refreshTopStripClaim" not in _iv9 and "stripIsOwned" not in _iv9
+      and "applySpaceBehavior" not in _iv9)
 
 print("\n=== 23. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")
