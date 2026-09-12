@@ -10,14 +10,6 @@ struct SessionStatus {
     var costUSD: Double?
     var linesAdded: Int?
     var linesRemoved: Int?
-
-    /// Guidance is to compact at 50-60%; past 90 the cliff is imminent.
-    var contextTint: String {
-        guard let p = contextPct else { return "faint" }
-        if p >= 90 { return "failed" }
-        if p >= 75 { return "amber" }
-        return "muted"
-    }
 }
 
 enum SessionStatuses {

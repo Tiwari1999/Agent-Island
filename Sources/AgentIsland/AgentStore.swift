@@ -50,7 +50,6 @@ struct Agent: Identifiable {
     /// Background sessions report `state`, interactive ones `status`.
     var phase: String { state ?? status ?? "unknown" }
     var isWorking: Bool { phase == "busy" || phase == "running" }
-    var isPaused: Bool { phase == "blocked" || phase == "failed" }
 }
 
 struct AgentRow: Identifiable {
@@ -78,8 +77,6 @@ struct AgentRow: Identifiable {
 
     /// The agent's own description of the session, and only then the generated `mono-17` handle.
     var displayName: String { aiTitle ?? agent.label }
-    /// Keep the handle visible when a real title replaced it, so rows stay cross-referenceable.
-    var subtitle: String { displayName == agent.label ? agent.project : agent.label }
     /// What this row cannot show, because its vendor does not publish it. Shown in place of a
     /// blank, so an unsupported capability never reads as a broken one.
     var unsupported: String? {
@@ -92,12 +89,10 @@ struct AgentRow: Identifiable {
 
     /// Context pressure — the compaction cliff is at 90%.
     var contextPct: Int? { agent.contextPctOverride ?? status?.contextPct }
-    var nearCompaction: Bool { (status?.contextPct ?? 0) >= 90 }
 
     /// Where this session runs, for the row's context chip.
     var terminal: String { host.name }
 
-    var tabHint: String { isBackground ? "background session" : host.name }
     /// A blocked agent's own question outranks any stale tool activity.
     var activity: String? {
         if isWorking { return live?.detail ?? narration }
@@ -221,12 +216,6 @@ final class AgentStore: ObservableObject {
     var workingCount: Int { rows.filter { $0.isWorking }.count }
     var waitingCount: Int { rows.filter { $0.waiting }.count }
     var blockedCount: Int { rows.filter { $0.dormantBlocked }.count }
-    /// The line worth showing while collapsed: whatever is happening right now.
-    var nowLine: String? {
-        rows.first(where: { $0.waiting })?.activity
-            ?? rows.first(where: { $0.isWorking && $0.activity != nil })?.activity
-            ?? rows.first(where: { $0.activity != nil })?.activity
-    }
 
     func start() {
         hooks.start()
@@ -381,28 +370,9 @@ final class AgentStore: ObservableObject {
     /// syscall freeze every later refresh.
     private var refreshing = false
 
-    private var lastRefreshAt = Date.distantPast
-    private var coalescing: Timer?
-
-    /// The shortest gap the watcher may drive. A hundred agents writing at once must not mean a
-    /// hundred refreshes — the floor turns any burst into a single one, and nothing is dropped:
-    /// an event arriving inside the window schedules the refresh at its far edge.
-    private var refreshFloor: TimeInterval { panelVisible ? 4 : 20 }
-
-    func refreshSoon() {
-        let due = lastRefreshAt.addingTimeInterval(refreshFloor)
-        if Date() >= due { refresh(); return }
-        guard coalescing == nil else { return }
-        coalescing = Timer.scheduledTimer(withTimeInterval: due.timeIntervalSinceNow,
-                                          repeats: false) { [weak self] _ in
-            Task { @MainActor in self?.coalescing = nil; self?.refresh() }
-        }
-    }
-
     func refresh() {
         guard !refreshing else { return }
         refreshing = true
-        lastRefreshAt = Date()
         // Snapshot the sources on the main actor; the discovery work itself is off it.
         let sources = self.sources
         DispatchQueue.global(qos: .utility).async { [weak self] in
@@ -428,12 +398,10 @@ final class AgentStore: ObservableObject {
         }
     }
 
-    /// Snapshot of hook-reported pids, read on the actor before the work goes off it.
-    private var hookPids: [String: Int] = [:]
-
     /// Resolving Warp URLs shells out per agent, so it happens off the main actor.
     private func rebuild(_ agents: [Agent]) {
-        hookPids = hooks.pids
+        // Read on the actor, before the work goes off it.
+        let fromHooks = hooks.pids
         DispatchQueue.global(qos: .utility).async {
             // One ps call for every pid we have not seen, instead of two per agent per cycle.
             let pids = agents.compactMap(\.pid)
@@ -452,7 +420,6 @@ final class AgentStore: ObservableObject {
             Console.retain(ids)
             // A session started without `--resume` carries its id nowhere in argv, so discovery
             // cannot bind it. Its own hooks can: they report the process that ran them.
-            let fromHooks = self.hookPids
             let comms = Proc.all()
             let agents = agents.map { a -> Agent in
                 // Existence alone is not identity: pids get reused, and binding a session to

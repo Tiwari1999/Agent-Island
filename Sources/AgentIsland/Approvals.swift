@@ -24,21 +24,14 @@ enum Approvals {
                                                ofItemAtPath: decisionsDir)
     }
 
-    /// Answer a question by writing the chosen label where the hook is polling.
-    /// One write for the whole ask: question text to the chosen label, or labels when the
-    /// question allows several. The hook validates every entry against what it offered.
-    @discardableResult
     /// Mark that the reader is engaged with this card, so the hook waits its full window
-    /// rather than falling through to the terminal. Written once and never refreshed: the
-    /// refreshing version it replaces stalled whenever AppKit was tracking the mouse — while
-    /// the card was in use — and the hook exited mid-answer.
+    /// rather than falling through to the terminal.
     static func touch(_ id: String) {
         guard validID(id) else { return }
         ensureDir()
         let p = (decisionsDir as NSString).appendingPathComponent(id + ".touched")
-        // Re-stamp on every interaction so the hook's grace slides forward. This is driven by
-        // real input, not a repeating timer — the timer version stalled whenever AppKit was
-        // tracking the mouse, which is exactly when the card was in use.
+        // Re-stamped on every interaction so the hook's grace slides forward — driven by real
+        // input, not a timer, which stalled whenever AppKit was tracking the mouse.
         if FileManager.default.fileExists(atPath: p) {
             try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: p)
         } else {
@@ -57,6 +50,8 @@ enum Approvals {
             contents: nil, attributes: [.posixPermissions: 0o600])
     }
 
+    /// Answer a question by writing the chosen label where the hook is polling.
+    /// One write for the whole ask; the hook validates every entry against what it offered.
     static func answer(_ question: Question, picks: [String: [String]],
                        typed: [String: String] = [:]) -> Bool {
         guard validID(question.id) else { return false }

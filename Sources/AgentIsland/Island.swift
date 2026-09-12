@@ -827,14 +827,14 @@ final class Island: NSObject, ObservableObject {
         guard typingFor != key else { return }
         if case .question(let q) = state { markInteraction(q.id) }
         typingFor = key
-        (window as? Panel)?.keyable = true
+        window?.keyable = true
         window?.makeKeyAndOrderFront(nil)
     }
 
     func endTyping() {
         guard typingFor != nil else { return }
         typingFor = nil
-        (window as? Panel)?.keyable = false
+        window?.keyable = false
         NSApp.deactivate()          // hand focus back to whatever had it
     }
 

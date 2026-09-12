@@ -19,7 +19,7 @@ enum Vendor: String {
 ///
 /// Discovery is the only genuinely per-vendor part. Everything downstream — the row, the jump,
 /// the host resolution — works off a pid and a cwd, which every vendor has.
-protocol AgentSource {
+protocol AgentSource: Sendable {
     var vendor: Vendor { get }
     /// True when this tool is present on the machine at all; absent tools cost nothing.
     var isAvailable: Bool { get }

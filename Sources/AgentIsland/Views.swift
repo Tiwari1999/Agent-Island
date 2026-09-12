@@ -628,7 +628,7 @@ struct PanelView: View {
                                          onAnswer: store.hooks.pendingQuestions[row.agent.sessionId]
                                              .flatMap { q -> (() -> Void)? in
                                                  guard q.deadline > Date() else { return nil }
-                                                 return { store.onRowActivate?(row) }
+                                                 return { _ = store.onRowActivate?(row) }
                                              },
                                          onConsole: row.agent.vendor == .claude
                                              ? { store.onOpenConsole?(row.agent.sessionId) } : nil,

@@ -62,19 +62,4 @@ enum Reopen {
         "\"" + s.replacingOccurrences(of: "\\", with: "\\\\")
                  .replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
-
-    /// Open the session's project in Cursor — the natural destination for a Cursor chat, which
-    /// belongs to a workspace rather than a terminal tab.
-    @discardableResult
-    static func openWorkspace(_ cwd: String) -> Bool {
-        guard FileManager.default.fileExists(atPath: cwd) else { return false }
-        let cursor = NSHomeDirectory() + "/.local/bin/cursor"
-        if FileManager.default.isExecutableFile(atPath: cursor) {
-            _ = Shell.runSync(cursor, [cwd])
-            return true
-        }
-        return NSWorkspace.shared.open([URL(fileURLWithPath: cwd)],
-                                       withApplicationAt: URL(fileURLWithPath: "/Applications/Cursor.app"),
-                                       configuration: NSWorkspace.OpenConfiguration()) != nil
-    }
 }

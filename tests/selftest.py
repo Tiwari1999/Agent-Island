@@ -1274,9 +1274,12 @@ check("an inherited spool is tightened on every start",
 check("a queued card is shown, not re-queued",
       "if !queuedQuestions.isEmpty || !queuedApprovals.isEmpty { state = .collapsed }" in _is4)
 # An ask whose questions share wording cannot be answered by a map keyed on wording.
+# The guarantee is that the caller checks the result — so `answer` must return one, and must
+# not be marked discardable, which would let a future caller drop it silently.
 check("an answer that cannot be written does not close the card",
       "guard Approvals.answer(question, picks: picks, typed: typed) else {" in _is4
-      and "@discardableResult" in _ap4)
+      and "typed: [String: String] = [:]) -> Bool {" in _ap4
+      and "@discardableResult\n    static func answer" not in _ap4)
 check("an empty ask cannot subscript out of range",
       "guard !q.items.isEmpty else { return nil }" in _is4)
 check("the answer-so-far survives a close and reopen",
