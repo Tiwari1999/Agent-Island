@@ -230,7 +230,7 @@ struct CodexSource: AgentSource {
         // Exact name only. Matching the full command line pulled in 97 processes — every one
         // carrying "codex" anywhere in its environment, including unrelated agents — and each
         // cost an lsof call.
-        let pids = Proc.pids(comm: "codex")
+        let pids = Proc.pids(named: ["codex"])
         return Cwd.map(pids: pids)
     }
 

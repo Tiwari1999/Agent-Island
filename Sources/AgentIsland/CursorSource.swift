@@ -308,7 +308,7 @@ struct ClaudeSource: AgentSource {
 
         // Who is running what: argv carries `--resume <id>`; a fresh session has no argv mark
         // and is bound only when its directory identifies it uniquely — never guessed.
-        let pids = Proc.pids(comm: "claude")
+        let pids = Proc.pids(named: ["claude"])
         ProcEnv.prime(pids: pids)
         var bySession: [String: Int] = [:]
         var unbound: [Int] = []
