@@ -33,23 +33,47 @@ def has_tty(pid):
     t=subprocess.run(["ps","-o","tty=","-p",str(pid)],capture_output=True,text=True).stdout.strip()
     return t not in ("??","","-")
 
+def ppid(pid):
+    out=subprocess.run(["ps","-o","ppid=","-p",str(pid)],capture_output=True,text=True).stdout.strip()
+    return int(out) if out.isdigit() and int(out) > 1 else None
+
+def owning_pid(pid, hops=8):
+    """Mirrors HostTerminal.resolve: a background agent has no terminal of its own, so it
+    resolves to the nearest ancestor that has one — the window the user watches it in."""
+    if has_tty(pid): return pid
+    cur = pid
+    for _ in range(hops):
+        p = ppid(cur)
+        if p is None: return None
+        if has_tty(p): return p
+        cur = p
+    return None
+
 def focus_url(pid):
-    # Mirrors HostTerminal.resolve: an inherited handle is not a tab. A background agent takes
-    # WARP_FOCUS_URL from the shell that started its daemon, with no terminal of its own.
-    if not has_tty(pid): return None
-    env=subprocess.run(["ps","eww","-p",str(pid),"-o","command="],capture_output=True,text=True).stdout
+    owner = owning_pid(pid)
+    if owner is None: return None
+    env=subprocess.run(["ps","eww","-p",str(owner),"-o","command="],capture_output=True,text=True).stdout
     return next((t.split("=",1)[1] for t in env.split() if t.startswith("WARP_FOCUS_URL=")),None)
 
 withpid=[a for a in agents if a.get("pid")]
 resolved={a["sessionId"]:focus_url(a["pid"]) for a in withpid}
 got=[u for u in resolved.values() if u]
 check("agents with pid resolve a Warp URL", len(got)>0, f"{len(got)}/{len(withpid)}")
-check("each resolved agent maps to a DISTINCT tab",
-      len(set(got))==len(got), f"{len(set(got))} distinct of {len(got)}")
-# The collision this catches was real: a background agent resolved the tab of whatever shell
-# started its daemon, so clicking it focused a tab that was running something else entirely.
-check("a session with no controlling terminal claims no tab",
-      all(focus_url(a["pid"]) is None for a in withpid if not has_tty(a["pid"])))
+# Only sessions that own a terminal must hold it exclusively. A background agent shares its
+# owner's tab by definition — that is where its conversation is displayed.
+_own=[a for a in withpid if has_tty(a["pid"])]
+_owned=[u for u in (focus_url(a["pid"]) for a in _own) if u]
+check("each interactive agent maps to a DISTINCT tab",
+      len(set(_owned))==len(_owned), f"{len(set(_owned))} distinct of {len(_owned)}")
+# A background agent has no tty, so it used to resolve nothing and its row went nowhere.
+_bg=[a for a in withpid if not has_tty(a["pid"])]
+check("a background agent resolves the terminal that owns it",
+      all(owning_pid(a["pid"]) is not None for a in _bg), f"{len(_bg)} background")
+# The guard that was missing. Two fixes each verified only against their own symptom left every
+# live row either going nowhere or opening a terminal — the main flow, untested end to end.
+_lost=[a for a in withpid if owning_pid(a["pid"]) is None]
+check("every live agent has somewhere to jump to",
+      not _lost, f"{len(withpid)-len(_lost)}/{len(withpid)} reachable")
 check("URLs are warp://session/<uuid>", all(u.startswith("warp://session/") for u in got))
 
 print("\n=== 3. jump actually drives Warp (log-verified, all agents) ===")
@@ -2386,6 +2410,17 @@ check("text is sent literally, and the Return is separate",
       "-l \\(shellQuoted(text))" in _tw2 and "Enter\")" in _tw2)
 check("and tmux counts as writable, which is what reaches Warp",
       "case .tmux, .iterm, .appleTerminal, .kitty, .wezterm: return true" in _tw2)
+
+print("\n=== 47. the bar shows what it exists to show ===")
+_iv12 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+# Auto-hide fading the bar while an agent was working removed the one thing the bar is for.
+check("auto-hide never fires while something is running",
+      "guard self.store.workingCount == 0, self.store.waitingCount == 0," in _iv12
+      and "self.store.blockedCount == 0 else { return }" in _iv12)
+check("and the owning terminal is found by walking the process tree, not the environment",
+      "Proc.ancestorWithTTY(pid: pid)" in _iv12.replace("", "")
+      or "Proc.ancestorWithTTY" in open(
+          os.path.join(REPO, "Sources/AgentIsland/HostTerminal.swift")).read())
 
 print("\n=== 23. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")

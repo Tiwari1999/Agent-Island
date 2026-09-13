@@ -121,6 +121,30 @@ enum Proc {
     }
 
     /// Working directory of one process — what lsof -d cwd answers, without the fork.
+    /// The parent pid, from the same syscall the tty comes from — no sweep, no spawn.
+    static func parent(pid: Int) -> Int? {
+        let PROC_PIDTBSDINFO: Int32 = 3
+        var info = proc_bsdinfo()
+        let n = withUnsafeMutablePointer(to: &info) {
+            proc_pidinfo(Int32(pid), PROC_PIDTBSDINFO, 0, $0, Int32(MemoryLayout<proc_bsdinfo>.size))
+        }
+        guard n >= Int32(MemoryLayout<proc_bsdinfo>.size) else { return nil }
+        let ppid = Int(info.pbi_ppid)
+        return ppid > 1 ? ppid : nil
+    }
+
+    /// The nearest ancestor that owns a terminal. A background agent has none of its own, but the
+    /// interactive session that spawned it does — and that window is where the user watches it.
+    static func ancestorWithTTY(pid: Int, hops: Int = 8) -> Int? {
+        var cur = pid
+        for _ in 0..<hops {
+            guard let p = parent(pid: cur) else { return nil }
+            if tty(pid: p) != nil { return p }
+            cur = p
+        }
+        return nil
+    }
+
     /// The process's controlling terminal as "/dev/ttysNNN", or nil if it has none. Terminal.app
     /// exposes only the tty in its scripting dictionary — its TERM_SESSION_ID is a UUID that maps
     /// to nothing there — so the tty is the only handle that can focus the right tab. Syscall, no

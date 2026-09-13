@@ -83,12 +83,14 @@ enum HostTerminal: Equatable {
             return .degraded(bundleID: i.bundleID ?? "com.apple.Terminal", name: "Terminal",
                              reason: "no controlling tty — a restored session or a tmux/ssh layer")
         }
-        // An inherited handle is not a tab. A background agent takes WARP_FOCUS_URL (and every
-        // other handle) from the shell that started its daemon, while having no terminal itself.
+        // A background agent has no terminal of its own, so an inherited WARP_FOCUS_URL is not
+        // evidence of a tab. Its owning interactive session does have one, and that is the
+        // window the user is actually watching it in — resolve there instead of declining.
         if i.tty == nil {
+            if let owner = Proc.ancestorWithTTY(pid: pid) { return resolve(pid: owner) }
             return .degraded(bundleID: i.bundleID ?? "dev.warp.Warp",
                              name: i.bundleID.map { friendly($0, i) } ?? "background",
-                             reason: "background session \u{2014} no controlling terminal")
+                             reason: "background session \u{2014} no terminal anywhere above it")
         }
         if let u = i.focusURL { return .warp(focusURL: u) }
         if let s = i.itermSession { return .iterm(session: s) }

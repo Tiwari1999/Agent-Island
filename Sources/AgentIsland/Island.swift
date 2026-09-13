@@ -146,6 +146,10 @@ final class Island: NSObject, ObservableObject {
                                          repeats: false) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.state == .collapsed, !self.revealed else { return }
+                // Never while something is happening. The bar exists to show that an agent is
+                // working; hiding it then removes the one thing it is for.
+                guard self.store.workingCount == 0, self.store.waitingCount == 0,
+                      self.store.blockedCount == 0 else { return }
                 withAnimation(Motion.content) { self.autoHidden = true }
             }
         }
