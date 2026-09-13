@@ -539,14 +539,17 @@ final class AgentStore: ObservableObject {
     /// Land in the session's terminal, skipping the "answer it here instead" shortcut — the
     /// point of this one is to leave the notch.
     func jumpToTerminal(_ row: AgentRow) {
-        if row.host.jump() { return }
+        if row.host.jump() { Diagnostics.log("jump -> focused \(row.host.name)"); return }
         jump(row)
     }
 
     func jump(_ row: AgentRow) {
+        // One line per click: which row, what it resolved to, which branch fires. This outage
+        // was undiagnosable from the outside — "opens Terminal sometimes" names no branch.
+        Diagnostics.log("jump \(String(row.agent.sessionId.prefix(8))) pid=\(row.agent.pid.map(String.init) ?? "nil") host=\(row.host.name)")
         if onRowActivate?(row) == true { return }
         // Whatever host it runs in — Warp, iTerm2, Terminal, an IDE — try that first.
-        if row.host.jump() { return }
+        if row.host.jump() { Diagnostics.log("jump -> focused \(row.host.name)"); return }
         // Could not land precisely: hand over the working directory rather than guessing.
         if case .degraded = row.host, let cwd = row.agent.cwd {
             NSPasteboard.general.clearContents()
@@ -557,6 +560,7 @@ final class AgentStore: ObservableObject {
         // A live session already has a home. Reopen would open a *second* terminal and run
         // `attach` in it, which lands the user somewhere new — the one thing clicking a row
         // must never do. Hand over the command instead and say why.
+        Diagnostics.log("jump -> host.jump() failed for \(row.host.name)")
         guard row.agent.pid == nil else {
             guard let cmd = Reopen.command(for: row.agent) else {
                 onBackgroundAttach?("\(row.displayName) — \(row.host.name) cannot be focused")
@@ -568,6 +572,7 @@ final class AgentStore: ObservableObject {
             return
         }
         // Finished: there is nothing to focus, so start it again where it used to live.
+        Diagnostics.log("jump -> dead session, reopening in Terminal")
         let announce: (String) -> Void = { [weak self] in self?.onBackgroundAttach?($0) }
         if !Reopen.run(row.agent, in: row.agent.cwd, note: announce) {
             onBackgroundAttach?("\(row.displayName) — no resume path for this session")
