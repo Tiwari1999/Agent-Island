@@ -1493,7 +1493,7 @@ check("prose renders as markdown, reusing the plan reader",
 # Monospaced grey prose at 10.5 reads as a wall; plans stay dense, the console reads.
 check("prose is proportional and brighter than a plan's",
       "case compact, reading" in open(os.path.join(REPO, "Sources/AgentIsland/PanelModes.swift")).read()
-      and "Theme.name(11.5)" in open(os.path.join(REPO, "Sources/AgentIsland/PanelModes.swift")).read())
+      and "Theme.name(Type.title)" in open(os.path.join(REPO, "Sources/AgentIsland/PanelModes.swift")).read())
 check("the plan reader keeps its dense style", "var style: Style = .compact" in
       open(os.path.join(REPO, "Sources/AgentIsland/PanelModes.swift")).read())
 check("consecutive tool calls collapse into one aside", "static func group(" in _cs)
@@ -2304,6 +2304,24 @@ check("settings labels read as sentences",
 check("and so do the controls",
       'choice("Solid"' in _st2 and 'choice("Never"' in _st2 and 'choice("Quit"' in _st2
       and "f.label.capitalized" in _st2)
+
+print("\n=== 43. one type scale ===")
+_thT = open(os.path.join(REPO, "Sources/AgentIsland/Theme.swift")).read()
+_allsrc = "".join(open(os.path.join(REPO, "Sources/AgentIsland", f)).read()
+                  for f in sorted(os.listdir(os.path.join(REPO, "Sources/AgentIsland")))
+                  if f.endswith(".swift"))
+# Twelve sizes between 7 and 12.5pt is not a scale: half-point steps are invisible apart and
+# incoherent together, and 54% of them sat at or below 9pt.
+check("there are four steps, and they are named",
+      "enum Type {" in _thT and "static let micro: CGFloat = 10" in _thT
+      and "static let title: CGFloat = 13" in _thT)
+# 10pt is the smallest standard macOS label; below it text stops being readable at a glance.
+check("the floor is 10pt",
+      min(10, 11, 12, 13) == 10 and "CGFloat = 9" not in _thT and "CGFloat = 8" not in _thT)
+check("no view sets a raw text size any more",
+      re.search(r"Theme\.(?:mono|label|name)\(\d", _allsrc) is None)
+check("and glyphs track the text rather than sitting a third smaller",
+      re.search(r"\.system\(size: [0-8](?:\.\d)?\b", _allsrc) is None)
 
 print("\n=== 23. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")

@@ -112,17 +112,17 @@ struct MarkdownLite: View {
                 .padding(.top, style == .reading ? 5 : 4)
         case .bullet(let s):
             HStack(alignment: .top, spacing: 7) {
-                Text("•").font(Theme.mono(10)).foregroundColor(Theme.faint)
+                Text("•").font(Theme.mono(Type.body)).foregroundColor(Theme.faint)
                 if style == .reading {
-                    inline(s).font(Theme.name(11.5)).foregroundColor(Theme.text.opacity(0.82))
+                    inline(s).font(Theme.name(Type.title)).foregroundColor(Theme.text.opacity(0.82))
                         .lineSpacing(2.5).fixedSize(horizontal: false, vertical: true)
                 } else {
-                    inline(s).font(Theme.mono(10.5)).foregroundColor(Theme.muted)
+                    inline(s).font(Theme.mono(Type.body)).foregroundColor(Theme.muted)
                 }
             }
         case .code(let s):
             Text(s)
-                .font(Theme.mono(9.5)).foregroundColor(Theme.muted)
+                .font(Theme.mono(Type.small)).foregroundColor(Theme.muted)
                 .padding(8)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Theme.raised))
@@ -132,10 +132,10 @@ struct MarkdownLite: View {
             Rectangle().fill(Theme.hairline).frame(height: 0.7).padding(.vertical, 2)
         case .plain(let s):
             if style == .reading {
-                inline(s).font(Theme.name(11.5)).foregroundColor(Theme.text.opacity(0.82))
+                inline(s).font(Theme.name(Type.title)).foregroundColor(Theme.text.opacity(0.82))
                     .lineSpacing(2.5).fixedSize(horizontal: false, vertical: true)
             } else {
-                inline(s).font(Theme.mono(10.5)).foregroundColor(Theme.muted)
+                inline(s).font(Theme.mono(Type.body)).foregroundColor(Theme.muted)
             }
         }
     }
@@ -157,12 +157,12 @@ struct PlanReader: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
                 Text("‹ sessions")
-                    .font(Theme.label(10.5)).foregroundColor(Theme.working)
+                    .font(Theme.label(Type.body)).foregroundColor(Theme.working)
                     .contentShape(Rectangle())
                     .onTapGesture(perform: onBack)
-                Text(title).font(Theme.label(11)).foregroundColor(Theme.text).lineLimit(1)
+                Text(title).font(Theme.label(Type.title)).foregroundColor(Theme.text).lineLimit(1)
                 Spacer()
-                Text("plan").font(Theme.mono(9)).foregroundColor(Theme.faint)
+                Text("plan").font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
             }
             .padding(.horizontal, 14).padding(.vertical, 8)
             Rectangle().fill(Theme.hairline).frame(height: 0.7)
@@ -186,14 +186,14 @@ struct CostsView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
                 Text("‹ sessions")
-                    .font(Theme.label(10.5)).foregroundColor(Theme.working)
+                    .font(Theme.label(Type.body)).foregroundColor(Theme.working)
                     .contentShape(Rectangle())
                     .onTapGesture(perform: onBack)
-                Text("Usage cost").font(Theme.label(11)).foregroundColor(Theme.text)
+                Text("Usage cost").font(Theme.label(Type.title)).foregroundColor(Theme.text)
                 Spacer()
                 // Honesty over drama: nobody on a subscription is billed these numbers.
                 Text("API-equivalent — subscription usage isn't billed per token")
-                    .font(Theme.mono(8.5)).foregroundColor(Theme.faint)
+                    .font(Theme.mono(Type.micro)).foregroundColor(Theme.faint)
             }
             .padding(.horizontal, 14).padding(.vertical, 8)
             Rectangle().fill(Theme.hairline).frame(height: 0.7)
@@ -210,24 +210,24 @@ struct CostsView: View {
     @ViewBuilder private func section(_ name: String, _ models: [String: Costs.Line]) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(name).font(Theme.mono(9)).foregroundColor(Theme.faint).kerning(0.8)
+                Text(name).font(Theme.mono(Type.small)).foregroundColor(Theme.faint).kerning(0.8)
                 Spacer()
                 Text(Costs.dollars(models.values.reduce(0) { $0 + $1.cost }))
-                    .font(Theme.label(12)).foregroundColor(Theme.text)
+                    .font(Theme.label(Type.title)).foregroundColor(Theme.text)
             }
             if models.isEmpty {
-                Text("no usage recorded").font(Theme.mono(9.5)).foregroundColor(Theme.faint)
+                Text("no usage recorded").font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
             }
             ForEach(models.sorted { $0.value.cost > $1.value.cost }, id: \.key) { model, l in
                 HStack(spacing: 10) {
-                    Text(model).font(Theme.mono(10)).foregroundColor(Theme.muted)
+                    Text(model).font(Theme.mono(Type.body)).foregroundColor(Theme.muted)
                         .frame(width: 150, alignment: .leading).lineLimit(1)
                     cell("in", l.input)
                     cell("out", l.output)
                     cell("cache", l.cacheRead + l.cacheWrite)
                     Spacer()
                     Text(Costs.dollars(l.cost))
-                        .font(Theme.mono(10.5)).foregroundColor(Theme.text)
+                        .font(Theme.mono(Type.body)).foregroundColor(Theme.text)
                 }
                 .padding(.vertical, 2)
             }
@@ -236,8 +236,8 @@ struct CostsView: View {
 
     private func cell(_ label: String, _ n: Int) -> some View {
         HStack(spacing: 3) {
-            Text(label).font(Theme.mono(8.5)).foregroundColor(Theme.faint)
-            Text(Costs.tokens(n)).font(Theme.mono(9.5)).foregroundColor(Theme.muted)
+            Text(label).font(Theme.mono(Type.micro)).foregroundColor(Theme.faint)
+            Text(Costs.tokens(n)).font(Theme.mono(Type.small)).foregroundColor(Theme.muted)
         }
         .frame(width: 86, alignment: .leading)
     }

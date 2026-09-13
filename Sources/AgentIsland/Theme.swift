@@ -3,6 +3,15 @@ import SwiftUI
 /// Three semantic hues only — working, waiting, failed — plus amber reserved solely for quota
 /// pressure. A preattentive channel only works while it is rare, so everything else is neutral
 /// and differentiated by weight and size instead.
+/// Four steps, floored at 10pt — the smallest standard macOS label. Twelve sizes between 7 and
+/// 12.5 was not a scale: half-point steps are invisible apart and incoherent together.
+enum Type {
+    static let micro: CGFloat = 10   // timestamps and secondary metadata
+    static let small: CGFloat = 11   // supporting text, chips, pills
+    static let body:  CGFloat = 12   // row titles and messages
+    static let title: CGFloat = 13   // headings
+}
+
 enum Theme {
     private static var sleek: Bool { Surfaces.shared.sleek }
 

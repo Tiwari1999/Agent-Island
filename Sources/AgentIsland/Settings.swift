@@ -117,7 +117,7 @@ struct SettingsView: View {
                 }
 
                 Text("\u{2039} Agents")
-                    .font(Theme.mono(9)).foregroundColor(Theme.muted)
+                    .font(Theme.mono(Type.small)).foregroundColor(Theme.muted)
                     .padding(.horizontal, 7).padding(.vertical, 3)
                     .background(Capsule().stroke(Theme.hairline))
                     .contentShape(Capsule())
@@ -131,7 +131,7 @@ struct SettingsView: View {
     private func group<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title.uppercased())
-                .font(Theme.mono(8)).foregroundColor(Theme.agentTint).tracking(1.2)
+                .font(Theme.mono(Type.micro)).foregroundColor(Theme.agentTint).tracking(1.2)
             content()
         }
     }
@@ -141,9 +141,9 @@ struct SettingsView: View {
                               @ViewBuilder _ controls: () -> C) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(label).font(Theme.mono(10)).foregroundColor(Theme.text)
+                Text(label).font(Theme.mono(Type.body)).foregroundColor(Theme.text)
                 if let note {
-                    Text(note).font(Theme.mono(8)).foregroundColor(Theme.faint)
+                    Text(note).font(Theme.mono(Type.micro)).foregroundColor(Theme.faint)
                 }
             }
             Spacer(minLength: 8)
@@ -154,7 +154,7 @@ struct SettingsView: View {
     private func choice(_ label: String, on: Bool, tint: Color? = nil,
                         action: @escaping () -> Void) -> some View {
         Text(label)
-            .font(Theme.mono(9))
+            .font(Theme.mono(Type.small))
             .foregroundColor(on ? Theme.bg : (tint ?? Theme.muted))
             .padding(.horizontal, 7).padding(.vertical, 3)
             .background(

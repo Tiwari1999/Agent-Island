@@ -104,7 +104,7 @@ struct CollapsedView: View {
                 } else if let row = lead {
                     AgentAvatar(seed: row.agent.sessionId, size: 13, active: true)
                     Text(row.activity ?? row.displayName)
-                        .font(Theme.mono(9.5))
+                        .font(Theme.mono(Type.small))
                         .foregroundColor(row.waiting ? Theme.waiting : Theme.muted)
                         .lineLimit(1).truncationMode(.tail)
                         // Bounded so the text cannot grow into the pulse's place.
@@ -112,7 +112,7 @@ struct CollapsedView: View {
                                                     text: leadText).left - 46,
                                alignment: .trailing)
                 } else {
-                    Text("idle").font(Theme.mono(9.5)).foregroundColor(Theme.faint)
+                    Text("idle").font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
                 }
             }
             .frame(width: Self.sides(revealed: revealed, quiet: quiet, text: leadText).left,
@@ -129,17 +129,17 @@ struct CollapsedView: View {
                     HStack(spacing: 5) {
                         if let (name, pct, resets) = primaryLimit {
                             Text("\(name) \(max(0, 100 - pct))% left")
-                                .font(Theme.mono(8.5)).foregroundColor(Quota.tint(pct))
+                                .font(Theme.mono(Type.micro)).foregroundColor(Quota.tint(pct))
                             if let r = resets, r > Date() {
                                 Text(Quota.short(r.timeIntervalSinceNow))
-                                    .font(Theme.mono(8.5)).foregroundColor(Theme.faint)
+                                    .font(Theme.mono(Type.micro)).foregroundColor(Theme.faint)
                             }
                         }
                         if let u = usageToday {
-                            Text("·").font(Theme.mono(8.5)).foregroundColor(Theme.hairline)
-                            Text(u).font(Theme.mono(8.5)).foregroundColor(Theme.muted)
+                            Text("·").font(Theme.mono(Type.micro)).foregroundColor(Theme.hairline)
+                            Text(u).font(Theme.mono(Type.micro)).foregroundColor(Theme.muted)
                         } else if primaryLimit == nil {
-                            Text("idle").font(Theme.mono(8.5))
+                            Text("idle").font(Theme.mono(Type.micro))
                                 .foregroundColor(Theme.faint.opacity(0.8))
                         }
                     }
@@ -147,29 +147,29 @@ struct CollapsedView: View {
                 } else if store.workingCount > 0 {
                     HStack(spacing: 4) {
                         Text("\(store.workingCount)")
-                            .font(Theme.label(9.5)).foregroundColor(Theme.working)
+                            .font(Theme.label(Type.small)).foregroundColor(Theme.working)
                             .contentTransition(.numericText(value: Double(store.workingCount)))
                             .animation(Motion.value, value: store.workingCount)
                     }
                 }
                 if !quiet, store.blockedCount > 0, store.waitingCount == 0 {
                     Text("\(store.blockedCount)")
-                        .font(Theme.mono(9)).foregroundColor(Theme.faint)
+                        .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
                 }
                 if !quiet, store.waitingCount > 0 {
                     HStack(spacing: 3) {
                         Image(systemName: "bell.fill")
-                            .font(.system(size: 7.5)).foregroundColor(Theme.waiting)
+                            .font(.system(size: 9)).foregroundColor(Theme.waiting)
                             .symbolEffect(.bounce, value: store.waitingCount)
                         Text("\(store.waitingCount)")
-                            .font(Theme.label(9.5)).foregroundColor(Theme.waiting)
+                            .font(Theme.label(Type.small)).foregroundColor(Theme.waiting)
                             .contentTransition(.numericText(value: Double(store.waitingCount)))
                             .animation(Motion.value, value: store.waitingCount)
                     }
                 }
                 if !quiet, let pct = status.quota.fiveHourPct {
                     Text("\(pct)%")
-                        .font(Theme.mono(9)).foregroundColor(Quota.tint(pct))
+                        .font(Theme.mono(Type.small)).foregroundColor(Quota.tint(pct))
                         .contentTransition(.numericText(value: Double(pct)))
                         .animation(Motion.value, value: pct)
                 }
@@ -202,12 +202,12 @@ struct PeekView: View {
                     .foregroundColor(needsInput ? Theme.waiting : Theme.working)
             }
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(Theme.label(11.5)).foregroundColor(Theme.text)
+                Text(title).font(Theme.label(Type.title)).foregroundColor(Theme.text)
                     .lineLimit(1).truncationMode(.tail)
-                Text(message).font(Theme.mono(9.5)).foregroundColor(Theme.muted).lineLimit(1)
+                Text(message).font(Theme.mono(Type.small)).foregroundColor(Theme.muted).lineLimit(1)
             }
             Spacer(minLength: 4)
-            Text("jump").font(Theme.mono(9)).foregroundColor(Theme.faint)
+            Text("jump").font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
             Image(systemName: "arrow.up.forward").font(.system(size: 9)).foregroundColor(Theme.faint)
         }
         .padding(.horizontal, 14)
@@ -261,7 +261,7 @@ struct AgentRowView: View {
         VStack(alignment: .leading, spacing: 0) {
             if calls.isEmpty {
                 Text("no tool calls recorded")
-                    .font(Theme.mono(9)).foregroundColor(Theme.faint)
+                    .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
                     .frame(height: AgentRowView.callLine, alignment: .leading)
             }
             ForEach(calls) { c in
@@ -271,11 +271,11 @@ struct AgentRowView: View {
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: 7) {
                             Text(c.tool)
-                                .font(Theme.mono(9))
+                                .font(Theme.mono(Type.small))
                                 .foregroundColor(c.isAgent ? Theme.waiting : Theme.agentTint)
                                 .frame(minWidth: 46, alignment: .leading)
                             Text(c.why)
-                                .font(Theme.mono(9.5))
+                                .font(Theme.mono(Type.small))
                                 .foregroundColor(c.isError ? Theme.failed : Theme.text)
                                 .lineLimit(1).truncationMode(.tail)
                             Spacer(minLength: 4)
@@ -283,20 +283,20 @@ struct AgentRowView: View {
                                 // A bare number on the right of a newest-first list reads as
                                 // "ago". This one is how long the call took, so it says so.
                                 HStack(spacing: 2) {
-                                    Image(systemName: "timer").font(.system(size: 7))
-                                    Text(d).font(Theme.mono(8.5))
+                                    Image(systemName: "timer").font(.system(size: 9))
+                                    Text(d).font(Theme.mono(Type.micro))
                                 }
                                 .foregroundColor(Theme.faint)
                             }
                         }
                         if let out = c.response, !out.isEmpty {
                             Text(out)
-                                .font(Theme.mono(9))
+                                .font(Theme.mono(Type.small))
                                 .foregroundColor(c.isError ? Theme.failed.opacity(0.75) : Theme.faint)
                                 .lineLimit(1).truncationMode(.tail)
                         } else if c.running {
                             Text(c.isAgent ? "\(c.subagentKind ?? "agent") · running" : "running…")
-                                .font(Theme.mono(9)).foregroundColor(Theme.working.opacity(0.7))
+                                .font(Theme.mono(Type.small)).foregroundColor(Theme.working.opacity(0.7))
                         }
                     }
                 }
@@ -341,7 +341,7 @@ struct AgentRowView: View {
                     if let onToggle {
                         // Its own hit target: clicking the row still jumps, exactly as before.
                         Image(systemName: "chevron.right")
-                            .font(.system(size: 8, weight: .semibold))
+                            .font(.system(size: 10, weight: .semibold))
                             .foregroundColor(expanded ? Theme.muted : Theme.faint)
                             .rotationEffect(.degrees(expanded ? 90 : 0))
                             .frame(width: 11, height: 14)
@@ -349,10 +349,10 @@ struct AgentRowView: View {
                             .onTapGesture(perform: onToggle)
                     }
                     // project · title, the way the reference reads: context then subject.
-                    Text(row.agent.project).font(Theme.label(12)).foregroundColor(Theme.text)
+                    Text(row.agent.project).font(Theme.label(Type.title)).foregroundColor(Theme.text)
                     Text("·").foregroundColor(Theme.faint)
                     Text(row.displayName)
-                        .font(Theme.label(12)).foregroundColor(Theme.text)
+                        .font(Theme.label(Type.title)).foregroundColor(Theme.text)
                         .lineLimit(1).truncationMode(.tail)
                     Spacer(minLength: 6)
                     // One quiet identity cluster instead of three capsules: what a row IS
@@ -360,8 +360,8 @@ struct AgentRowView: View {
                     chip(identity, row.agent.remoteHost != nil ? Theme.amber : Theme.muted)
                     if let onAnswer {
                         HStack(spacing: 3) {
-                            Image(systemName: "questionmark.bubble.fill").font(.system(size: 8))
-                            Text("answer").font(Theme.mono(8.5))
+                            Image(systemName: "questionmark.bubble.fill").font(.system(size: 10))
+                            Text("answer").font(Theme.mono(Type.micro))
                         }
                         .foregroundColor(Theme.waiting)
                         .padding(.horizontal, 5).padding(.vertical, 1.5)
@@ -371,8 +371,8 @@ struct AgentRowView: View {
                     }
                     if let onConsole {
                         HStack(spacing: 3) {
-                            Image(systemName: "chevron.right").font(.system(size: 7, weight: .bold))
-                            Text("read").font(Theme.mono(8.5))
+                            Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
+                            Text("read").font(Theme.mono(Type.micro))
                         }
                         .foregroundColor(Theme.muted)
                         .padding(.horizontal, 5).padding(.vertical, 1.5)
@@ -382,8 +382,8 @@ struct AgentRowView: View {
                     }
                     if let onPlan {
                         HStack(spacing: 3) {
-                            Image(systemName: "doc.plaintext").font(.system(size: 8))
-                            Text("plan").font(Theme.mono(8.5))
+                            Image(systemName: "doc.plaintext").font(.system(size: 10))
+                            Text("plan").font(Theme.mono(Type.micro))
                         }
                         .foregroundColor(Theme.working)
                         .padding(.horizontal, 5).padding(.vertical, 1.5)
@@ -394,8 +394,8 @@ struct AgentRowView: View {
                     if let t = row.tasks {
                         HStack(spacing: 3) {
                             Image(systemName: t.blocked ? "exclamationmark.circle" : "checklist")
-                                .font(.system(size: 8))
-                            Text(t.label).font(Theme.mono(8.5))
+                                .font(.system(size: 10))
+                            Text(t.label).font(Theme.mono(Type.micro))
                         }
                         .foregroundColor(t.blocked ? Theme.failed : Theme.muted)
                     }
@@ -403,11 +403,11 @@ struct AgentRowView: View {
                         // Context pressure only earns space once it is worth acting on.
                         HStack(spacing: 3) {
                             ContextRing(pct: c)
-                            Text("\(c)%").font(Theme.mono(8.5))
+                            Text("\(c)%").font(Theme.mono(Type.micro))
                         }
                         .foregroundColor(c >= 90 ? Theme.failed : c >= 75 ? Theme.amber : Theme.muted)
                     }
-                    Text(row.ago).font(Theme.mono(9)).foregroundColor(Theme.faint)
+                    Text(row.ago).font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
                     Image(systemName: row.isBackground
                           ? "arrow.down.right.and.arrow.up.left.circle" : "arrow.up.forward.app.fill")
                         .font(.system(size: 10.5)).foregroundColor(hover ? tint : Theme.faint)
@@ -415,7 +415,7 @@ struct AgentRowView: View {
 
                 if let p = row.lastPrompt, !p.isEmpty {
                     Text("You: \(p)")
-                        .font(Theme.mono(9.5)).foregroundColor(Theme.muted)
+                        .font(Theme.mono(Type.small)).foregroundColor(Theme.muted)
                         .lineLimit(1).truncationMode(.tail)
                 }
 
@@ -423,16 +423,16 @@ struct AgentRowView: View {
                 HStack(spacing: 5) {
                     if let why = row.died {
                         Image(systemName: "xmark.octagon.fill")
-                            .font(.system(size: 8)).foregroundColor(Theme.failed)
-                        Text("died · \(why)").font(Theme.mono(9.5)).foregroundColor(Theme.failed)
+                            .font(.system(size: 10)).foregroundColor(Theme.failed)
+                        Text("died · \(why)").font(Theme.mono(Type.small)).foregroundColor(Theme.failed)
                     } else if let t = row.tool {
-                        Text(t).font(Theme.mono(9.5)).foregroundColor(Theme.tool)
+                        Text(t).font(Theme.mono(Type.small)).foregroundColor(Theme.tool)
                     }
                     if row.dormantBlocked, let q = row.blockedQuestion {
                         Image(systemName: "pause.circle")
-                            .font(.system(size: 8)).foregroundColor(Theme.faint)
+                            .font(.system(size: 10)).foregroundColor(Theme.faint)
                         Text("blocked · \(q)")
-                            .font(Theme.mono(9.5)).foregroundColor(Theme.muted)
+                            .font(Theme.mono(Type.small)).foregroundColor(Theme.muted)
                             .lineLimit(1).truncationMode(.tail)
                     } else if row.died == nil {
                         Text(row.tasks?.current
@@ -440,7 +440,7 @@ struct AgentRowView: View {
                              ?? (row.waiting ? "waiting for your input"
                                  : row.isWorking ? "working"
                                  : row.justCompleted ? "completed" : "idle"))  // never raw phase
-                            .font(Theme.mono(9.5))
+                            .font(Theme.mono(Type.small))
                             // Weight, not hue: the palette keeps its three semantic colours.
                             .foregroundColor(row.waiting ? Theme.waiting
                                              : row.justCompleted ? Theme.muted : Theme.faint)
@@ -470,7 +470,7 @@ struct AgentRowView: View {
 
     private func chip(_ text: String, _ color: Color) -> some View {
         Text(text)
-            .font(Theme.mono(8.5)).foregroundColor(color)
+            .font(Theme.mono(Type.micro)).foregroundColor(color)
             .padding(.horizontal, 6).padding(.vertical, 2)
             .background(RoundedRectangle(cornerRadius: 4).fill(color.opacity(0.13)))
             .lineLimit(1)
@@ -541,31 +541,31 @@ struct PanelView: View {
                 let q = quota(for: store.effectiveVendor)
                 if q.fiveHourPct == nil && q.sevenDayPct == nil {
                     Text("publishes no limits")
-                        .font(Theme.mono(9)).foregroundColor(Theme.faint)
+                        .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
                 } else {
                     window("5h", q.fiveHourPct, q.fiveHourResets)
                     if store.effectiveVendor == .claude,
                        let r = status.quota.burnPerHour, r >= 0.5 {
                         HStack(spacing: 3) {
                             Image(systemName: "flame.fill")
-                                .font(.system(size: 8)).foregroundColor(burnTint)
-                            Text(Quota.rate(r)).font(Theme.mono(9)).foregroundColor(burnTint)
+                                .font(.system(size: 10)).foregroundColor(burnTint)
+                            Text(Quota.rate(r)).font(Theme.mono(Type.small)).foregroundColor(burnTint)
                             if let e = status.quota.exhaustsIn, e < 6 * 3600 {
                                 Text("· full in \(Quota.short(e))")
-                                    .font(Theme.mono(9)).foregroundColor(Theme.faint)
+                                    .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
                             }
                         }
                     }
-                    Text("|").font(Theme.mono(9)).foregroundColor(Theme.hairline)
+                    Text("|").font(Theme.mono(Type.small)).foregroundColor(Theme.hairline)
                     window("7d", q.sevenDayPct, q.sevenDayResets)
                 }
                 Spacer()
                 if !hooksReady {
                     HStack(spacing: 4) {
                         Image(systemName: installing ? "hourglass" : "wand.and.stars")
-                            .font(.system(size: 8.5))
+                            .font(.system(size: 10))
                         Text(installing ? "setting up…" : "set up hooks")
-                            .font(Theme.mono(9.5))
+                            .font(Theme.mono(Type.small))
                     }
                     .foregroundColor(Theme.amber)
                     .padding(.horizontal, 7).padding(.vertical, 2)
@@ -582,7 +582,7 @@ struct PanelView: View {
                 if store.workingCount > 0 { pill("\(store.workingCount) working", Theme.working) }
                 if store.waitingCount > 0 { pill("\(store.waitingCount) waiting", Theme.waiting) }
                 if store.blockedCount > 0 { pill("\(store.blockedCount) blocked", Theme.faint) }
-                Text("\(store.rows.count)").font(Theme.mono(9.5)).foregroundColor(Theme.faint)
+                Text("\(store.rows.count)").font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
             }
             .padding(.horizontal, 14)
             .frame(height: PanelView.headerHeight)
@@ -609,14 +609,14 @@ struct PanelView: View {
                     // An app that has never refreshed and one with nothing to show used to look
                     // identical, which is how a silent failure reads as an empty desk.
                     Text(store.hasRefreshed ? "No sessions" : "Looking for agents…")
-                        .font(Theme.name(12)).foregroundColor(Theme.muted)
+                        .font(Theme.name(Type.title)).foregroundColor(Theme.muted)
                     Text(store.hasRefreshed
                          ? "start one with `claude`, `codex` or `cursor-agent`"
                          : "reading Claude Code, Codex and Cursor")
-                        .font(Theme.mono(9.5)).foregroundColor(Theme.faint)
+                        .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
                     if !hooksReady {
                         Text("live events and approvals need hooks — one click, backed up first")
-                            .font(Theme.mono(9)).foregroundColor(Theme.amber)
+                            .font(Theme.mono(Type.small)).foregroundColor(Theme.amber)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -665,10 +665,10 @@ struct PanelView: View {
     /// "5h 23% 4h36m" — label, pressure, and when it clears.
     private func window(_ label: String, _ pct: Int?, _ resets: Date?) -> some View {
         HStack(spacing: 4) {
-            Text(label).font(Theme.label(10)).foregroundColor(Theme.text)
+            Text(label).font(Theme.label(Type.body)).foregroundColor(Theme.text)
             Text(pct.map { "\($0)%" } ?? "—")
-                .font(Theme.label(10)).foregroundColor(Quota.tint(pct))
-            Text(Quota.remaining(resets)).font(Theme.mono(9)).foregroundColor(Theme.faint)
+                .font(Theme.label(Type.body)).foregroundColor(Quota.tint(pct))
+            Text(Quota.remaining(resets)).font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
         }
     }
 
@@ -680,12 +680,12 @@ struct PanelView: View {
         return HStack(spacing: 4) {
             Image(systemName: "bolt.horizontal.fill")
                 .font(.system(size: 9)).foregroundColor(Theme.agentTint)
-            Text(v.label).font(Theme.label(10)).foregroundColor(Theme.text)
+            Text(v.label).font(Theme.label(Type.body)).foregroundColor(Theme.text)
                 .lineLimit(1).fixedSize(horizontal: true, vertical: false)   // never wrap the name
                 .contentTransition(.opacity)
             if many {
                 Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 7)).foregroundColor(Theme.faint)
+                    .font(.system(size: 9)).foregroundColor(Theme.faint)
             }
         }
         .padding(.horizontal, 6).padding(.vertical, 2)
@@ -715,9 +715,9 @@ struct PanelView: View {
     private var costChip: some View {
         let today = Costs.spend(Costs.today(store.costTable), for: store.effectiveVendor)
         return HStack(spacing: 3) {
-            Image(systemName: "dollarsign.circle").font(.system(size: 8.5))
+            Image(systemName: "dollarsign.circle").font(.system(size: 10))
             Text(store.costTable.isEmpty ? "cost" : Costs.dollars(today))
-                .font(Theme.mono(9.5))
+                .font(Theme.mono(Type.small))
         }
         .foregroundColor(Theme.muted)
         .padding(.horizontal, 6).padding(.vertical, 2)
@@ -733,7 +733,7 @@ struct PanelView: View {
 
     private func pill(_ text: String, _ color: Color) -> some View {
         Text(text)
-            .font(Theme.label(9)).foregroundColor(color)
+            .font(Theme.label(Type.small)).foregroundColor(color)
             .padding(.horizontal, 6).padding(.vertical, 2)
             .background(Capsule().fill(color.opacity(0.14)))
     }
@@ -770,7 +770,7 @@ struct ApprovalCard: View {
                         if !ctx.risks.isEmpty {
                             HStack(spacing: 5) {
                                 ForEach(ctx.risks, id: \.self) { r in
-                                    Text(r).font(Theme.mono(8.5))
+                                    Text(r).font(Theme.mono(Type.micro))
                                         .padding(.horizontal, 6).padding(.vertical, 2)
                                         .background(Capsule().fill(Theme.failed.opacity(0.14)))
                                         .foregroundColor(Theme.failed)
@@ -784,7 +784,7 @@ struct ApprovalCard: View {
                         }
                         if let full = approval.fullInput {
                             section("THE FULL ASK") {
-                                Text(full).font(Theme.mono(9.5)).foregroundColor(Theme.muted)
+                                Text(full).font(Theme.mono(Type.small)).foregroundColor(Theme.muted)
                                     .textSelection(.enabled)
                                     .padding(8)
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -795,7 +795,7 @@ struct ApprovalCard: View {
                             section("RECENT ACTIVITY") {
                                 VStack(alignment: .leading, spacing: 3) {
                                     ForEach(Array(ctx.trail.enumerated()), id: \.offset) { _, t in
-                                        Text(t).font(Theme.mono(9)).foregroundColor(Theme.faint)
+                                        Text(t).font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
                                             .lineLimit(1).truncationMode(.middle)
                                     }
                                 }
@@ -812,7 +812,7 @@ struct ApprovalCard: View {
     @ViewBuilder private func section(_ title: String,
                                       @ViewBuilder _ body: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(Theme.mono(8.5)).foregroundColor(Theme.faint).kerning(0.8)
+            Text(title).font(Theme.mono(Type.micro)).foregroundColor(Theme.faint).kerning(0.8)
             body()
         }
     }
@@ -827,20 +827,20 @@ struct ApprovalCard: View {
             }
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(agentName).font(Theme.label(11.5)).foregroundColor(Theme.text).lineLimit(1)
+                    Text(agentName).font(Theme.label(Type.title)).foregroundColor(Theme.text).lineLimit(1)
                     Text(approval.tool)
-                        .font(Theme.mono(8.5)).foregroundColor(Theme.waiting)
+                        .font(Theme.mono(Type.micro)).foregroundColor(Theme.waiting)
                         .padding(.horizontal, 5).padding(.vertical, 1.5)
                         .background(Capsule().fill(Theme.waiting.opacity(0.14)))
                 }
                 Text(approval.detail)
-                    .font(Theme.mono(9.5)).foregroundColor(Theme.muted)
+                    .font(Theme.mono(Type.small)).foregroundColor(Theme.muted)
                     .lineLimit(1).truncationMode(.middle)
             }
             Spacer(minLength: 8)
             if approval.plan == nil, context == nil, let onExpand {
                 Text("context ⌘⌥E")
-                    .font(Theme.label(10.5)).foregroundColor(Theme.muted)
+                    .font(Theme.label(Type.body)).foregroundColor(Theme.muted)
                     .padding(.horizontal, 10).padding(.vertical, 6)
                     .background(RoundedRectangle(cornerRadius: 7).fill(Theme.raised))
                     .contentShape(Rectangle())
@@ -857,7 +857,7 @@ struct ApprovalCard: View {
                         _ act: @escaping () -> Void,
                         _ hover: @escaping (Bool) -> Void) -> some View {
         Text(title)
-            .font(Theme.label(10.5))
+            .font(Theme.label(Type.body))
             .foregroundColor(hot ? Theme.bg : tint)
             .padding(.horizontal, 12).padding(.vertical, 6)
             .background(RoundedRectangle(cornerRadius: 7)
@@ -944,13 +944,13 @@ struct QuestionCard: View {
             }
             // Which session is asking, before what it is asking.
             if let p = question.project, p != agentName {
-                Text(p).font(Theme.label(11)).foregroundColor(Theme.text).lineLimit(1)
-                Text("·").font(Theme.label(11)).foregroundColor(Theme.faint)
+                Text(p).font(Theme.label(Type.title)).foregroundColor(Theme.text).lineLimit(1)
+                Text("·").font(Theme.label(Type.title)).foregroundColor(Theme.faint)
             }
-            Text(agentName).font(Theme.label(11)).foregroundColor(Theme.muted).lineLimit(1)
+            Text(agentName).font(Theme.label(Type.title)).foregroundColor(Theme.muted).lineLimit(1)
             if !item.header.isEmpty {
                 Text(item.header)
-                    .font(Theme.mono(8.5)).foregroundColor(Theme.waiting)
+                    .font(Theme.mono(Type.micro)).foregroundColor(Theme.waiting)
                     .padding(.horizontal, 5).padding(.vertical, 1.5)
                     .background(Capsule().fill(Theme.waiting.opacity(0.14)))
             }
@@ -962,8 +962,8 @@ struct QuestionCard: View {
                     let left = max(0, Int((graceBase.addingTimeInterval(graceLength))
                         .timeIntervalSince(ctx.date).rounded(.up)))
                     HStack(spacing: 3) {
-                        Image(systemName: "timer").font(.system(size: 8))
-                        Text("\(left)s").font(Theme.mono(9)).monospacedDigit()
+                        Image(systemName: "timer").font(.system(size: 10))
+                        Text("\(left)s").font(Theme.mono(Type.small)).monospacedDigit()
                     }
                     .foregroundColor(left <= 10 ? Theme.amber : Theme.faint)
                 }
@@ -988,11 +988,11 @@ struct QuestionCard: View {
                         }
                     }
                     Text("\(step + 1) of \(question.items.count)")
-                        .font(Theme.mono(9)).foregroundColor(Theme.faint)
+                        .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
                     // Arrows belong to whatever is focused behind this panel, so the dots are
                     // the way across and saying so beats leaving it to be discovered.
                     Text("· click a dot to jump")
-                        .font(Theme.mono(8)).foregroundColor(Theme.faint.opacity(0.75))
+                        .font(Theme.mono(Type.micro)).foregroundColor(Theme.faint.opacity(0.75))
                 }
             }
         }
@@ -1003,7 +1003,7 @@ struct QuestionCard: View {
         VStack(alignment: .leading, spacing: 8) {
             // The whole question, wrapped. Real ones reach 444 characters.
             Text(item.text)
-                .font(Theme.name(12.5)).foregroundColor(Theme.text)
+                .font(Theme.name(Type.title)).foregroundColor(Theme.text)
                 .fixedSize(horizontal: false, vertical: true)
 
             VStack(alignment: .leading, spacing: 3) {
@@ -1011,19 +1011,19 @@ struct QuestionCard: View {
                     let on = chosen.contains(opt.label)
                     HStack(alignment: .top, spacing: 9) {
                         Text("\(i + 1)")
-                            .font(Theme.mono(9.5))
+                            .font(Theme.mono(Type.small))
                             .foregroundColor(on ? Theme.waiting : Theme.faint)
                             .frame(width: 15, height: 15)
                             .overlay(RoundedRectangle(cornerRadius: 4)
                                 .stroke(on ? Theme.waiting.opacity(0.4) : Theme.hairline))
                         VStack(alignment: .leading, spacing: 2) {
                             Text(opt.label)
-                                .font(Theme.label(11.5)).foregroundColor(Theme.text)
+                                .font(Theme.label(Type.title)).foregroundColor(Theme.text)
                                 .fixedSize(horizontal: false, vertical: true)
                             // Every option in every real ask carries one of these.
                             if !opt.detail.isEmpty {
                                 Text(opt.detail)
-                                    .font(Theme.mono(9.5)).foregroundColor(Theme.faint)
+                                    .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
                                     .lineLimit(3).fixedSize(horizontal: false, vertical: true)
                             }
                         }
@@ -1060,13 +1060,13 @@ struct QuestionCard: View {
             if typing {
                 TextField("", text: Binding(get: { text }, set: onType))
                     .textFieldStyle(.plain)
-                    .font(Theme.label(11.5)).foregroundColor(Theme.text)
+                    .font(Theme.label(Type.title)).foregroundColor(Theme.text)
                     .focused($writing)
                     .onAppear { writing = true }
                     .onSubmit { isLast ? onSubmit() : onConfirm() }
             } else {
                 Text(on ? text : "or type your own answer")
-                    .font(Theme.label(11.5))
+                    .font(Theme.label(Type.title))
                     .foregroundColor(on ? Theme.text : Theme.faint)
                     .lineLimit(2).fixedSize(horizontal: false, vertical: true)
             }
@@ -1088,9 +1088,9 @@ struct QuestionCard: View {
         return VStack(alignment: .leading, spacing: 6) {
             if !text.isEmpty {
                 Text("PREVIEW")
-                    .font(Theme.mono(8)).foregroundColor(Theme.agentTint).tracking(1.2)
+                    .font(Theme.mono(Type.micro)).foregroundColor(Theme.agentTint).tracking(1.2)
                 Text(text)
-                    .font(Theme.mono(9)).foregroundColor(Theme.faint)
+                    .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
@@ -1112,10 +1112,10 @@ struct QuestionCard: View {
                 // The chat owns it now. The card stays so the question is readable in both
                 // places, but it is a copy — the only thing left to do here is go there.
                 Text("waiting for your answer in the chat")
-                    .font(Theme.mono(9)).foregroundColor(Theme.waiting)
+                    .font(Theme.mono(Type.small)).foregroundColor(Theme.waiting)
                 Spacer(minLength: 0)
                 Text("go to the chat")
-                    .font(Theme.mono(9)).foregroundColor(Theme.text)
+                    .font(Theme.mono(Type.small)).foregroundColor(Theme.text)
                     .padding(.horizontal, 9).padding(.vertical, 4)
                     .background(Capsule().stroke(Theme.hairline))
                     .contentShape(Capsule())
@@ -1125,10 +1125,10 @@ struct QuestionCard: View {
                                   : "⏎ for the next question")
                         : item.multi ? "\(chosen.count) selected · ⌘⌥1–4 toggles"
                                      : "⌘⌥1–4 to choose")
-                .font(Theme.mono(9)).foregroundColor(Theme.faint)
+                .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
             // Answering in the notch is one way; taking it to the chat is the other.
             Text("answer in chat →")
-                .font(Theme.mono(9)).foregroundColor(Theme.muted)
+                .font(Theme.mono(Type.small)).foregroundColor(Theme.muted)
                 .padding(.horizontal, 7).padding(.vertical, 3)
                 .background(Capsule().stroke(Theme.hairline))
                 .contentShape(Capsule())
@@ -1136,7 +1136,7 @@ struct QuestionCard: View {
             Spacer(minLength: 0)
             if question.items.count > 1 {
                 Text("\(doneCount) of \(question.items.count) answered")
-                    .font(Theme.mono(9))
+                    .font(Theme.mono(Type.small))
                     .foregroundColor(doneCount == question.items.count ? Theme.working : Theme.faint)
             }
             if !last {
@@ -1154,7 +1154,7 @@ struct QuestionCard: View {
     private func button(_ title: String, filled: Bool, on: Bool,
                         action: @escaping () -> Void) -> some View {
         Text(title)
-            .font(Theme.label(10.5))
+            .font(Theme.label(Type.body))
             .foregroundColor(!on ? Theme.faint : filled ? Theme.bg : Theme.text)
             .padding(.horizontal, 12).padding(.vertical, 5)
             .background(Capsule().fill(on && filled ? Theme.waiting : Theme.raised))

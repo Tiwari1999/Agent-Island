@@ -42,11 +42,11 @@ struct ConsoleView: View {
                       : row?.isWorking == true ? Theme.working : Theme.faint)
                 .frame(width: 6, height: 6)
             if let p = row?.agent.cwd.map({ ($0 as NSString).lastPathComponent }) {
-                Text(p).font(Theme.label(11)).foregroundColor(Theme.text).lineLimit(1)
+                Text(p).font(Theme.label(Type.title)).foregroundColor(Theme.text).lineLimit(1)
                 Text("·").foregroundColor(Theme.faint)
             }
             Text(row?.displayName ?? "session")
-                .font(Theme.mono(10)).foregroundColor(Theme.muted).lineLimit(1)
+                .font(Theme.mono(Type.body)).foregroundColor(Theme.muted).lineLimit(1)
             Spacer(minLength: 8)
             tag("open in terminal", action: onJump)
             tag("⌘⌥K", action: onClose)
@@ -56,7 +56,7 @@ struct ConsoleView: View {
 
     private func tag(_ t: String, action: @escaping () -> Void) -> some View {
         Text(t)
-            .font(Theme.mono(9)).foregroundColor(Theme.muted)
+            .font(Theme.mono(Type.small)).foregroundColor(Theme.muted)
             .padding(.horizontal, 7).padding(.vertical, 3)
             .background(Capsule().stroke(Theme.hairline))
             .contentShape(Capsule())
@@ -93,7 +93,7 @@ struct ConsoleView: View {
     }
 
     private func note(_ t: String) -> some View {
-        Text(t).font(Theme.mono(10)).foregroundColor(Theme.faint)
+        Text(t).font(Theme.mono(Type.body)).foregroundColor(Theme.faint)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -120,7 +120,7 @@ struct ConsoleView: View {
 
     private func stamp(_ at: Date) -> some View {
         Text(Self.clock.string(from: at))
-            .font(Theme.mono(8.5)).foregroundColor(Theme.faint.opacity(0.65))
+            .font(Theme.mono(Type.micro)).foregroundColor(Theme.faint.opacity(0.65))
     }
 
     @ViewBuilder
@@ -128,17 +128,17 @@ struct ConsoleView: View {
         if case let .ran(tool, why, seconds, failed) = e.kind {
             HStack(alignment: .firstTextBaseline, spacing: 7) {
                 Text(tool)
-                    .font(Theme.mono(9))
+                    .font(Theme.mono(Type.small))
                     .foregroundColor(failed ? Theme.failed : Theme.muted)
                     .frame(width: 56, alignment: .leading)
                 Text(why)
-                    .font(Theme.mono(9)).foregroundColor(Theme.faint)
+                    .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
                     .lineLimit(1).truncationMode(.middle)
                 Spacer(minLength: 4)
                 if let s = seconds, s >= 0.5 {
                     Text(s < 60 ? String(format: "%.0fs", s)
                                 : String(format: "%.0fm", (s / 60).rounded()))
-                        .font(Theme.mono(8.5)).foregroundColor(Theme.faint.opacity(0.7))
+                        .font(Theme.mono(Type.micro)).foregroundColor(Theme.faint.opacity(0.7))
                 }
             }
         }
@@ -152,7 +152,7 @@ struct ConsoleView: View {
         HStack(spacing: 7) {
             Circle().fill(row.waiting ? Theme.waiting : Theme.working).frame(width: 5, height: 5)
             Text(row.waiting ? "waiting for you" : (row.activity ?? "working"))
-                .font(Theme.mono(9.5))
+                .font(Theme.mono(Type.small))
                 .foregroundColor(row.waiting ? Theme.waiting : Theme.working)
                 .lineLimit(1)
             Spacer(minLength: 0)
