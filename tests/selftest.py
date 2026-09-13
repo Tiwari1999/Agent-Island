@@ -2323,6 +2323,33 @@ check("no view sets a raw text size any more",
 check("and glyphs track the text rather than sitting a third smaller",
       re.search(r"\.system\(size: [0-8](?:\.\d)?\b", _allsrc) is None)
 
+print("\n=== 44. writing back to the session ===")
+_tw = open(os.path.join(REPO, "Sources/AgentIsland/TerminalWrite.swift")).read()
+_cv2 = open(os.path.join(REPO, "Sources/AgentIsland/ConsoleView.swift")).read()
+_iv11 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+# CGEvent typing dropped characters into the TUI and a timed paste landed on whatever held
+# focus; each terminal delivering its own text is the only channel that arrived intact.
+check("no synthetic typing survives",
+      "CGEvent(" not in _tw and "keyboardSetUnicodeString" not in _tw
+      and "CGEventPost" not in _tw)
+check("iTerm and Terminal are addressed by the same handle the jump uses",
+      "tell s to write text" in _tw and "do script \\(quoted(text)) in t" in _tw
+      and "HostTerminal.appleSafe" in _tw)
+# Spawning osascript blames the Automation prompt on osascript, which already holds one.
+check("the script runs in-process so the permission lands on us",
+      "NSAppleScript(source: source)" in _tw and "/usr/bin/osascript" not in _tw)
+check("a host with no scripting interface declines rather than pretending",
+      "case .warp, .app, .degraded, .unknown: return false" in _tw)
+check("and the console says so instead of showing a dead field",
+      "takes no input from here" in _cv2 and "TerminalWrite.canWrite(row.host)" in _cv2)
+# A literal cannot span lines, so a pasted multi-line answer must not be half-delivered.
+check("control characters are refused before anything is sent",
+      "$0.value < 0x20 || $0.value == 0x7F" in _tw)
+check("the field borrows focus from the island, which refuses it by default",
+      "onBeginType" in _cv2 and 'island.beginTyping("console:' in _iv11)
+check("and hands it back after sending",
+      "onEndType?()" in _cv2 and "island.endTyping()" in _iv11)
+
 print("\n=== 23. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")
 check("binary exists", os.path.exists(b))

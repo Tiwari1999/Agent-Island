@@ -77,7 +77,7 @@ final class Island: NSObject, ObservableObject {
     static let maxSize = NSSize(width: 860, height: 420)
     /// The console's footprint. Sized to be read at a glance rather than lived in; the window is
     /// created once at maxSize, so growing this later costs nothing structurally.
-    static let consoleSize = NSSize(width: 640, height: 320)
+    static let consoleSize = NSSize(width: 640, height: 356)
     /// Breathing room under the camera housing — enough that text never touches the bezel,
     /// small enough that the card still reads as hanging off the notch rather than floating.
     static let notchClearance: CGFloat = 3
@@ -1097,7 +1097,10 @@ private struct RootView: View {
                                 },
                                 onClose: { island.closeConsole() },
                                 onBack: island.consoleFromPanel
-                                    ? { island.consoleBackToPanel() } : nil)
+                                    ? { island.consoleBackToPanel() } : nil,
+                                typingFor: island.typingFor,
+                                onBeginType: { island.beginTyping("console:\(sid)") },
+                                onEndType: { island.endTyping() })
                         .frame(maxHeight: .infinity, alignment: .bottom)
                         .padding(.bottom, 6)
                 case .expanded:

@@ -9,9 +9,16 @@ struct ConsoleView: View {
     let onClose: () -> Void
     /// nil when the console was summoned by the chord rather than from the list.
     var onBack: (() -> Void)? = nil
+    /// The panel refuses keyboard focus by default, so the island grants it for the field alone.
+    var typingFor: String? = nil
+    var onBeginType: (() -> Void)? = nil
+    var onEndType: (() -> Void)? = nil
 
     @State private var feed: [ConsoleEntry] = []
     @State private var loaded = false
+    @State private var draft = ""
+    @State private var note: String?
+    @FocusState private var writing: Bool
     /// Console.recent is mtime-cached, so re-reading an unchanged transcript costs a stat.
     private let tick = Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()
 
@@ -23,11 +30,55 @@ struct ConsoleView: View {
             Rectangle().fill(Theme.hairline).frame(height: 0.7)
             body(for: feed)
             if let row, row.isWorking || row.waiting { live(row) }
+            composer
         }
         .frame(width: Island.consoleSize.width, height: Island.consoleSize.height)
         .task(id: session) { await load() }
         // Without this the feed froze at open time while the footer kept animating.
         .onReceive(tick) { _ in Task { await load() } }
+    }
+
+    /// Answering from here is the point of reading here: the alternative is finding the tab.
+    @ViewBuilder
+    private var composer: some View {
+        if let row {
+            Rectangle().fill(Theme.hairline).frame(height: 0.7)
+            HStack(spacing: 7) {
+                if TerminalWrite.canWrite(row.host) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold)).foregroundColor(Theme.working)
+                    TextField("reply to \(row.displayName)", text: $draft)
+                        .textFieldStyle(.plain)
+                        .font(Theme.mono(Type.small)).foregroundColor(Theme.text)
+                        .focused($writing)
+                        .onSubmit { send(to: row) }
+                        .onTapGesture { onBeginType?(); writing = true }
+                    if let note {
+                        Text(note).font(Theme.mono(Type.micro)).foregroundColor(Theme.muted)
+                    }
+                } else {
+                    Image(systemName: "keyboard.badge.ellipsis")
+                        .font(.system(size: 9)).foregroundColor(Theme.faint)
+                    // Warp publishes no scripting interface, so there is nothing to write to.
+                    Text("\(row.host.name) takes no input from here — open in terminal")
+                        .font(Theme.mono(Type.micro)).foregroundColor(Theme.faint)
+                }
+            }
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .onChange(of: typingFor) { _, v in if v == nil { writing = false } }
+        }
+    }
+
+    private func send(to row: AgentRow) {
+        let line = draft
+        guard !line.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        let ok = TerminalWrite.send(line, to: row.host)
+        note = ok ? "sent" : "could not deliver"
+        if ok { draft = "" }
+        // Hand focus back, or the next keystroke anywhere lands in this field.
+        onEndType?()
+        writing = false
+        Task { try? await Task.sleep(nanoseconds: 1_600_000_000); note = nil }
     }
 
     // MARK: - parts
