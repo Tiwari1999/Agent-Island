@@ -1913,7 +1913,7 @@ check("flipping is reachable without the panel open (lasting hotkey)",
       "kVK_ANSI_G, Hotkeys.cmdOpt" in _iv and "Surfaces.shared.toggle()" in _iv)
 check("and discoverable without the chord, in settings",
       "materialChip" not in _vw and "gearChip" in _vw
-      and 'choice("sleek", on: surfaces.sleek)' in open(
+      and 'choice("Sleek", on: surfaces.sleek)' in open(
           os.path.join(REPO, "Sources/AgentIsland/Settings.swift")).read())
 check("the shell reads the toggle instead of a hardcoded fill",
       "IslandBackground(corner: corner" in _iv and ".fill(Theme.bg)" not in _iv)
@@ -1996,7 +1996,7 @@ check("the plan reader cannot outgrow the height the card reserves",
 check("the idle line's width cap fits what it now prints", "min(300," in _vw)
 # Theme reads Surfaces statically, which SwiftUI cannot track as a dependency.
 check("toggling the surface repaints every view, not just the observers",
-      ".id(surfaces.choice)" in _iv)
+      '.id("\\(surfaces.choice.rawValue)-\\(typefaces.choice.rawValue)")' in _iv)
 
 print("\n=== 32. one motion vocabulary ===")
 _th = open(os.path.join(REPO, "Sources/AgentIsland/Theme.swift")).read()
@@ -2262,6 +2262,32 @@ check("asking for quiet from the panel closes it",
       ".onChange(of: prefs.snoozedUntil)" in _iv10
       and _iv10.index(".onChange(of: prefs.snoozedUntil)")
           > _iv10.index(".frame(width: Island.maxSize.width"))
+
+print("\n=== 42. typeface ===")
+_tf = open(os.path.join(REPO, "Sources/AgentIsland/Typeface.swift")).read()
+_th = open(os.path.join(REPO, "Sources/AgentIsland/Theme.swift")).read()
+_st2 = open(os.path.join(REPO, "Sources/AgentIsland/Settings.swift")).read()
+# Switchable rather than swapped, so the look it shipped with stays there to compare against.
+check("all three faces stay available",
+      "case mono" in _tf and "case clean" in _tf and "case round" in _tf
+      and "enum Typeface: String, CaseIterable" in _tf)
+check("and the choice survives a restart",
+      'UserDefaults.standard.set(choice.rawValue, forKey: Self.key)' in _tf)
+# 84 call sites go through mono(); routing them through one switch is what makes this cheap.
+check("one function decides it, not 84 call sites",
+      "private static var face: Typeface { Typefaces.shared.choice }" in _th
+      and _th.count("static func mono(") == 1)
+# A proportional face would let quota and cost columns jitter as the digits changed.
+check("figures still line up in the proportional faces",
+      _th.count(".monospacedDigit()") == 2)
+check("which the setting says out loud",
+      "Figures stay aligned in all three" in _st2)
+check("settings labels read as sentences",
+      'row("Material"' in _st2 and 'row("Typeface"' in _st2
+      and 'row("Steps aside after"' in _st2 and 'row("Hide the island for"' in _st2)
+check("and so do the controls",
+      'choice("Solid"' in _st2 and 'choice("Never"' in _st2 and 'choice("Quit"' in _st2
+      and "f.label.capitalized" in _st2)
 
 print("\n=== 23. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")

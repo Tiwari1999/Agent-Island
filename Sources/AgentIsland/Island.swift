@@ -953,6 +953,7 @@ private struct RootView: View {
     @ObservedObject var store: AgentStore
     @ObservedObject var status: StatusStore
     @ObservedObject private var surfaces = Surfaces.shared
+    @ObservedObject private var typefaces = Typefaces.shared
     // `hushed` reads Prefs, which nothing else here observes: without this the bar keeps
     // drawing after you ask for quiet, and never comes back when it lapses.
     @ObservedObject private var prefs = Prefs.shared
@@ -1124,6 +1125,6 @@ private struct RootView: View {
         // Theme's tokens read Surfaces statically, which SwiftUI cannot see as a dependency:
         // views whose stored properties are unchanged keep the old palette. Rebinding identity
         // on the toggle rebuilds the subtree so every Theme read is re-evaluated.
-        .id(surfaces.choice)
+        .id("\(surfaces.choice.rawValue)-\(typefaces.choice.rawValue)")
     }
 }

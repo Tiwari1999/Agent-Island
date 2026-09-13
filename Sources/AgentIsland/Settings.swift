@@ -61,6 +61,7 @@ final class Prefs: ObservableObject {
 struct SettingsView: View {
     @ObservedObject private var prefs = Prefs.shared
     @ObservedObject private var surfaces = Surfaces.shared
+    @ObservedObject private var typefaces = Typefaces.shared
     var onBack: () -> Void
 
     /// The bar only covers content where there is no notch to sit in.
@@ -74,16 +75,21 @@ struct SettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 15) {
                 group("appearance") {
-                    row("material", note: "\u{2318}\u{2325}G") {
-                        choice("solid", on: !surfaces.sleek) { surfaces.choice = .solid }
-                        choice("sleek", on: surfaces.sleek) { surfaces.choice = .sleek }
+                    row("Material", note: "\u{2318}\u{2325}G") {
+                        choice("Solid", on: !surfaces.sleek) { surfaces.choice = .solid }
+                        choice("Sleek", on: surfaces.sleek) { surfaces.choice = .sleek }
+                    }
+                    row("Typeface", note: "Figures stay aligned in all three") {
+                        ForEach(Typeface.allCases, id: \.self) { f in
+                            choice(f.label.capitalized, on: typefaces.choice == f) { typefaces.choice = f }
+                        }
                     }
                 }
 
                 group("the bar") {
-                    row("steps aside after",
-                        note: hasNotch ? "this display has a notch \u{2014} it covers nothing here" : nil) {
-                        choice("never", on: prefs.autoHideSeconds == 0) { prefs.autoHideSeconds = 0 }
+                    row("Steps aside after",
+                        note: hasNotch ? "This display has a notch \u{2014} it covers nothing here" : nil) {
+                        choice("Never", on: prefs.autoHideSeconds == 0) { prefs.autoHideSeconds = 0 }
                         choice("4s", on: prefs.autoHideSeconds == 4) { prefs.autoHideSeconds = 4 }
                         choice("8s", on: prefs.autoHideSeconds == 8) { prefs.autoHideSeconds = 8 }
                     }
@@ -91,12 +97,12 @@ struct SettingsView: View {
 
                 group("quiet") {
                     if let until = prefs.snoozedUntil, prefs.snoozing {
-                        row("quiet until \(Prefs.clockTime(until))",
-                            note: "system notifications still arrive") {
-                            choice("resume now", on: false) { prefs.resume() }
+                        row("Quiet until \(Prefs.clockTime(until))",
+                            note: "System notifications still arrive") {
+                            choice("Resume now", on: false) { prefs.resume() }
                         }
                     } else {
-                        row("hide the island for", note: "nothing pops over your screen") {
+                        row("Hide the island for", note: "Nothing pops over your screen") {
                             choice("30 min", on: false) { prefs.snooze(minutes: 30) }
                             choice("1 hour", on: false) { prefs.snooze(minutes: 60) }
                             choice("4 hours", on: false) { prefs.snooze(minutes: 240) }
@@ -106,11 +112,11 @@ struct SettingsView: View {
 
                 group("app") {
                     row("AgentIsland \(version)", note: nil) {
-                        choice("quit", on: false, tint: Theme.failed) { NSApp.terminate(nil) }
+                        choice("Quit", on: false, tint: Theme.failed) { NSApp.terminate(nil) }
                     }
                 }
 
-                Text("\u{2039} agents")
+                Text("\u{2039} Agents")
                     .font(Theme.mono(9)).foregroundColor(Theme.muted)
                     .padding(.horizontal, 7).padding(.vertical, 3)
                     .background(Capsule().stroke(Theme.hairline))

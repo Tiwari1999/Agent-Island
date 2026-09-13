@@ -38,9 +38,24 @@ enum Theme {
     // Demoted from orange: an agent badge carries identity, not urgency.
     static let agentTint = Color(red: 0.478, green: 0.510, blue: 0.576)
 
+    private static var face: Typeface { Typefaces.shared.choice }
+
+    /// A proportional face sets smaller than a monospaced one at the same point size, so the
+    /// non-mono options are nudged up to keep the panel's density where it was.
+    private static func sized(_ s: CGFloat) -> CGFloat { face == .mono ? s : s + 0.5 }
+
     static func name(_ s: CGFloat) -> Font { .system(size: s, weight: .medium, design: .rounded) }
     static func label(_ s: CGFloat) -> Font { .system(size: s, weight: .semibold, design: .rounded) }
-    static func mono(_ s: CGFloat) -> Font { .system(size: s, weight: .regular, design: .monospaced) }
+
+    /// Named for what it guarantees — columns that line up — not for being monospaced. The
+    /// proportional options keep `monospacedDigit`, so quota and cost figures still align.
+    static func mono(_ s: CGFloat) -> Font {
+        switch face {
+        case .mono:  return .system(size: s, weight: .regular, design: .monospaced)
+        case .clean: return .system(size: sized(s), weight: .regular).monospacedDigit()
+        case .round: return .system(size: sized(s), weight: .regular, design: .rounded).monospacedDigit()
+        }
+    }
 }
 
 /// One vocabulary for every moving thing. Eleven different curves were in play — a vendor
