@@ -2350,6 +2350,43 @@ check("the field borrows focus from the island, which refuses it by default",
 check("and hands it back after sending",
       "onEndType?()" in _cv2 and "island.endTyping()" in _iv11)
 
+print("\n=== 45. clicking a row never opens a new terminal ===")
+_as9 = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
+# Routing every unfocusable row through Reopen meant a LIVE session opened a second terminal
+# running `claude attach` — landing the user somewhere new, which a row click must never do.
+check("only a finished session is reopened",
+      "guard row.agent.pid == nil else {" in _as9
+      and _as9.index("guard row.agent.pid == nil else {")
+          < _as9.index("if !Reopen.run(row.agent"))
+check("a live session that cannot be focused hands over the command instead",
+      "could not be focused, command copied" in _as9)
+check("and still says something, rather than dying silently",
+      "cannot be focused" in _as9)
+
+print("\n=== 46. tmux ===")
+_ht2 = open(os.path.join(REPO, "Sources/AgentIsland/HostTerminal.swift")).read()
+_pe2 = open(os.path.join(REPO, "Sources/AgentIsland/ProcEnv.swift")).read()
+_tw2 = open(os.path.join(REPO, "Sources/AgentIsland/TerminalWrite.swift")).read()
+check("a pane is discovered from the environment",
+      'i.tmuxPane = ae.env["TMUX_PANE"]' in _pe2 and "var tmuxPane: String?" in _pe2)
+# Whatever draws the window, the pane belongs to tmux — and a pane handle reaches sessions in
+# terminals that publish no scripting interface, which is the only route into Warp.
+check("tmux is resolved ahead of the terminal drawing it",
+      _ht2.index("if let pane = i.tmuxPane") < _ht2.index('i.termProgram == "iTerm.app"')
+      and _ht2.index("if let pane = i.tmuxPane") < _ht2.index("if let u = i.focusURL"))
+check("the outer app is carried, or the jump selects a pane nobody can see",
+      "case tmux(pane: String, outerBundle: String?)" in _ht2
+      and "if let outer { _ = activate(bundleID: outer) }" in _ht2)
+# appleSafe strips the sigil, turning `-t %3` into `-t 3` — a different window, not that pane.
+check("a pane id keeps its sigil",
+      "static func tmuxSafe" in _ht2 and "%@$" in _ht2
+      and "HostTerminal.tmuxSafe(pane)" in _tw2)
+# Without -l a reply containing "C-c" would be pressed as a key and kill the agent.
+check("text is sent literally, and the Return is separate",
+      "-l \\(shellQuoted(text))" in _tw2 and "Enter\")" in _tw2)
+check("and tmux counts as writable, which is what reaches Warp",
+      "case .tmux, .iterm, .appleTerminal, .kitty, .wezterm: return true" in _tw2)
+
 print("\n=== 23. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")
 check("binary exists", os.path.exists(b))

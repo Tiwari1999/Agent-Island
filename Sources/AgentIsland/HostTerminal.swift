@@ -6,6 +6,9 @@ import AppKit
 /// integrated terminals, and JetBrains IDEs. Each exposes a different amount of control, so the
 /// jump degrades honestly rather than pretending every host is equal.
 enum HostTerminal: Equatable {
+    /// A pane inside tmux. The outer app is carried so the jump can raise it too — selecting a
+    /// pane in a terminal that is behind another window moves nothing the user can see.
+    case tmux(pane: String, outerBundle: String?)
     case warp(focusURL: String)
     case iterm(session: String)
     case appleTerminal(session: String)
@@ -22,6 +25,7 @@ enum HostTerminal: Equatable {
     /// Friendly label for the row's chip.
     var name: String {
         switch self {
+        case .tmux: return "tmux"
         case .warp: return "Warp"
         case .iterm: return "iTerm2"
         case .appleTerminal: return "Terminal"
@@ -45,7 +49,7 @@ enum HostTerminal: Equatable {
 
     var isPrecise: Bool {
         switch self {
-        case .warp, .iterm, .appleTerminal, .kitty, .wezterm: return true
+        case .tmux, .warp, .iterm, .appleTerminal, .kitty, .wezterm: return true
         case .app, .degraded, .unknown: return false
         }
     }
@@ -68,6 +72,9 @@ enum HostTerminal: Equatable {
         // it reliably. Trust it before the bare Warp handle: opening iTerm2 from a Warp tab
         // leaks WARP_FOCUS_URL into it, and keying on that first sent the jump to Warp — the
         // wrong app. Warp itself often leaves TERM_PROGRAM empty, so it stays the fallback.
+        // Ahead of the terminal checks: whatever draws the window, the pane is tmux's, and a
+        // pane handle reaches sessions in terminals that publish no scripting interface at all.
+        if let pane = i.tmuxPane, !pane.isEmpty { return .tmux(pane: pane, outerBundle: i.bundleID) }
         if i.termProgram == "iTerm.app", let s = i.itermSession { return .iterm(session: s) }
         if i.termProgram == "Apple_Terminal" {
             // TERM_SESSION_ID is a UUID Terminal never surfaces in its dictionary; the tty is the
@@ -126,6 +133,18 @@ enum HostTerminal: Equatable {
     @discardableResult
     func jump() -> Bool {
         switch self {
+        case .tmux(let pane, let outer):
+            let p = Self.tmuxSafe(pane)
+            guard !p.isEmpty else { return false }
+            // A pane id is server-unique, so one -t reaches the right window and pane; the
+            // client may also be looking at a different session entirely.
+            let ok = Shell.runSync("/bin/sh", ["-c",
+                "tmux switch-client -t '\(p)' 2>/dev/null; "
+                + "tmux select-window -t '\(p)' 2>/dev/null; "
+                + "tmux select-pane -t '\(p)' 2>/dev/null && echo __ok__"]).contains("__ok__")
+            if let outer { _ = activate(bundleID: outer) }
+            return ok
+
         case .warp(let url):
             guard let u = URL(string: url) else { return false }
             NSWorkspace.shared.open(u)
@@ -212,6 +231,15 @@ enum HostTerminal: Equatable {
     /// A session handle comes from a process env var, which is attacker-influenceable in
     /// principle; it is interpolated into an AppleScript string, so strip it to the characters a
     /// real iTerm UUID or a tty path uses. Anything else yields "" and the jump declines.
+    /// tmux ids carry a sigil — %pane, @window, $session — which appleSafe would strip, turning
+    /// `-t %3` into `-t 3`: a different window, not that pane.
+    static func tmuxSafe(_ s: String) -> String {
+        String(s.unicodeScalars.filter {
+            CharacterSet(charactersIn:
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_%@$").contains($0)
+        }.prefix(64))
+    }
+
     static func appleSafe(_ s: String) -> String {
         String(s.unicodeScalars.filter {
             CharacterSet(charactersIn:

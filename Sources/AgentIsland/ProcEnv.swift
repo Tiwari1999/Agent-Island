@@ -13,6 +13,9 @@ enum ProcEnv {
         var tty: String?               // controlling terminal, for Terminal.app focus
         var kittyWindow: String?       // kitty
         var weztermPane: String?       // WezTerm
+        /// The innermost layer when present: tmux owns the session whatever terminal draws it,
+        /// which is the only handle that reaches a pane inside a terminal with no scripting.
+        var tmuxPane: String?
         var termProgram: String?
         var jetbrains: Bool = false
         /// Set by macOS on every process an app launches — the most reliable host id there is.
@@ -45,6 +48,7 @@ enum ProcEnv {
             i.appleSession = ae.env["TERM_SESSION_ID"]
             i.kittyWindow = ae.env["KITTY_WINDOW_ID"]
             i.weztermPane = ae.env["WEZTERM_PANE"]
+            i.tmuxPane = ae.env["TMUX_PANE"]
             i.termProgram = ae.env["TERM_PROGRAM"]
             i.bundleID = ae.env["__CFBundleIdentifier"]
             i.tty = Proc.tty(pid: pid)

@@ -6,7 +6,7 @@ enum TerminalWrite {
     /// Whether this host can be written to at all — Warp publishes no scripting interface.
     static func canWrite(_ host: HostTerminal) -> Bool {
         switch host {
-        case .iterm, .appleTerminal, .kitty, .wezterm: return true
+        case .tmux, .iterm, .appleTerminal, .kitty, .wezterm: return true
         case .warp, .app, .degraded, .unknown: return false
         }
     }
@@ -22,6 +22,14 @@ enum TerminalWrite {
         else { return false }
 
         switch host {
+        case .tmux(let pane, _):
+            let p = HostTerminal.tmuxSafe(pane)
+            guard !p.isEmpty else { return false }
+            // -l sends the text literally, so a reply containing "Enter" or "C-c" is typed
+            // rather than interpreted. The Return is a separate, deliberate key.
+            return ran("tmux send-keys -t '\(p)' -l \(shellQuoted(text)) "
+                       + "&& tmux send-keys -t '\(p)' Enter")
+
         case .iterm(let session):
             let sid = HostTerminal.appleSafe(session.split(separator: ":").last.map(String.init) ?? session)
             guard !sid.isEmpty else { return false }

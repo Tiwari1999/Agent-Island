@@ -554,8 +554,20 @@ final class AgentStore: ObservableObject {
             onBackgroundAttach?("\(row.displayName) — path copied, session not resolvable")
             return
         }
-        // Nothing left to focus: a finished session, or a live one in a terminal we cannot
-        // address. Reopen continues either — `command` already picks attach over resume.
+        // A live session already has a home. Reopen would open a *second* terminal and run
+        // `attach` in it, which lands the user somewhere new — the one thing clicking a row
+        // must never do. Hand over the command instead and say why.
+        guard row.agent.pid == nil else {
+            guard let cmd = Reopen.command(for: row.agent) else {
+                onBackgroundAttach?("\(row.displayName) — \(row.host.name) cannot be focused")
+                return
+            }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(cmd, forType: .string)
+            onBackgroundAttach?("\(row.displayName) — \(row.host.name) could not be focused, command copied")
+            return
+        }
+        // Finished: there is nothing to focus, so start it again where it used to live.
         let announce: (String) -> Void = { [weak self] in self?.onBackgroundAttach?($0) }
         if !Reopen.run(row.agent, in: row.agent.cwd, note: announce) {
             onBackgroundAttach?("\(row.displayName) — no resume path for this session")
