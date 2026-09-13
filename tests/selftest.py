@@ -1911,7 +1911,10 @@ check("the choice survives a relaunch",
       "UserDefaults.standard.set(choice.rawValue, forKey: Self.key)" in _sf)
 check("flipping is reachable without the panel open (lasting hotkey)",
       "kVK_ANSI_G, Hotkeys.cmdOpt" in _iv and "Surfaces.shared.toggle()" in _iv)
-check("and discoverable in the header", "materialChip" in _vw)
+check("and discoverable without the chord, in settings",
+      "materialChip" not in _vw and "gearChip" in _vw
+      and 'choice("sleek", on: surfaces.sleek)' in open(
+          os.path.join(REPO, "Sources/AgentIsland/Settings.swift")).read())
 check("the shell reads the toggle instead of a hardcoded fill",
       "IslandBackground(corner: corner" in _iv and ".fill(Theme.bg)" not in _iv)
 
@@ -2207,10 +2210,10 @@ check("a display change re-homes the island instead of leaving it stale",
 # In a notch the bar sits in dead pixels. On any other display it sits on somebody content,
 # and in fullscreen that is the tab strip.
 check("auto-hide is limited to displays where the bar covers something",
-      "private var autoHides: Bool { (screen?.safeAreaInsets.top ?? 0) == 0 }" in _iv9)
+      "(screen?.safeAreaInsets.top ?? 0) == 0" in _iv9 and "private var autoHides: Bool" in _iv9)
 check("the whole shell fades, not just its contents",
-      ".opacity(island.autoHidden ? 0 : 1)" in _iv9
-      and _iv9.index(".opacity(island.autoHidden ? 0 : 1)")
+      ".opacity(island.hushed ? 0 : 1)" in _iv9
+      and _iv9.index(".opacity(island.hushed ? 0 : 1)")
           > _iv9.index(".contentShape(NotchShape(radius: corner))"))
 # Fading CollapsedView alone left IslandBackground painting an opaque black block on the tabs.
 check("so the background cannot keep painting once the bar is hidden",
@@ -2225,6 +2228,40 @@ check("the timer does not fire over an island the user is using",
 check("superseded strip-yielding machinery is gone",
       "refreshTopStripClaim" not in _iv9 and "stripIsOwned" not in _iv9
       and "applySpaceBehavior" not in _iv9)
+
+print("\n=== 41. settings ===")
+_st = open(os.path.join(REPO, "Sources/AgentIsland/Settings.swift")).read()
+_pm = open(os.path.join(REPO, "Sources/AgentIsland/PanelModes.swift")).read()
+_iv10 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_vw10 = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
+check("settings is a panel mode, reached and left like the others",
+      "case sessions, costs, settings, plan" in _pm
+      and "SettingsView { back() }" in _vw10 and "var onBack: () -> Void" in _st)
+# The app is .accessory with LSUIElement, so before this there was no way out but pkill.
+check("there is finally a way to quit",
+      "NSApp.terminate(nil)" in _st)
+check("preferences are written as they change, not on an Apply",
+      "didSet { UserDefaults.standard.set(autoHideSeconds" in _st
+      and "UserDefaults.standard.set(snoozedUntil?.timeIntervalSince1970" in _st)
+# Nothing else watches the clock, so quiet would otherwise outlast its own deadline.
+check("quiet ends on its own",
+      "private func armExpiry()" in _st and "Task { @MainActor in self?.snoozedUntil = nil }" in _st)
+check("quiet stops the island putting anything over your screen",
+      _iv10.count("guard !Prefs.shared.snoozing else { return }") == 3)
+# Losing the notification too would mean missing things silently, which is not what quiet means.
+check("but system notifications still arrive",
+      "Notifier.notify" in _iv10)
+# Hiding the whole shell locked the user out: hover could not reach settings to call it off.
+check("a panel you opened yourself is never hidden from you",
+      "var hushed: Bool { state == .collapsed && (autoHidden || Prefs.shared.snoozing) }" in _iv10)
+check("and the bar honours the chosen delay, including never",
+      "Prefs.shared.autoHideSeconds > 0 && (screen?.safeAreaInsets.top ?? 0) == 0" in _iv10
+      and "withTimeInterval: Prefs.shared.autoHideSeconds" in _iv10)
+# You ask for quiet from the open panel, where CollapsedView is not in the tree.
+check("asking for quiet from the panel closes it",
+      ".onChange(of: prefs.snoozedUntil)" in _iv10
+      and _iv10.index(".onChange(of: prefs.snoozedUntil)")
+          > _iv10.index(".frame(width: Island.maxSize.width"))
 
 print("\n=== 23. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")

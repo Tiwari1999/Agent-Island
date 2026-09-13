@@ -519,15 +519,19 @@ struct PanelView: View {
     @State private var installing = false
     @ObservedObject private var surfaces = Surfaces.shared
 
-    /// The same flip as ⌘⌥G, somewhere you can find without knowing the chord.
-    private var materialChip: some View {
-        Text(surfaces.choice.label)
-            .font(Theme.mono(9)).foregroundColor(Theme.faint)
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(Capsule().stroke(Theme.hairline))
+    /// Settings are a panel mode like the others, so there is one way in and one way back.
+    private var gearChip: some View {
+        Image(systemName: "gearshape")
+            .font(.system(size: 9)).foregroundColor(Theme.muted)
+            .padding(.horizontal, 6).padding(.vertical, 3)
+            .background(Capsule().fill(Theme.raised))
             .contentShape(Capsule())
-            .onTapGesture { withAnimation(Motion.quick) { surfaces.toggle() } }
-            .help("panel material — \u{2318}\u{2325}G")
+            .onTapGesture {
+                withAnimation(Motion.shell) {
+                    if case .settings = mode { mode = .sessions } else { mode = .settings }
+                }
+            }
+            .help("settings")
     }
 
     var body: some View {
@@ -573,7 +577,7 @@ struct PanelView: View {
                         Setup.install { ok in installing = false; hooksReady = ok }
                     }
                 }
-                materialChip
+                gearChip
                 costChip
                 if store.workingCount > 0 { pill("\(store.workingCount) working", Theme.working) }
                 if store.waitingCount > 0 { pill("\(store.waitingCount) waiting", Theme.waiting) }
@@ -585,7 +589,11 @@ struct PanelView: View {
 
             Rectangle().fill(Theme.hairline).frame(height: 0.7)
 
-            if case .costs = mode {
+            if case .settings = mode {
+                SettingsView { back() }
+                    .frame(height: PanelView.listHeight)
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+            } else if case .costs = mode {
                 CostsView(table: store.costTable) { back() }
                     .frame(height: PanelView.listHeight)
                     .transition(.opacity.combined(with: .move(edge: .trailing)))

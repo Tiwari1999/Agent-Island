@@ -113,12 +113,16 @@ final class Island: NSObject, ObservableObject {
     private var pinned: NSScreen?
     private var hideTimer: Timer?
 
-    /// How long the bar stays up before stepping aside.
-    static let autoHideAfter: TimeInterval = 4
+    /// Only where the bar sits on somebody's content, and only if the user wants it to. In a
+    /// notch it occupies dead pixels, so hiding it buys nothing and costs the glance.
+    private var autoHides: Bool {
+        Prefs.shared.autoHideSeconds > 0 && (screen?.safeAreaInsets.top ?? 0) == 0
+    }
 
-    /// Only where the bar sits on somebody's content. In a notch it occupies dead pixels, so
-    /// hiding it buys nothing and costs the glance the island exists for.
-    private var autoHides: Bool { (screen?.safeAreaInsets.top ?? 0) == 0 }
+    /// The bar is out of the way: it stepped aside, or the user asked for quiet. Only ever true
+    /// while collapsed — a panel opened deliberately is never hidden from the person opening it,
+    /// which is also the only route back to settings to call the quiet off.
+    var hushed: Bool { state == .collapsed && (autoHidden || Prefs.shared.snoozing) }
 
     /// A coarse identity for what the bar is currently saying, so the view can wake it when
     /// that changes without Island having to hear about every individual event.
@@ -138,7 +142,7 @@ final class Island: NSObject, ObservableObject {
         hideTimer?.invalidate()
         if autoHidden { withAnimation(Motion.content) { autoHidden = false } }
         guard autoHides else { return }
-        hideTimer = Timer.scheduledTimer(withTimeInterval: Self.autoHideAfter,
+        hideTimer = Timer.scheduledTimer(withTimeInterval: Prefs.shared.autoHideSeconds,
                                          repeats: false) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.state == .collapsed, !self.revealed else { return }
@@ -518,6 +522,7 @@ final class Island: NSObject, ObservableObject {
 
     /// Drop a toast below the notch, hold, spring back. Never interrupts an open panel.
     func peek(_ payload: PeekPayload) {
+        guard !Prefs.shared.snoozing else { return }
         followActiveScreen()
         guard state != .expanded else { return }
         peekWork?.cancel()
@@ -592,6 +597,7 @@ final class Island: NSObject, ObservableObject {
 
     /// An approval outranks a toast: a blocked tool is the most urgent thing on screen.
     func present(_ approval: Approval) {
+        guard !Prefs.shared.snoozing else { return }
         guard !showingCard else {
             if !queuedApprovals.contains(where: { $0.id == approval.id }) {
                 queuedApprovals.append(approval)
@@ -622,6 +628,7 @@ final class Island: NSObject, ObservableObject {
 
     /// A question outranks everything: an agent is blocked until it is answered.
     func ask(_ question: Question) {
+        guard !Prefs.shared.snoozing else { return }
         // A question may take over from an approval, which returns to the queue rather than
         // being dropped; another question waits its turn.
         if case .approval(let a) = state, a.deadline > Date() {
@@ -946,6 +953,9 @@ private struct RootView: View {
     @ObservedObject var store: AgentStore
     @ObservedObject var status: StatusStore
     @ObservedObject private var surfaces = Surfaces.shared
+    // `hushed` reads Prefs, which nothing else here observes: without this the bar keeps
+    // drawing after you ask for quiet, and never comes back when it lapses.
+    @ObservedObject private var prefs = Prefs.shared
 
 
     /// What the bar is currently saying, coarsely. When this changes the bar has news, so it
@@ -1101,11 +1111,16 @@ private struct RootView: View {
             .contentShape(NotchShape(radius: corner))
             // The whole shell, not just its contents: fading the bar's text while the shape
             // kept painting left an opaque black block sitting on the tab strip.
-            .opacity(island.autoHidden ? 0 : 1)
+            .opacity(island.hushed ? 0 : 1)
 
             Spacer(minLength: 0)
         }
         .frame(width: Island.maxSize.width, height: Island.maxSize.height, alignment: .top)
+        // At the root: you ask for quiet from the open panel, where CollapsedView is not in
+        // the tree, so this cannot live on the bar it acts upon.
+        .onChange(of: prefs.snoozedUntil) { _, _ in
+            if prefs.snoozing { island.collapse() } else { island.wake() }
+        }
         // Theme's tokens read Surfaces statically, which SwiftUI cannot see as a dependency:
         // views whose stored properties are unchanged keep the old palette. Rebinding identity
         // on the toggle rebuilds the subtree so every Theme read is re-evaluated.
