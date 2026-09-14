@@ -369,15 +369,14 @@ proto=open(os.path.join(REPO,"Sources/AgentIsland/AgentSource.swift")).read()
 vw = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
 # Both sides are clipped, not truncated, so an overrun loses characters with no ellipsis to show
 # for it. Measure the real strings in the real font against the box the real formula gives.
-_m = re.search(r'let l = ([\d.]+) \+ CGFloat\(min\(\(leftText \?\? ""\)\.count, 34\)\) \* ([\d.]+)', vw)
-_w = re.search(r'let r = ([\d.]+) \+ CGFloat\(\(rightText \?\? ""\)\.count\) \* ([\d.]+)', vw)
-_c = re.search(r'let w = max\(([\d.]+), min\(revealed \? [\d.]+ : ([\d.]+), max\(l, r\)\)\)', vw)
-check("the width formula is where the test expects it",
-      _m is not None and _w is not None and _c is not None)
-if _m and _w and _c:
-    _r = subprocess.run(["swift", os.path.join(REPO, "tests/restwidth.swift"),
-                         _c.group(1), _c.group(2), _m.group(1), _m.group(2),
-                         _w.group(1), _w.group(2)],
+_m = re.search(r'let l = max\(([\d.]+), min\(revealed \? [\d.]+ : ([\d.]+), '
+               r'([\d.]+) \+ CGFloat\(min\(\(leftText \?\? ""\)\.count, 30\)\) \* ([\d.]+)\)\)', vw)
+_w = re.search(r'let r = max\(([\d.]+), min\(([\d.]+), '
+               r'([\d.]+) \+ CGFloat\(\(rightText \?\? ""\)\.count\) \* ([\d.]+)\)\)', vw)
+check("the width formula is where the test expects it", _m is not None and _w is not None)
+if _m and _w:
+    _r = subprocess.run(["swift", os.path.join(REPO, "tests/restwidth.swift")]
+                        + list(_m.groups()) + list(_w.groups()),
                         capture_output=True, text=True, timeout=300).stdout.strip()
     check("both bar sides always fit their box", _r == "ok", _r)
 check("resting line is not hard-clipped without truncation", ".lineLimit(1).fixedSize()" not in vw)
@@ -699,13 +698,22 @@ vw6=open(os.path.join(REPO,"Sources/AgentIsland/Views.swift")).read()
 check("bar width follows the text it prints, not a fixed number",
       "left leftText: String? = nil" in vw6 and "right rightText: String? = nil" in vw6
       and '(leftText ?? "").count' in vw6 and '(rightText ?? "").count' in vw6)
-check("it still has a floor and a ceiling", "max(112, min(revealed ? 340 : 320" in vw6)
-# Symmetry is load-bearing, not cosmetic: the shell is centred in its window, so unequal sides
-# slide the gap it leaves off the physical notch and bury the counts under the camera housing.
-check("both sides are the same width, so the gap lands on the notch",
-      "let w = max(112, min(revealed ? 340 : 320, max(l, r)))" in vw6 and "return (w, w)" in vw6)
-check("and no offset hack is left maintaining that by hand",
-      "shellOffsetX" not in open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read())
+check("it still has a floor and a ceiling",
+      "max(112, min(revealed ? 300 : 220" in vw6 and "max(86, min(310" in vw6)
+# Each side is sized to what it holds and never mirrored: forcing both to the wider one paid the
+# activity sentence's width twice and grew the bar to half a screen. The notch gap is kept by
+# shifting the shell instead — unequal sides otherwise drift it by half their difference.
+check("the sides are sized independently, not mirrored",
+      "return (l, r)" in vw6 and "return (w, w)" not in vw6)
+_isl_off = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+check("so the shell is shifted to keep its gap on the notch",
+      "private var shellOffsetX" in _isl_off and "(w.right - w.left) / 2" in _isl_off
+      and ".offset(x: shellOffsetX)" in _isl_off)
+# A single working agent is already said by the pulse; printing "1 working" beside two
+# percentages only added a number to read and width to pay for.
+check("the working count appears only when there is more than one",
+      'if store.workingCount > 1 { parts.append("\\(store.workingCount) working") }' in vw6
+      and "if store.workingCount > 1 {\n                    HStack(spacing: 3) {" in vw6)
 # An empty left beside a crowded right reads as broken, so idle puts the day's spend there,
 # which pairs with the limits opposite: spent on one side of the notch, left on the other.
 check("idle balances the bar with what the day cost",

@@ -23,20 +23,18 @@ struct CollapsedView: View {
     /// without the bar growing at all; hover buys it more.
     /// Sized to what there is to say. A fixed 210 left a wide empty gap whenever the activity
     /// line was short, which reads as a bar that is mostly nothing.
-    /// Both sides get the SAME width, always. Two reasons, and they are the same reason: the shell
-    /// is centred in its window, so unequal sides slide the gap it leaves off the physical notch
-    /// and bury content under the camera housing — and a bar with an empty left and a crowded
-    /// right reads as broken even when nothing is hidden. Symmetry fixes the geometry by
-    /// construction (no offset to maintain) and is what the eye expects either side of a notch.
+    /// Each side is sized to what it holds — a sentence on the left, numbers on the right — and
+    /// never mirrored. Forcing both to the wider one squared the sentence's width onto a side
+    /// that only ever prints two percentages, and the bar grew half a screen wide for nothing.
+    /// The notch gap stays put through `Island.shellOffsetX`, not through symmetry.
     /// 6.2/char is the measured advance of the real 10pt monospace face; the old 5.3 was tuned
     /// for an 8.5pt scale that no longer exists, so every line silently overran its box.
     static func sides(revealed: Bool, left leftText: String? = nil,
                       right rightText: String? = nil) -> (left: CGFloat, right: CGFloat) {
         // pulse + avatar + gaps on the left; the counts render a point larger on the right.
-        let l = 46 + CGFloat(min((leftText ?? "").count, 34)) * 6.2
-        let r = 34 + CGFloat((rightText ?? "").count) * 6.9
-        let w = max(112, min(revealed ? 340 : 320, max(l, r)))
-        return (w, w)
+        let l = max(112, min(revealed ? 300 : 220, 46 + CGFloat(min((leftText ?? "").count, 30)) * 6.0))
+        let r = max(86, min(310, 34 + CGFloat((rightText ?? "").count) * 6.9))
+        return (l, r)
     }
 
     /// The limit belonging to the agent this person actually uses, measured by how much of the
@@ -91,7 +89,9 @@ struct CollapsedView: View {
     var countsText: String? {
         guard !quiet else { return nil }
         var parts: [String] = []
-        if store.workingCount > 0 { parts.append("\(store.workingCount) working") }
+        // One working agent is already said by the pulse and the row beside it; printing "1
+        // working" next to two percentages only added a number to read and width to pay for.
+        if store.workingCount > 1 { parts.append("\(store.workingCount) working") }
         if store.waitingCount > 0 { parts.append("\(store.waitingCount) waiting") }
         else if store.blockedCount > 0 { parts.append("\(store.blockedCount) blocked") }
         return parts.isEmpty ? nil : parts.joined(separator: " ")
@@ -156,7 +156,7 @@ struct CollapsedView: View {
 
             // RIGHT — counts and quota pressure, at a glance.
             HStack(spacing: 7) {
-                if store.workingCount > 0 {
+                if store.workingCount > 1 {
                     HStack(spacing: 3) {
                         Text("\(store.workingCount)")
                             .font(Theme.label(Type.small)).foregroundColor(Theme.working)

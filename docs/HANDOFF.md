@@ -85,11 +85,16 @@ owner's tab), "a background agent resolves the terminal that owns it".
   suite guard forbids; size the box instead.
 - **The first cut was too wide, unbalanced, and slid under the notch.** Resolved together, because
   they were one problem: (a) the reset countdowns came OUT of the bar — they doubled its width for
-  a number you act on far less often, and the panel already shows one per window; (b) **`sides()`
-  now returns the SAME width for both sides.** The shell is centred in its window, so unequal
-  sides drift the gap it leaves for the notch by half the difference — that is what buried
-  "1 working" under the camera housing. Symmetry fixes the geometry by construction, so the
-  `shellOffsetX` hack that briefly existed is gone; `maxSize.width` stays 980 for headroom.
+  a number you act on far less often, and the panel already shows one per window; (b) the notch gap
+  drifts when the sides differ (the shell is centred in its window, so it moves half the
+  difference) — that is what buried "1 working" under the camera housing. **Mirroring the sides to
+  fix it was WRONG and was reverted**: the left holds a sentence and the right two percentages, so
+  `max(l, r)` paid the sentence's width twice and grew the bar to ~727pt, half a screen. Sides are
+  sized independently again (l cap 220 / r cap 310) and `Island.shellOffsetX` shifts the shell by
+  `(right - left) / 2` to keep the gap on the notch. Working ~591pt, idle ~525pt (was 509 before
+  any of this, with one bare percentage instead of two labelled windows). `maxSize.width` 980.
+  Also: the working count prints only when >1 — a single agent is already said by the pulse, so
+  "1 working" was a number to read and width to pay for. The panel's pill still shows it at 1.
   (c) An empty left beside a crowded right still reads as broken, so with nothing running the
   left carries **`spent $438 · 18.2M`** against the right's **`left 5h 74% wk 70%`** — the two
   sides pair as one sentence, spent / left, and balance each other. The quiet-vs-working render

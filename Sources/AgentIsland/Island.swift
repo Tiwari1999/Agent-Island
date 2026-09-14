@@ -990,6 +990,20 @@ private struct RootView: View {
         case .expanded:  return PanelView.width
         }
     }
+    /// The sides are deliberately unequal — a sentence on one, two percentages on the other — but
+    /// the shell is centred in its window, so the gap it leaves drifts half that difference off
+    /// the real notch and buries whatever sits first after it. Shift it back by exactly that.
+    /// Mirroring the sides instead removes the drift but pays the sentence's width twice, which
+    /// is what made the bar half a screen wide.
+    private var shellOffsetX: CGFloat {
+        guard island.state == .collapsed, island.notchWidth > 0 else { return 0 }
+        let bar = CollapsedView(store: store, status: status, notchWidth: island.notchWidth,
+                                revealed: island.revealed, quiet: quiet)
+        let w = CollapsedView.sides(revealed: island.revealed,
+                                    left: bar.leftText, right: bar.rightText)
+        return (w.right - w.left) / 2
+    }
+
     private var shellHeight: CGFloat {
         switch island.state {
         // Exactly the notch height. Anything shorter leaves a step where the bar meets the
@@ -1116,6 +1130,7 @@ private struct RootView: View {
                 }
             }
             .frame(width: shellWidth, height: shellHeight)
+            .offset(x: shellOffsetX)
             .contentShape(NotchShape(radius: corner))
             // The whole shell, not just its contents: fading the bar's text while the shape
             // kept painting left an opaque black block sitting on the tab strip.
