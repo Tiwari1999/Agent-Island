@@ -23,23 +23,20 @@ struct CollapsedView: View {
     /// without the bar growing at all; hover buys it more.
     /// Sized to what there is to say. A fixed 210 left a wide empty gap whenever the activity
     /// line was short, which reads as a bar that is mostly nothing.
-    static func sides(revealed: Bool, quiet: Bool, text: String? = nil, usage: String? = nil,
+    /// Both sides get the SAME width, always. Two reasons, and they are the same reason: the shell
+    /// is centred in its window, so unequal sides slide the gap it leaves off the physical notch
+    /// and bury content under the camera housing — and a bar with an empty left and a crowded
+    /// right reads as broken even when nothing is hidden. Symmetry fixes the geometry by
+    /// construction (no offset to maintain) and is what the eye expects either side of a notch.
+    /// 6.2/char is the measured advance of the real 10pt monospace face; the old 5.3 was tuned
+    /// for an 8.5pt scale that no longer exists, so every line silently overran its box.
+    static func sides(revealed: Bool, left leftText: String? = nil,
                       right rightText: String? = nil) -> (left: CGFloat, right: CGFloat) {
-        // Resting is asymmetric too: a dot on one side, the usage line on the other. The usage
-        // line grows with the day -- a fixed 158 fit today's numbers with 6pt to spare and cut
-        // the moment spend reached six digits, so it follows its own text.
-        // Two windows plus spend is ~53 chars today and grows at 100%/six figures, so the ceiling
-        // has to clear that rather than sit 3pt above it.
-        // 6.2/char is the measured advance of the real 10pt monospace face; the old 5.3 was tuned
-        // for an 8.5pt scale that no longer exists, so every line silently overran its box.
-        if quiet { return (30, max(158, min(320, 16 + CGFloat((usage ?? "").count) * 6.2))) }
-        // The right holds the labelled counts AND both limit windows; a fixed 86 had no room for
-        // any of it, so "wk 29%" wrapped onto a second line. Grow with the whole line it prints.
-        let right = max(86, min(320, 34 + CGFloat((rightText ?? "").count) * 6.9))
-        if revealed { return (300, right) }
-        // pulse + avatar + gaps, then roughly one glyph width per character of activity.
-        let needed = 46 + CGFloat(min((text ?? "").count, 30)) * 5.8
-        return (max(112, min(210, needed)), right)
+        // pulse + avatar + gaps on the left; the counts render a point larger on the right.
+        let l = 46 + CGFloat(min((leftText ?? "").count, 34)) * 6.2
+        let r = 34 + CGFloat((rightText ?? "").count) * 6.9
+        let w = max(112, min(revealed ? 340 : 320, max(l, r)))
+        return (w, w)
     }
 
     /// The limit belonging to the agent this person actually uses, measured by how much of the
@@ -72,10 +69,17 @@ struct CollapsedView: View {
     /// What the bar is actually going to print, which is what its width should follow.
     var leadText: String? { lead.map { $0.activity ?? $0.displayName } }
 
-    /// The limit line while agents are working. "left" leads so neither number can be read as
-    /// consumed — "16% · wk 29%" told you nothing about which way it counted, or of what.
-    var workingLimitText: String? {
-        guard !quiet, let (_, q) = primaryQuota else { return nil }
+    /// The left side: what is happening, or — when nothing is — what today has cost. That pairs
+    /// it with the right, which says what is left: spent here, remaining there.
+    var leftText: String? { leadText ?? spentText }
+
+    /// Today's spend, worded so it cannot be mistaken for the remaining budget beside it.
+    var spentText: String? { usageToday.map { "spent \($0)" } }
+
+    /// What remains, in both windows. "left" leads so neither number can be read as consumed —
+    /// "16% · wk 29%" told you nothing about which way it counted, or of what.
+    var limitText: String? {
+        guard let (_, q) = primaryQuota else { return nil }
         var parts: [String] = []
         if let f = q.fiveHourPct { parts.append("5h \(max(0, 100 - f))%") }
         if let w = q.sevenDayPct { parts.append("wk \(max(0, 100 - w))%") }
@@ -95,27 +99,8 @@ struct CollapsedView: View {
 
     /// Everything the right side prints, so its width follows the whole line and not one part.
     var rightText: String? {
-        let s = [countsText, workingLimitText].compactMap { $0 }.joined(separator: " ")
+        let s = [countsText, limitText].compactMap { $0 }.joined(separator: " ")
         return s.isEmpty ? nil : s
-    }
-
-    /// The resting line, assembled once so the width and the rendered text cannot disagree.
-    var quietUsageLine: String? {
-        guard quiet else { return nil }
-        // Idle is when the bar has room, so it spends it on the number you act on: what is
-        // left and when it refills, not the percentage already burned.
-        // Both windows: the 5h is what you feel now, the weekly is what ends the week. "left"
-        // leads both, so the same words mean the same thing whether the bar is busy or resting.
-        // No reset countdowns here: they doubled the bar's width for a number you act on far
-        // less often than the percentage, and the panel already shows both against each window.
-        let limit = primaryQuota.map { name, q -> String in
-            var s = "\(name) left"
-            if let f = q.fiveHourPct { s += " 5h \(max(0, 100 - f))%" }
-            if let w = q.sevenDayPct { s += " wk \(max(0, 100 - w))%" }
-            return s
-        }
-        let parts = [limit, usageToday].compactMap { $0 }
-        return parts.isEmpty ? "idle" : parts.joined(separator: " · ")
     }
 
     /// Spend and tokens for the agent the panel is reporting on, today.
@@ -144,24 +129,25 @@ struct CollapsedView: View {
                     RunningPulse(kind: row.workKind).padding(.leading, 4)
                 }
                 Spacer(minLength: 0)
-                if quiet {
-                    Circle().fill(Theme.faint.opacity(0.6)).frame(width: 4, height: 4)
-                        .padding(.leading, 4)
-                } else if let row = lead {
+                if let row = lead {
                     AgentAvatar(seed: row.agent.sessionId, size: 13, active: true)
                     Text(row.activity ?? row.displayName)
                         .font(Theme.mono(Type.small))
                         .foregroundColor(row.waiting ? Theme.waiting : Theme.muted)
                         .lineLimit(1).truncationMode(.tail)
                         // Bounded so the text cannot grow into the pulse's place.
-                        .frame(maxWidth: Self.sides(revealed: revealed, quiet: quiet,
-                                                    text: leadText).left - 46,
+                        .frame(maxWidth: Self.sides(revealed: revealed, left: leftText,
+                                                    right: rightText).left - 46,
                                alignment: .trailing)
+                } else if let s = spentText {
+                    // Nothing running: the left carries what today cost, so the bar stays balanced
+                    // and the two sides read as one sentence — spent here, left there.
+                    Text(s).font(Theme.mono(Type.micro)).foregroundColor(Theme.faint).lineLimit(1)
                 } else {
                     Text("idle").font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
                 }
             }
-            .frame(width: Self.sides(revealed: revealed, quiet: quiet, text: leadText).left,
+            .frame(width: Self.sides(revealed: revealed, left: leftText, right: rightText).left,
                    alignment: .trailing)
             .padding(.trailing, Self.notchMargin)
             .clipped()
@@ -170,39 +156,7 @@ struct CollapsedView: View {
 
             // RIGHT — counts and quota pressure, at a glance.
             HStack(spacing: 7) {
-                if quiet {
-                    // Idle is not news. What the day cost is.
-                    HStack(spacing: 5) {
-                        if let (name, q) = primaryQuota {
-                            Text("\(name) left")
-                                .font(Theme.mono(Type.micro)).foregroundColor(Theme.faint)
-                            if let f = q.fiveHourPct {
-                                Text("5h \(max(0, 100 - f))%")
-                                    .font(Theme.mono(Type.micro)).foregroundColor(Quota.tint(f))
-                                if let r = q.fiveHourResets, r > Date() {
-                                    Text(Quota.short(r.timeIntervalSinceNow))
-                                        .font(Theme.mono(Type.micro)).foregroundColor(Theme.faint)
-                                }
-                            }
-                            if let w = q.sevenDayPct {
-                                Text("wk \(max(0, 100 - w))%")
-                                    .font(Theme.mono(Type.micro)).foregroundColor(Quota.tint(w))
-                                if let r = q.sevenDayResets, r > Date() {
-                                    Text(Quota.short(r.timeIntervalSinceNow))
-                                        .font(Theme.mono(Type.micro)).foregroundColor(Theme.faint)
-                                }
-                            }
-                        }
-                        if let u = usageToday {
-                            Text("·").font(Theme.mono(Type.micro)).foregroundColor(Theme.hairline)
-                            Text(u).font(Theme.mono(Type.micro)).foregroundColor(Theme.muted)
-                        } else if primaryLimit == nil {
-                            Text("idle").font(Theme.mono(Type.micro))
-                                .foregroundColor(Theme.faint.opacity(0.8))
-                        }
-                    }
-                    .lineLimit(1)
-                } else if store.workingCount > 0 {
+                if store.workingCount > 0 {
                     HStack(spacing: 3) {
                         Text("\(store.workingCount)")
                             .font(Theme.label(Type.small)).foregroundColor(Theme.working)
@@ -213,15 +167,7 @@ struct CollapsedView: View {
                     }
                     .lineLimit(1)
                 }
-                if !quiet, store.blockedCount > 0, store.waitingCount == 0 {
-                    HStack(spacing: 3) {
-                        Text("\(store.blockedCount)")
-                            .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
-                        Text("blocked").font(Theme.mono(Type.micro)).foregroundColor(Theme.faint)
-                    }
-                    .lineLimit(1)
-                }
-                if !quiet, store.waitingCount > 0 {
+                if store.waitingCount > 0 {
                     HStack(spacing: 3) {
                         Image(systemName: "bell.fill")
                             .font(.system(size: 9)).foregroundColor(Theme.waiting)
@@ -233,10 +179,17 @@ struct CollapsedView: View {
                         Text("waiting").font(Theme.mono(Type.micro)).foregroundColor(Theme.waiting)
                     }
                     .lineLimit(1)
+                } else if store.blockedCount > 0 {
+                    HStack(spacing: 3) {
+                        Text("\(store.blockedCount)")
+                            .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
+                        Text("blocked").font(Theme.mono(Type.micro)).foregroundColor(Theme.faint)
+                    }
+                    .lineLimit(1)
                 }
                 // Both windows, labelled and never wrapped: the counts sit left of this, so
                 // without the word the row read "1 16% wk 29%" — three unrelated numbers.
-                if !quiet, let (_, q) = primaryQuota {
+                if let (_, q) = primaryQuota {
                     HStack(spacing: 4) {
                         Text("left").font(Theme.mono(Type.micro)).foregroundColor(Theme.faint)
                         if let f = q.fiveHourPct {
@@ -256,8 +209,7 @@ struct CollapsedView: View {
                 }
                 Spacer(minLength: 0)
             }
-            .frame(width: Self.sides(revealed: revealed, quiet: quiet, text: leadText,
-                                     usage: quietUsageLine, right: rightText).right,
+            .frame(width: Self.sides(revealed: revealed, left: leftText, right: rightText).right,
                    alignment: .leading)
             .padding(.leading, Self.notchMargin)
             .clipped()

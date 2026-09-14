@@ -113,11 +113,11 @@ final class Island: NSObject, ObservableObject {
     private var pinned: NSScreen?
     private var hideTimer: Timer?
 
-    /// Only where the bar sits on somebody's content, and only if the user wants it to. In a
-    /// notch it occupies dead pixels, so hiding it buys nothing and costs the glance.
-    private var autoHides: Bool {
-        Prefs.shared.autoHideSeconds > 0 && (screen?.safeAreaInsets.top ?? 0) == 0
-    }
+    /// Nothing is running, so there is nothing to show: the bar steps aside and hovering the
+    /// notch brings it back. This used to be limited to screens with no notch, on the reasoning
+    /// that a notch is dead pixels anyway — but the bar outgrew the notch, so at rest it sat on
+    /// the menu bar with a stale number on it.
+    private var autoHides: Bool { Prefs.shared.autoHideSeconds > 0 }
 
     /// The bar is out of the way: it stepped aside, or the user asked for quiet. Only ever true
     /// while collapsed — a panel opened deliberately is never hidden from the person opening it,
@@ -980,9 +980,8 @@ private struct RootView: View {
             // Ask the bar itself what it will print, so the width and the text cannot disagree.
             let bar = CollapsedView(store: store, status: status, notchWidth: island.notchWidth,
                                     revealed: island.revealed, quiet: quiet)
-            let w = CollapsedView.sides(revealed: island.revealed, quiet: quiet,
-                                        text: bar.leadText, usage: bar.quietUsageLine,
-                                        right: bar.rightText)
+            let w = CollapsedView.sides(revealed: island.revealed,
+                                        left: bar.leftText, right: bar.rightText)
             return island.notchWidth + w.left + w.right + 2 * CollapsedView.notchMargin
         case .peek:      return 380
         case .approval(let a):  return (a.plan != nil || island.approvalContext != nil) ? 640 : 560
@@ -991,19 +990,6 @@ private struct RootView: View {
         case .expanded:  return PanelView.width
         }
     }
-    /// The bar's two sides are deliberately unequal, but the shell is centred in the window — so
-    /// the gap it leaves for the notch drifts by half that difference and slides the first thing
-    /// on the right (the counts) under the camera housing. Shift the shell back by exactly that.
-    private var shellOffsetX: CGFloat {
-        guard island.state == .collapsed, island.notchWidth > 0 else { return 0 }
-        let bar = CollapsedView(store: store, status: status, notchWidth: island.notchWidth,
-                                revealed: island.revealed, quiet: quiet)
-        let w = CollapsedView.sides(revealed: island.revealed, quiet: quiet,
-                                    text: bar.leadText, usage: bar.quietUsageLine,
-                                    right: bar.rightText)
-        return (w.right - w.left) / 2
-    }
-
     private var shellHeight: CGFloat {
         switch island.state {
         // Exactly the notch height. Anything shorter leaves a step where the bar meets the
@@ -1130,7 +1116,6 @@ private struct RootView: View {
                 }
             }
             .frame(width: shellWidth, height: shellHeight)
-            .offset(x: shellOffsetX)
             .contentShape(NotchShape(radius: corner))
             // The whole shell, not just its contents: fading the bar's text while the shape
             // kept painting left an opaque black block sitting on the tab strip.

@@ -96,7 +96,7 @@ struct SettingsView: View {
 
                 group("the bar") {
                     row("Steps aside after",
-                        note: hasNotch ? "This display has a notch \u{2014} it covers nothing here" : nil) {
+                        note: "Only when nothing is running \u{2014} hover the notch to bring it back") {
                         choice("Never", on: prefs.autoHideSeconds == 0) { prefs.autoHideSeconds = 0 }
                         choice("4s", on: prefs.autoHideSeconds == 4) { prefs.autoHideSeconds = 4 }
                         choice("8s", on: prefs.autoHideSeconds == 8) { prefs.autoHideSeconds = 8 }

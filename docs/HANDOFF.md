@@ -83,15 +83,22 @@ owner's tab), "a background agent resolves the terminal that owns it".
   lines; re-running it with the old constants fails every line, so it actually catches this.
   Do NOT use `.fixedSize()` to stop wrapping here — it trades a wrap for a silent clip, which a
   suite guard forbids; size the box instead.
-- **The first cut was too wide and slid under the notch.** Two follow-ups: (a) the reset
-  countdowns came OUT of the resting line — they doubled its width for a number you act on far
-  less often, and the panel already shows them per window; caps are 320 (rest) / 320 (working).
-  (b) **The shell is centred in its window, so unequal sides drift the gap it leaves for the notch
-  by half the difference** — once `right` grew past `left`, "1 working" sat under the camera
-  housing. `Island.shellOffsetX` shifts the shell by `(right - left) / 2` while collapsed, and
-  `maxSize.width` went 860 -> 980 so the shifted shell still fits the never-resized window.
-  Pixel-verified from a silent screencapture: content clears the notch by 30px on both sides
-  (notch spans retina x1326-1696; left text ends 1296, "1 working" starts 1726).
+- **The first cut was too wide, unbalanced, and slid under the notch.** Resolved together, because
+  they were one problem: (a) the reset countdowns came OUT of the bar — they doubled its width for
+  a number you act on far less often, and the panel already shows one per window; (b) **`sides()`
+  now returns the SAME width for both sides.** The shell is centred in its window, so unequal
+  sides drift the gap it leaves for the notch by half the difference — that is what buried
+  "1 working" under the camera housing. Symmetry fixes the geometry by construction, so the
+  `shellOffsetX` hack that briefly existed is gone; `maxSize.width` stays 980 for headroom.
+  (c) An empty left beside a crowded right still reads as broken, so with nothing running the
+  left carries **`spent $438 · 18.2M`** against the right's **`left 5h 74% wk 70%`** — the two
+  sides pair as one sentence, spent / left, and balance each other. The quiet-vs-working render
+  branches collapsed into one. Pixel-verified from a silent screencapture: content clears the
+  notch by 30px both sides (notch retina x1326-1696; left ends 1296, "1 working" starts 1726).
+- **The bar now steps aside whenever nothing is running, on every display.** `autoHides` was
+  gated on `safeAreaInsets.top == 0` (no-notch only), on the reasoning that a notch is dead pixels
+  — but the bar outgrew the notch, so at rest it sat on the menu bar showing a stale number.
+  Hover the notch to bring it back. Settings note updated to say so.
 - **Percentages are rounded, not truncated**: `used_percentage` arrives fractional (28.999…) and
   `intValue` read 28 — a percent adrift from Claude's own display.
 - **Per-chat tokens on every row**: `SessionStatus.totalTokens` (input+output from the session's own
