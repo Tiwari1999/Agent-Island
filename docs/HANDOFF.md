@@ -185,6 +185,12 @@ branch per session row; (6) project grouping (flat 19-row list today); (7) Warp 
 - python .replace() on Swift: match FULL indentation or it hits substrings (mangled costChip
   once; build stayed green — ViewBuilder swallows garbage).
 - Mutation-test new assertions (assert the mutation LANDED before trusting "caught").
+- **Never edit selftest.py by slicing on string indices.** A needle that does not match (an
+  escaping slip is enough — the file holds a literal `\n`, not a newline) makes `s[:a] + s[b:]`
+  cut from the wrong offset: that silently deleted 39 sections / 1690 lines and still reported
+  "all green", because the deleted checks no longer ran. Use exact-match anchored edits that fail
+  loudly, and after ANY suite edit confirm the section and check counts
+  (`grep -c '^print("' tests/selftest.py` = 67, ~584 checks) — not just the exit code.
 - Restore mutated files immediately; a crashed harness once left the tree mutated.
 - `defaults` bundle id: extract with PlistBuddy, never `tr -d '<string>'` (that deletes chars).
 - Screenshots: verify by pixel-sampling, not eyeballs (opacity-on-content bug read as "gone"
