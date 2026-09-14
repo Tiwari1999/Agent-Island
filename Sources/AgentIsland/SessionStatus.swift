@@ -10,6 +10,8 @@ struct SessionStatus {
     var costUSD: Double?
     var linesAdded: Int?
     var linesRemoved: Int?
+    /// Everything this session has spent, input + output — what "how big is this chat" means.
+    var totalTokens: Int?
 }
 
 enum SessionStatuses {
@@ -28,6 +30,9 @@ enum SessionStatuses {
             var s = SessionStatus()
             if let cw = o["context_window"] as? [String: Any] {
                 s.contextPct = (cw["used_percentage"] as? NSNumber)?.intValue
+                let i = (cw["total_input_tokens"] as? NSNumber)?.intValue ?? 0
+                let o = (cw["total_output_tokens"] as? NSNumber)?.intValue ?? 0
+                if i + o > 0 { s.totalTokens = i + o }
             }
             s.model = (o["model"] as? [String: Any])?["display_name"] as? String
             if let c = o["cost"] as? [String: Any] {

@@ -356,3 +356,41 @@ struct ClaudeSource: AgentSource {
         return agents
     }
 }
+
+/// Authoritative session→pid for LIVE Claude sessions, from `claude agents --json`.
+///
+/// Discovery binds a pid from `--resume` in argv, or from a cwd only one session owns. A bare
+/// `claude` started without `--resume` and sharing its directory with siblings matches neither,
+/// so its only correct bind is the one a live hook makes in memory — and a relaunch drops that
+/// while the process keeps running, which is why every idle session showed as background after a
+/// rebuild. The hook spool cannot rebuild it either: its recorded ppid is a dead shell whose
+/// ancestry is gone, and resolving it against today's table lands on the wrong live claude.
+/// `claude agents` is the one source that maps these correctly. It spawns a heavy node process,
+/// so it is throttled hard and consulted only while a session is otherwise unbound; once bound,
+/// the pid persists in memory and this stays quiet.
+enum ClaudeAgents {
+    private static let lock = NSLock()
+    private static var cache: [String: Int] = [:]
+    private static var seeded = false
+
+    /// One authoritative read of session→pid, taken the first refresh that finds a session still
+    /// unbound. It recovers the bare shared-directory sessions a relaunch orphans: their only
+    /// correct bind was a live hook, gone with the old process. Seeded once per launch — every
+    /// later refresh reads the cache, and a session that starts afterwards rebinds through argv
+    /// or its own live hook, so the refresh loop stays spawn-free.
+    static func pids(needed: Bool) -> [String: Int] {
+        lock.lock(); defer { lock.unlock() }
+        guard !seeded, needed else { return cache }
+        seeded = true
+        let out = Shell.runSync(Shell.claude, ["agents", "--json"], timeout: 8)
+        guard let data = out.data(using: .utf8),
+              let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+        else { return cache }
+        var fresh: [String: Int] = [:]
+        for o in arr {
+            if let sid = o["sessionId"] as? String, let pid = o["pid"] as? Int { fresh[sid] = pid }
+        }
+        cache = fresh
+        return cache
+    }
+}

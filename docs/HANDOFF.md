@@ -5,32 +5,52 @@ Install: `./install.sh` (builds + relaunches). App bundle id: `sh.emergent.agent
 (prefs: `defaults … sh.emergent.agentisland`; **pkill first, then write, then launch** — a
 running app clobbers prefs on quit). Diagnostics log: `/tmp/agentisland.log`.
 
-## THE OPEN BUG — fix this first
+## THE ROUTING BUG — FIXED 2026-09-14 (ClaudeAgents pid seed)
 
-User reports, twice, after three fix rounds: **row clicks still route wrongly.** Latest wording:
-"every second chat is opening my terminal, the first chat is opening Invoke" (sic — unclear what
-Invoke is; warp:// scheme verified to resolve to /Applications/Warp.app, single install, bundle
-`dev.warp.Warp-Stable`, binary literally named `stable`).
+Symptom: alternating rows don't route ("worked 2h ago"). Manifest audit
+(`/tmp/agentisland.rows.json`): the failing rows are `host=background pid=-1` — a **pid-binding**
+failure, not a jump/host-resolution one. Bound `--resume` rows route to Warp; interleaved bare
+`claude` rows don't → every-other-row fails.
 
-State of diagnosis:
-- `claude agents --json` shows 19 sessions, 17 with pid (all Warp, real ttys), 2 without
-  (genuinely dead background agents → Terminal resume is CORRECT for those two).
-- The APP does its own pid binding (ClaudeSource argv scan + hook fallback in
-  `AgentStore.rebuild`). The CLI numbers do NOT prove the app's rows carry pids. **Nobody has
-  yet looked at what the app's own rows resolve to.** That is the next step.
-- `jump()` is now instrumented — every click logs
-  `jump <sid> pid=<n|nil> host=<name>` then `-> focused …` / `-> host.jump() failed …` /
-  `-> dead session, reopening in Terminal` to /tmp/agentisland.log. **Ask the user to click 3-4
-  rows, then read the log.** That names the bad branch immediately — do this before touching code.
-- A synthetic click harness exists: `/Users/tiwari/.claude/jobs/c63338f6/tmp/clickrows.swift`
-  (hover notch → click at y → report frontmost). Its row-y guesses (85/150/218/287) missed the
-  rows; screenshot the open panel first and calibrate. Pointer restore is built in.
-- Suspects, in order: (1) the app's rows carry `pid=nil` where the CLI has pids — then every
-  such row is "dead" → Terminal resume — check `AgentStore.rebuild`/ClaudeSource binding, incl.
-  Sumit's PR #3 claim (`Proc.pids(comm:)` exact-match; on THIS machine p_comm == "claude" so it
-  *should* bind, but verify in-app, not via ps); (2) `.warp` host.jump() "succeeds"
-  (NSWorkspace.open returns true) but Warp doesn't switch tab — pre-existing, NOT a regression;
-  (3) row identity is fine (`id = sessionId`, checked).
+Root cause — the binding CODE did not change in 23h; the app **relaunch** broke it. A pid bind is
+made in memory when a session fires a live hook (ancestor of a *fresh* `ai_ppid`). A bare `claude`
+started without `--resume` and sharing a cwd (14 in `emergent/mono`) binds by nothing else, so that
+live-hook bind is its only one — and startup replays just 1MB (~1h) of the spool, dropping every
+idle->1h bind while the process keeps running. It "worked 2h ago" because the long-running app had
+accumulated all the live binds; `install.sh`/relaunch wipes them.
+
+The spool cannot rebuild these safely: its recorded `ai_ppid` is a dead shell whose lineage is
+gone, and resolved against today's table it lands on the WRONG live claude (verified: 7 of 8
+recoveries were mis-binds, e.g. `9a93fad1`→14244 which is actually `a7389f7c`). cwd-uniqueness fails
+too (all share `mono`). The one authoritative source is `claude agents --json` (100% cwd/tty-
+consistent, 18/18).
+
+The fix (minimal, +51/-1 lines): `ClaudeAgents.pids(needed:)` in CursorSource.swift — a ONE-SHOT
+`claude agents --json` seed taken on the first refresh that finds an unbound Claude session,
+cached; every later refresh reads the cache. `AgentStore.rebuild` applies it as the last binding
+step behind the existing liveness+comm guard (so a reused pid can't mis-bind). Seeds once per
+launch → refresh loop stays spawn-free (selftest §9g still green). Result: bound Warp rows 8→18,
+**0 mis-binds** (guard correctly leaves `9a93fad1` and the desktop/dead/subagent rows unbound).
+
+Still `background` (correctly — `claude agents` has no live pid): 74695d32/908bcbdc (Claude desktop
+app, no local terminal), 01a07ad*/9a93fad1 (subagents), edb6be00/2b83663a/… (dead).
+
+Second fix (same session): a closed session (pid==nil, no tab to focus) was reopening in the macOS
+default **Terminal**, but the user lives in Warp and wanted it back in Warp. `AgentStore.jump` still
+reopens a closed session — the terminal is now a **setting** (`Prefs.reopenIn`, `ReopenTarget`
+{warp, terminal}, defaults to warp when Warp is installed). `Reopen.run` honors it: **Warp** via a
+**tab configuration** (`~/.warp/tab_configs/agentisland-reopen.toml` + `warp://tab_config/<name>`),
+which opens a new tab in the CURRENT Warp window and runs its `commands` — a launch config
+(`warp://launch`) opened a whole new WINDOW, which the user rejected; both run the exec (the old
+handoff's "launch-config URL does not execute" was wrong, verified). Else Terminal.app as before.
+A live tab is still focused where it runs; only a session whose tab is gone is reopened. Verified by
+real clicks: row1 → Warp focus; row3 (closed 74695d32) → new Warp TAB (window count 1→1),
+`claude --resume` at its cwd. Settings row: "Reopen a closed chat in · Warp / Terminal". §45 covers it.
+
+Leftover: `agentisland-reopen.toml` lingers in the user's Warp tab-config list (reused, one file).
+NOT regressions: `.warp` host.jump() returns true but Warp sometimes doesn't switch tab
+(pre-existing). Real-click harness: `scratchpad/clicktest.swift` (hover bar, click row y — panel
+rows at y≈95/165/235/305/375, ~70px apart on the 1920×1080 display).
 
 History of this bug (all three were mine, all shipped, all verified only against their own
 symptom — the lesson is in the last commit message `73edfd2`):
@@ -44,6 +64,31 @@ symptom — the lesson is in the last commit message `73edfd2`):
 Guards now in the suite (runtime, over live sessions): "every live agent has somewhere to jump
 to", "each interactive agent maps to a DISTINCT tab" (background agents legitimately share their
 owner's tab), "a background agent resolves the terminal that owns it".
+
+## Usage display (2026-09-14, uncommitted with the routing work)
+
+- **Both limit windows in the bar**, replacing the single "claude 62% left" — the weekly is the one
+  that ends a workday, so showing only the 5h hid the number that actually runs out. Idle prints
+  `claude left 5h 84% (2h25m) · wk 71% (3d10h) · $spend · tokens`; working prints
+  `left 5h 84% wk 71%`. **"left" leads both states**: the first cut showed bare `16% · wk 29%` next
+  to the working count, which read as "1 16% wk 29%" — three unrelated numbers, no unit, no
+  direction. `Views.primaryQuota` returns the whole `Quota` (was a 5h-only tuple).
+- **The bar's width formulas were measured against the wrong font.** `sides()` used 5.3px/char and
+  `tests/restwidth.swift` measured at 8.5pt, but `Type.micro` became **10pt** in the type-scale
+  refactor (707b796) where the real advance is **6.2px/char**. Every line had been ~18% over its
+  box, silently clipped (the box is `.clipped()`, not truncated) — and the second quota window
+  pushed it far enough to visibly WRAP onto two lines. Constants are now 6.2/char, quiet cap
+  300→420, and the working side grew a `limit:` term (was a fixed 86 with no room for a second
+  window). The harness measures at 10pt against the real current strings and now covers BOTH
+  lines; re-running it with the old constants fails every line, so it actually catches this.
+  Do NOT use `.fixedSize()` to stop wrapping here — it trades a wrap for a silent clip, which a
+  suite guard forbids; size the box instead.
+- **Percentages are rounded, not truncated**: `used_percentage` arrives fractional (28.999…) and
+  `intValue` read 28 — a percent adrift from Claude's own display.
+- **Per-chat tokens on every row**: `SessionStatus.totalTokens` (input+output from the session's own
+  statusLine `context_window`, all 13 sessions carry it) rendered as a faint `309k` chip. Verified
+  against the raw files. Selftest guards both, mutation-tested; the width-cap check now computes the
+  widest printable line instead of pinning a magic number (it re-broke on exactly that).
 
 ## What shipped in this session (all pushed to main, all green)
 

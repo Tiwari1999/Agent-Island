@@ -67,14 +67,16 @@ final class StatusStore: ObservableObject {
         else { return }
         var q = Quota()
         let rl = obj["rate_limits"] as? [String: Any] ?? [:]
+        // The percentages arrive as fractional doubles (28.999…): truncating reads 28, which is
+        // a percent adrift and makes the number look wrong next to Claude's own display.
         if let f = rl["five_hour"] as? [String: Any] {
-            q.fiveHourPct = (f["used_percentage"] as? NSNumber)?.intValue
+            q.fiveHourPct = (f["used_percentage"] as? NSNumber).map { Int($0.doubleValue.rounded()) }
             if let r = (f["resets_at"] as? NSNumber)?.doubleValue {
                 q.fiveHourResets = Date(timeIntervalSince1970: r)
             }
         }
         if let s = rl["seven_day"] as? [String: Any] {
-            q.sevenDayPct = (s["used_percentage"] as? NSNumber)?.intValue
+            q.sevenDayPct = (s["used_percentage"] as? NSNumber).map { Int($0.doubleValue.rounded()) }
             if let r = (s["resets_at"] as? NSNumber)?.doubleValue {
                 q.sevenDayResets = Date(timeIntervalSince1970: r)
             }

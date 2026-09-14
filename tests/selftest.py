@@ -371,11 +371,16 @@ vw = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
 # for it. Measure the real strings in the real font against the box the real formula gives.
 _m = re.search(r'if quiet \{ return \(30, max\(([\d.]+), min\(([\d.]+), '
                r'([\d.]+) \+ CGFloat\(\(usage \?\? ""\)\.count\) \* ([\d.]+)\)\)\) \}', vw)
+# The working side grew a limit line too, and it is clipped the same way.
+_w = re.search(r'let right = max\(([\d.]+), min\(([\d.]+), '
+               r'([\d.]+) \+ CGFloat\(\(rightText \?\? ""\)\.count\) \* ([\d.]+)\)\)', vw)
 check("resting width formula is where the test expects it", _m is not None)
-if _m:
-    _r = subprocess.run(["swift", os.path.join(REPO, "tests/restwidth.swift")] + list(_m.groups()),
+check("working width formula is where the test expects it", _w is not None)
+if _m and _w:
+    _r = subprocess.run(["swift", os.path.join(REPO, "tests/restwidth.swift")]
+                        + list(_m.groups()) + list(_w.groups()),
                         capture_output=True, text=True, timeout=300).stdout.strip()
-    check("the resting usage line always fits its box", _r == "ok", _r)
+    check("both bar lines always fit their boxes", _r == "ok", _r)
 check("resting line is not hard-clipped without truncation", ".lineLimit(1).fixedSize()" not in vw)
 
 st = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
@@ -554,8 +559,19 @@ blob2="".join(open(os.path.join(REPO,"Sources/AgentIsland",f)).read()
               for f in os.listdir(os.path.join(REPO,"Sources/AgentIsland")) if f.endswith(".swift"))
 import re as _re
 spawn_sites=[l for l in blob2.splitlines() if "Shell.runSync" in l or "Shell.run(" in l]
-check("every remaining spawn site is user-action, not refresh",
-      len(spawn_sites) <= 6, f"{len(spawn_sites)} sites")
+# The 7th site is the claude-agents pid oracle: the one authoritative source for a bare `claude`
+# that shares a directory, whose only correct bind is a live hook lost on relaunch. It is not a
+# free refresh spawn — it is gated on an unbound session existing and throttled, so steady state
+# (all bound) stays at zero, which the runtime "a refresh spawns zero" check above still enforces.
+check("every remaining spawn site is user-action or the gated bind oracle",
+      len(spawn_sites) <= 7, f"{len(spawn_sites)} sites")
+_ca=open(os.path.join(REPO,"Sources/AgentIsland/CursorSource.swift")).read()
+_as_ca=open(os.path.join(REPO,"Sources/AgentIsland/AgentStore.swift")).read()
+check("the bind oracle seeds once per launch, only when a session is unbound",
+      'Shell.runSync(Shell.claude, ["agents", "--json"]' in _ca
+      and "guard !seeded, needed else { return cache }" in _ca
+      and "ClaudeAgents.pids(needed: agents.contains {" in _as_ca
+      and "ClaudeAgents.pids(needed: true)" not in _as_ca)
 
 print("\n=== 9h. smooth: frozen order, springed modes, a meter not a guess ===")
 st=open(os.path.join(REPO,"Sources/AgentIsland/AgentStore.swift")).read()
@@ -1983,7 +1999,11 @@ check("no dead surface code is asserted on",
 
 print("\n=== 30. idle bar spends its empty space on what is left ===")
 check("idle shows remaining, not consumed",
-      "max(0, 100 - pct))% left" in _vw)
+      "max(0, 100 - f))%" in _vw and "max(0, 100 - w))%" in _vw)
+# One number hid the other: the 5h is what you feel now, the weekly is what ends the week.
+check("and shows BOTH the hourly and the weekly window",
+      '"5h \\(max(0, 100 - f))%"' in _vw and '"wk \\(max(0, 100 - w))%"' in _vw
+      and "q.sevenDayResets" in _vw)
 check("and when it refills", "Quota.short(r.timeIntervalSinceNow)" in _vw)
 check("the reset is only shown while it is still in the future", "r > Date()" in _vw)
 check("width is measured from the string the bar will actually print",
@@ -2025,6 +2045,15 @@ check("a stale read cannot overwrite a newer session",
 check("it opens at the newest entry, after layout",
       ".onChange(of: feed.count)" in _cv)
 
+# "How big is this chat" was invisible: the per-session statusLine already carries the totals,
+# so the row prints them rather than making the user open the console to guess.
+_ss = open(os.path.join(REPO, "Sources/AgentIsland/SessionStatus.swift")).read()
+check("a row shows what that chat has spent",
+      "Costs.tokens(t)" in _vw and "row.totalTokens" in _vw)
+check("and the total is input + output, from the session's own statusLine",
+      "total_input_tokens" in _ss and "total_output_tokens" in _ss
+      and "if i + o > 0 { s.totalTokens = i + o }" in _ss)
+
 # Console can only resolve Claude transcripts, so other vendors opened an empty reader.
 check("the read chip is only offered where a transcript exists",
       "row.agent.vendor == .claude" in _vw)
@@ -2033,7 +2062,12 @@ check("and the summon chord skips vendors it cannot read",
 
 check("the plan reader cannot outgrow the height the card reserves",
       "vertical: style == .reading" in _pm)
-check("the idle line's width cap fits what it now prints", "min(300," in _vw)
+# Pinning the number just re-broke on the next line change; assert the cap clears the widest
+# line the bar can actually print (both windows + resets + spend + tokens, at 100%/six figures).
+_cap = int(re.search(r"quiet \{ return \(30, max\(158, min\((\d+),", _vw).group(1))
+_widest = "claude 5h 100% (5h00m) · wk 100% (7d00h) · $1,234.56 · 1.2M"
+check("the idle line's width cap fits what it now prints",
+      _cap >= 16 + len(_widest) * 5.3, f"cap {_cap} vs needed {int(16 + len(_widest) * 5.3)}")
 # Theme reads Surfaces statically, which SwiftUI cannot track as a dependency.
 check("toggling the surface repaints every view, not just the observers",
       '.id("\\(surfaces.choice.rawValue)-\\(typefaces.choice.rawValue)")' in _iv)
@@ -2374,18 +2408,29 @@ check("the field borrows focus from the island, which refuses it by default",
 check("and hands it back after sending",
       "onEndType?()" in _cv2 and "island.endTyping()" in _iv11)
 
-print("\n=== 45. clicking a row never opens a new terminal ===")
+print("\n=== 45. a closed chat reopens in the chosen terminal, live ones are focused ===")
 _as9 = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
-# Routing every unfocusable row through Reopen meant a LIVE session opened a second terminal
-# running `claude attach` — landing the user somewhere new, which a row click must never do.
-check("only a finished session is reopened",
+_rp9 = open(os.path.join(REPO, "Sources/AgentIsland/Reopen.swift")).read()
+_st9 = open(os.path.join(REPO, "Sources/AgentIsland/Settings.swift")).read()
+# A live tab is always focused where it runs (host.jump). Only a session whose tab is gone is
+# reopened, and never before the pid==nil check — reopening a live one opens a second terminal.
+check("only a closed session is reopened",
       "guard row.agent.pid == nil else {" in _as9
       and _as9.index("guard row.agent.pid == nil else {")
           < _as9.index("if !Reopen.run(row.agent"))
-check("a live session that cannot be focused hands over the command instead",
+check("a live session that cannot be focused hands over its command instead",
       "could not be focused, command copied" in _as9)
-check("and still says something, rather than dying silently",
-      "cannot be focused" in _as9)
+# Which terminal is a setting, so a Warp user resumes in Warp, not the macOS default. Warp exposes
+# no scripting API; a launch configuration is the one handle that runs a command there.
+check("the reopen terminal is a user setting",
+      "reopenIn" in _st9 and "ReopenTarget" in _st9 and 'row("Reopen a closed chat in"' in _st9)
+# A tab config opens in the CURRENT Warp window (a launch config opens a whole new one) and still
+# runs its commands — so the chat comes back as a tab where the user is, not a stray window.
+check("Warp is reopened as a tab in the current window, running the resume command",
+      'Prefs.shared.reopenIn == .warp' in _rp9 and "warp://tab_config/" in _rp9
+      and "commands = [\\(tomlQuote(cmd))]" in _rp9 and "warp://launch/" not in _rp9)
+check("and it falls through to Terminal.app when Warp is not chosen",
+      'tell application \\"Terminal\\" to do script' in _rp9)
 
 print("\n=== 46. tmux ===")
 _ht2 = open(os.path.join(REPO, "Sources/AgentIsland/HostTerminal.swift")).read()

@@ -981,7 +981,8 @@ private struct RootView: View {
             let bar = CollapsedView(store: store, status: status, notchWidth: island.notchWidth,
                                     revealed: island.revealed, quiet: quiet)
             let w = CollapsedView.sides(revealed: island.revealed, quiet: quiet,
-                                        text: bar.leadText, usage: bar.quietUsageLine)
+                                        text: bar.leadText, usage: bar.quietUsageLine,
+                                        right: bar.rightText)
             return island.notchWidth + w.left + w.right + 2 * CollapsedView.notchMargin
         case .peek:      return 380
         case .approval(let a):  return (a.plan != nil || island.approvalContext != nil) ? 640 : 560

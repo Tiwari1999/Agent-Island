@@ -79,6 +79,8 @@ struct AgentRow: Identifiable {
     var displayName: String { aiTitle ?? agent.label }
     /// Context pressure — the compaction cliff is at 90%.
     var contextPct: Int? { agent.contextPctOverride ?? status?.contextPct }
+    /// Total tokens this chat has spent, for the row's usage chip.
+    var totalTokens: Int? { status?.totalTokens }
 
     /// Where this session runs, for the row's context chip.
     var terminal: String { host.name }
@@ -424,7 +426,19 @@ final class AgentStore: ObservableObject {
                 b.pid = p
                 return b
             }
-            let resolved: [(Agent, String?, Date?, HostTerminal)] = agents.map { a in
+            // Last resort for a session neither argv, cwd, nor a live hook could bind — the bare
+            // shared-directory sessions that a relaunch orphans. Same liveness+comm guard.
+            let authoritative = ClaudeAgents.pids(needed: agents.contains {
+                $0.pid == nil && $0.vendor == .claude && $0.remoteHost == nil })
+            let bound = agents.map { a -> Agent in
+                guard a.pid == nil, a.vendor == .claude, let p = authoritative[a.sessionId],
+                      Proc.matches(pid: p, comm: comms[Int32(p)], names: Proc.agentNames)
+                else { return a }
+                var b = a
+                b.pid = p
+                return b
+            }
+            let resolved: [(Agent, String?, Date?, HostTerminal)] = bound.map { a in
                 (a, a.pid.flatMap { WarpJump.focusURL(pid: $0) },
                  a.lastActiveOverride ?? Transcript.lastActive(a),
                  a.pid.map { HostTerminal.resolve(pid: $0) } ?? .unknown)
@@ -557,9 +571,7 @@ final class AgentStore: ObservableObject {
             onBackgroundAttach?("\(row.displayName) — path copied, session not resolvable")
             return
         }
-        // A live session already has a home. Reopen would open a *second* terminal and run
-        // `attach` in it, which lands the user somewhere new — the one thing clicking a row
-        // must never do. Hand over the command instead and say why.
+        // A live session we could not focus: hand over its command, never open a second terminal.
         Diagnostics.log("jump -> host.jump() failed for \(row.host.name)")
         guard row.agent.pid == nil else {
             guard let cmd = Reopen.command(for: row.agent) else {
@@ -571,8 +583,9 @@ final class AgentStore: ObservableObject {
             onBackgroundAttach?("\(row.displayName) — \(row.host.name) could not be focused, command copied")
             return
         }
-        // Finished: there is nothing to focus, so start it again where it used to live.
-        Diagnostics.log("jump -> dead session, reopening in Terminal")
+        // Closed session: reopen it where it used to live. Which terminal is a setting — a Warp
+        // user resumes in Warp, not the macOS default Terminal.
+        Diagnostics.log("jump -> closed session, reopening in \(Prefs.shared.reopenIn.label)")
         let announce: (String) -> Void = { [weak self] in self?.onBackgroundAttach?($0) }
         if !Reopen.run(row.agent, in: row.agent.cwd, note: announce) {
             onBackgroundAttach?("\(row.displayName) — no resume path for this session")

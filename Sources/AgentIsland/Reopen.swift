@@ -1,5 +1,14 @@
 import AppKit
 
+/// Which terminal a closed session is reopened in. A Warp user wants Warp, not the macOS default.
+enum ReopenTarget: String, CaseIterable {
+    case warp, terminal
+    var label: String { self == .warp ? "Warp" : "Terminal" }
+    static var warpInstalled: Bool { FileManager.default.fileExists(atPath: "/Applications/Warp.app") }
+    /// Default to the terminal the user actually has — nearly every session here runs in Warp.
+    static var preferred: ReopenTarget { warpInstalled ? .warp : .terminal }
+}
+
 /// Getting back into a session that is not currently running.
 ///
 /// A jump focuses a live terminal. Most sessions in the list are not live — they are history you
@@ -52,8 +61,16 @@ enum Reopen {
         NSPasteboard.general.setString(cmd, forType: .string)
         let copied = "\(agent.vendor.label) resume command copied"
 
-        // Warp is not scriptable, its launch-config URL does not execute, and a timed ⌘V can
-        // land in whatever the user was working in. Terminal.app runs it outright.
+        // Reopen in Warp when the user chose it: a launch configuration is the one handle that
+        // runs a command in Warp (verified — warp://launch executes the exec), so the chat comes
+        // back where the user works instead of the macOS default Terminal.
+        if agent.remoteHost == nil, Prefs.shared.reopenIn == .warp, let dir = cwd, !dir.isEmpty,
+           FileManager.default.fileExists(atPath: dir), runInWarp(cmd, cwd: dir) {
+            note("\(agent.vendor.label) resuming in Warp")
+            return true
+        }
+
+        // Terminal.app runs the command outright (a timed ⌘V could land in the wrong window).
         if agent.remoteHost == nil, let dir = cwd, !dir.isEmpty, scriptable(dir),
            FileManager.default.fileExists(atPath: dir) {
             let script = "cd \(shellQuote(dir)) && \(cmd)"
@@ -75,6 +92,33 @@ enum Reopen {
     }
 
     private static var lastRun: (id: String, at: Date)?
+
+    /// Reopen in Warp through a tab configuration. A launch config opens a whole new window; a tab
+    /// config (`warp://tab_config/<name>`) opens a new tab in the CURRENT window and still runs its
+    /// commands. One reused file; the id is already validID-gated, cwd/command are TOML-quoted.
+    private static func runInWarp(_ cmd: String, cwd: String) -> Bool {
+        let dir = Home.path + "/.warp/tab_configs"
+        let name = "agentisland-reopen"
+        let toml = """
+        name = "\(name)"
+
+        [[panes]]
+        id = "main"
+        type = "terminal"
+        directory = \(tomlQuote(cwd))
+        commands = [\(tomlQuote(cmd))]
+        """
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        guard (try? toml.write(toFile: "\(dir)/\(name).toml", atomically: true, encoding: .utf8)) != nil,
+              let url = URL(string: "warp://tab_config/\(name)") else { return false }
+        NSWorkspace.shared.open(url)
+        return true
+    }
+
+    private static func tomlQuote(_ s: String) -> String {
+        "\"" + s.replacingOccurrences(of: "\\", with: "\\\\")
+                 .replacingOccurrences(of: "\"", with: "\\\"") + "\""
+    }
 
     /// An ssh alias or hostname, which is interpolated into the command unquoted.
     private static func validHost(_ h: String) -> Bool {

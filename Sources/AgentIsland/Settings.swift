@@ -7,6 +7,13 @@ final class Prefs: ObservableObject {
     static let shared = Prefs()
     private static let snoozeKey = "snoozedUntil"
     private static let autoHideKey = "autoHideSeconds"
+    private static let reopenKey = "reopenIn"
+
+    /// Which terminal a closed chat reopens in when its row is clicked. A live chat is always
+    /// focused where it runs; this is only for one whose tab is gone.
+    @Published var reopenIn: ReopenTarget {
+        didSet { UserDefaults.standard.set(reopenIn.rawValue, forKey: Self.reopenKey) }
+    }
 
     /// Zero means the bar never steps aside. Only has an effect where it covers something.
     @Published var autoHideSeconds: Double {
@@ -26,6 +33,7 @@ final class Prefs: ObservableObject {
         let d = UserDefaults.standard
         // A fresh install has no value at all, which is different from a stored zero.
         autoHideSeconds = d.object(forKey: Self.autoHideKey) as? Double ?? 4
+        reopenIn = d.string(forKey: Self.reopenKey).flatMap(ReopenTarget.init) ?? ReopenTarget.preferred
         let t = d.double(forKey: Self.snoozeKey)
         snoozedUntil = t > 0 ? Date(timeIntervalSince1970: t) : nil
         armExpiry()
@@ -92,6 +100,16 @@ struct SettingsView: View {
                         choice("Never", on: prefs.autoHideSeconds == 0) { prefs.autoHideSeconds = 0 }
                         choice("4s", on: prefs.autoHideSeconds == 4) { prefs.autoHideSeconds = 4 }
                         choice("8s", on: prefs.autoHideSeconds == 8) { prefs.autoHideSeconds = 8 }
+                    }
+                }
+
+                group("clicks") {
+                    row("Reopen a closed chat in",
+                        note: "A chat whose tab is still open is focused there") {
+                        if ReopenTarget.warpInstalled {
+                            choice("Warp", on: prefs.reopenIn == .warp) { prefs.reopenIn = .warp }
+                        }
+                        choice("Terminal", on: prefs.reopenIn == .terminal) { prefs.reopenIn = .terminal }
                     }
                 }
 
