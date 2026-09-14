@@ -382,6 +382,23 @@ if _m and _w:
                         capture_output=True, text=True, timeout=300).stdout.strip()
     check("both bar lines always fit their boxes", _r == "ok", _r)
 check("resting line is not hard-clipped without truncation", ".lineLimit(1).fixedSize()" not in vw)
+# The shell is centred in the window, so unequal sides drift the gap it leaves off the real notch
+# by half the difference and slide the counts under the camera housing. Verified by pixel: with
+# the shift, content clears the notch by 30px on both sides; without it, "1 working" disappears.
+_isl_off = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+check("the shell is shifted so its gap lands on the real notch",
+      "private var shellOffsetX" in _isl_off and "(w.right - w.left) / 2" in _isl_off
+      and ".offset(x: shellOffsetX)" in _isl_off)
+check("and only while collapsed, where that gap exists",
+      "guard island.state == .collapsed, island.notchWidth > 0 else { return 0 }" in _isl_off)
+# The window is created once and never resized, so the shifted shell has to fit inside it.
+if _m and _w:
+    _maxw = float(re.search(r"static let maxSize = NSSize\(width: ([\d.]+)", _isl_off).group(1))
+    _notch = 200.0   # roomier than any shipping notch (measured 185 on this Mac)
+    _worst = max(_notch + 30 + float(_m.group(2)) + 28 + 2 * (float(_m.group(2)) - 30) / 2,
+                 _notch + 210 + float(_w.group(2)) + 28 + 2 * (float(_w.group(2)) - 210) / 2)
+    check("the shifted shell still fits the window it is drawn in",
+          _maxw >= _worst, f"window {int(_maxw)} vs worst shell {int(_worst)}")
 
 st = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
 # Opening the panel froze the row order from rows that could be a whole idleInterval old, so
@@ -2065,7 +2082,7 @@ check("the plan reader cannot outgrow the height the card reserves",
 # Pinning the number just re-broke on the next line change; assert the cap clears the widest
 # line the bar can actually print (both windows + resets + spend + tokens, at 100%/six figures).
 _cap = int(re.search(r"quiet \{ return \(30, max\(158, min\((\d+),", _vw).group(1))
-_widest = "claude 5h 100% (5h00m) · wk 100% (7d00h) · $1,234.56 · 1.2M"
+_widest = "codex left 5h 100% wk 100% · $1999999 · 123.4B"
 check("the idle line's width cap fits what it now prints",
       _cap >= 16 + len(_widest) * 5.3, f"cap {_cap} vs needed {int(16 + len(_widest) * 5.3)}")
 # Theme reads Surfaces statically, which SwiftUI cannot track as a dependency.

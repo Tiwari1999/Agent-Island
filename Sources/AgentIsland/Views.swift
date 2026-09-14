@@ -32,10 +32,10 @@ struct CollapsedView: View {
         // has to clear that rather than sit 3pt above it.
         // 6.2/char is the measured advance of the real 10pt monospace face; the old 5.3 was tuned
         // for an 8.5pt scale that no longer exists, so every line silently overran its box.
-        if quiet { return (30, max(158, min(420, 16 + CGFloat((usage ?? "").count) * 6.2))) }
+        if quiet { return (30, max(158, min(320, 16 + CGFloat((usage ?? "").count) * 6.2))) }
         // The right holds the labelled counts AND both limit windows; a fixed 86 had no room for
         // any of it, so "wk 29%" wrapped onto a second line. Grow with the whole line it prints.
-        let right = max(86, min(340, 34 + CGFloat((rightText ?? "").count) * 6.9))
+        let right = max(86, min(320, 34 + CGFloat((rightText ?? "").count) * 6.9))
         if revealed { return (300, right) }
         // pulse + avatar + gaps, then roughly one glyph width per character of activity.
         let needed = 46 + CGFloat(min((text ?? "").count, 30)) * 5.8
@@ -106,16 +106,12 @@ struct CollapsedView: View {
         // left and when it refills, not the percentage already burned.
         // Both windows: the 5h is what you feel now, the weekly is what ends the week. "left"
         // leads both, so the same words mean the same thing whether the bar is busy or resting.
+        // No reset countdowns here: they doubled the bar's width for a number you act on far
+        // less often than the percentage, and the panel already shows both against each window.
         let limit = primaryQuota.map { name, q -> String in
             var s = "\(name) left"
-            if let f = q.fiveHourPct {
-                s += " 5h \(max(0, 100 - f))%"
-                if let r = q.fiveHourResets, r > Date() { s += " (\(Quota.short(r.timeIntervalSinceNow)))" }
-            }
-            if let w = q.sevenDayPct {
-                s += " · wk \(max(0, 100 - w))%"
-                if let r = q.sevenDayResets, r > Date() { s += " (\(Quota.short(r.timeIntervalSinceNow)))" }
-            }
+            if let f = q.fiveHourPct { s += " 5h \(max(0, 100 - f))%" }
+            if let w = q.sevenDayPct { s += " wk \(max(0, 100 - w))%" }
             return s
         }
         let parts = [limit, usageToday].compactMap { $0 }

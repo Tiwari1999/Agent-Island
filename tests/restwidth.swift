@@ -13,11 +13,12 @@ let f = NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
 func width(_ s: String) -> Double { (s as NSString).size(withAttributes: [.font: f]).width }
 var bad: [String] = []
 
-// Resting: "<vendor> left 5h N% (reset) · wk N% (reset) · $spend · tokens", to its worst case.
-for s in ["idle", "claude left 5h 97% (12m) · wk 99% (6d) · $0.02 · 12k",
-          "claude left 5h 84% (2h25m) · wk 71% (3d10h) · $57.31 · 309k",
-          "claude left 5h 0% (5h00m) · wk 0% (7d00h) · $18942 · 1.9B",
-          "codex left 5h 100% (5h00m) · wk 100% (7d00h) · $1999999 · 123.4B"] {
+// Resting: "<vendor> left 5h N% wk N% · $spend · tokens", to its worst case. The reset
+// countdowns used to sit here and doubled the bar's width; the panel carries them instead.
+for s in ["idle", "claude left 5h 97% wk 99% · $0.02 · 12k",
+          "claude left 5h 84% wk 71% · $57.31 · 309k",
+          "claude left 5h 0% wk 0% · $18942 · 1.9B",
+          "codex left 5h 100% wk 100% · $1999999 · 123.4B"] {
     let needs = width(s) + 10
     let box = max(rFloor, min(rCeil, rBase + Double(s.count) * rPer))
     if needs > box { bad.append("REST \(s) needs \(Int(needs)) box \(Int(box))") }

@@ -83,6 +83,15 @@ owner's tab), "a background agent resolves the terminal that owns it".
   lines; re-running it with the old constants fails every line, so it actually catches this.
   Do NOT use `.fixedSize()` to stop wrapping here — it trades a wrap for a silent clip, which a
   suite guard forbids; size the box instead.
+- **The first cut was too wide and slid under the notch.** Two follow-ups: (a) the reset
+  countdowns came OUT of the resting line — they doubled its width for a number you act on far
+  less often, and the panel already shows them per window; caps are 320 (rest) / 320 (working).
+  (b) **The shell is centred in its window, so unequal sides drift the gap it leaves for the notch
+  by half the difference** — once `right` grew past `left`, "1 working" sat under the camera
+  housing. `Island.shellOffsetX` shifts the shell by `(right - left) / 2` while collapsed, and
+  `maxSize.width` went 860 -> 980 so the shifted shell still fits the never-resized window.
+  Pixel-verified from a silent screencapture: content clears the notch by 30px on both sides
+  (notch spans retina x1326-1696; left text ends 1296, "1 working" starts 1726).
 - **Percentages are rounded, not truncated**: `used_percentage` arrives fractional (28.999…) and
   `intValue` read 28 — a percent adrift from Claude's own display.
 - **Per-chat tokens on every row**: `SessionStatus.totalTokens` (input+output from the session's own
@@ -152,6 +161,15 @@ branch per session row; (6) project grouping (flat 19-row list today); (7) Warp 
   NSAppleScript like TerminalWrite when touched next).
 
 ## Working rules that bit us (obey them)
+
+- **Never drive synthetic clicks/hover to verify.** It steals the pointer and raises apps on the
+  machine the user is working on; doing it repeatedly in one turn locks them out (they asked for
+  this explicitly). Everything routing-related is already verifiable with ZERO UI interaction:
+  `/tmp/agentisland.rows.json` carries per-row host/pid/precise/caveat/target, `/tmp/agentisland.log`
+  records the branch of every REAL click, and the suite already asserts "every live agent has
+  somewhere to jump to" + "each interactive agent maps to a DISTINCT tab" over live sessions.
+  `screencapture -x` is silent and safe — pixel-sample it rather than eyeballing. If a real click
+  is genuinely required, do it ONCE at the end of the turn and say so first.
 
 - Verify every fix against the MAIN FLOW (click a row → land on session), not just the
   symptom. That failure mode shipped 3 regressions in 2 days.

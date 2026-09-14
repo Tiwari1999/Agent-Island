@@ -74,7 +74,7 @@ final class Island: NSObject, ObservableObject {
     @Published var notchWidth: CGFloat = 0
     @Published var notchHeight: CGFloat = 32
 
-    static let maxSize = NSSize(width: 860, height: 420)
+    static let maxSize = NSSize(width: 980, height: 420)
     /// The console's footprint. Sized to be read at a glance rather than lived in; the window is
     /// created once at maxSize, so growing this later costs nothing structurally.
     static let consoleSize = NSSize(width: 640, height: 356)
@@ -991,6 +991,19 @@ private struct RootView: View {
         case .expanded:  return PanelView.width
         }
     }
+    /// The bar's two sides are deliberately unequal, but the shell is centred in the window — so
+    /// the gap it leaves for the notch drifts by half that difference and slides the first thing
+    /// on the right (the counts) under the camera housing. Shift the shell back by exactly that.
+    private var shellOffsetX: CGFloat {
+        guard island.state == .collapsed, island.notchWidth > 0 else { return 0 }
+        let bar = CollapsedView(store: store, status: status, notchWidth: island.notchWidth,
+                                revealed: island.revealed, quiet: quiet)
+        let w = CollapsedView.sides(revealed: island.revealed, quiet: quiet,
+                                    text: bar.leadText, usage: bar.quietUsageLine,
+                                    right: bar.rightText)
+        return (w.right - w.left) / 2
+    }
+
     private var shellHeight: CGFloat {
         switch island.state {
         // Exactly the notch height. Anything shorter leaves a step where the bar meets the
@@ -1117,6 +1130,7 @@ private struct RootView: View {
                 }
             }
             .frame(width: shellWidth, height: shellHeight)
+            .offset(x: shellOffsetX)
             .contentShape(NotchShape(radius: corner))
             // The whole shell, not just its contents: fading the bar's text while the shape
             // kept painting left an opaque black block sitting on the tab strip.
