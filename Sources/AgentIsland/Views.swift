@@ -37,52 +37,16 @@ struct CollapsedView: View {
         return (l, r)
     }
 
-    /// The limit belonging to the agent this person actually uses, measured by how much of the
-    /// panel is theirs. Showing the largest number instead surfaced a tool with six sessions
-    /// over the one with twenty-one, which is a statistic rather than a status.
-    private var primaryLimit: (String, Int, Date?)? {
-        primaryQuota.map { name, q in (name, q.fiveHourPct ?? 0, q.fiveHourResets) }
-    }
-
-    /// Both windows for the agent this person actually uses. The weekly limit is the one that
-    /// ends a workday, so showing only the 5h number hid the number that actually runs out.
-    private var primaryQuota: (String, Quota)? {
-        func limit(_ v: Vendor) -> (String, Quota)? {
-            switch v {
-            case .claude: return status.quota.fiveHourPct != nil ? ("claude", status.quota) : nil
-            case .codex:  return CodexSource.quota.fiveHourPct != nil
-                ? ("codex", Quota(fiveHourPct: CodexSource.quota.fiveHourPct,
-                                  sevenDayPct: CodexSource.quota.sevenDayPct,
-                                  fiveHourResets: CodexSource.quota.fiveHourResets)) : nil
-            case .cursor: return nil        // publishes no quota; never invent one
-            }
-        }
-        // Whatever the panel is reporting on, so the two never disagree.
-        for v in [store.effectiveVendor] + store.vendorsPresent + [.claude, .codex] {
-            if let hit = limit(v) { return hit }
-        }
-        return nil
-    }
-
     /// What the bar is actually going to print, which is what its width should follow.
     var leadText: String? { lead.map { $0.activity ?? $0.displayName } }
 
-    /// The left side: what is happening, or — when nothing is — what today has cost. That pairs
-    /// it with the right, which says what is left: spent here, remaining there.
+    /// The left side: what is happening, or — when nothing is — what today has cost. The limits
+    /// that used to sit opposite are in the panel's footer now; the bar keeps only what changes
+    /// second to second, which is what a glance at a notch is for.
     var leftText: String? { leadText ?? spentText }
 
-    /// Today's spend, worded so it cannot be mistaken for the remaining budget beside it.
+    /// Today's spend, worded so it cannot be mistaken for a remaining budget.
     var spentText: String? { usageToday.map { "spent \($0)" } }
-
-    /// What remains, in both windows. "left" leads so neither number can be read as consumed —
-    /// "16% · wk 29%" told you nothing about which way it counted, or of what.
-    var limitText: String? {
-        guard let (_, q) = primaryQuota else { return nil }
-        var parts: [String] = []
-        if let f = q.fiveHourPct { parts.append("5h \(max(0, 100 - f))%") }
-        if let w = q.sevenDayPct { parts.append("wk \(max(0, 100 - w))%") }
-        return parts.isEmpty ? nil : "left " + parts.joined(separator: " ")
-    }
 
     /// The counts, each with the noun it counts. A bare "1" beside a percentage read as one more
     /// unlabelled number; nothing said whether it was agents, minutes or a rank.
@@ -98,10 +62,9 @@ struct CollapsedView: View {
     }
 
     /// Everything the right side prints, so its width follows the whole line and not one part.
-    var rightText: String? {
-        let s = [countsText, limitText].compactMap { $0 }.joined(separator: " ")
-        return s.isEmpty ? nil : s
-    }
+    /// The limits are NOT here: they cost more width on the bar than they were worth and now
+    /// live along the panel's footer, where there is room for their reset times too.
+    var rightText: String? { countsText }
 
     /// Spend and tokens for the agent the panel is reporting on, today.
     private var usageToday: String? {
@@ -184,26 +147,6 @@ struct CollapsedView: View {
                         Text("\(store.blockedCount)")
                             .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
                         Text("blocked").font(Theme.mono(Type.micro)).foregroundColor(Theme.faint)
-                    }
-                    .lineLimit(1)
-                }
-                // Both windows, labelled and never wrapped: the counts sit left of this, so
-                // without the word the row read "1 16% wk 29%" — three unrelated numbers.
-                if let (_, q) = primaryQuota {
-                    HStack(spacing: 4) {
-                        Text("left").font(Theme.mono(Type.micro)).foregroundColor(Theme.faint)
-                        if let f = q.fiveHourPct {
-                            Text("5h \(max(0, 100 - f))%")
-                                .font(Theme.mono(Type.micro)).foregroundColor(Quota.tint(f))
-                                .contentTransition(.numericText(value: Double(f)))
-                                .animation(Motion.value, value: f)
-                        }
-                        if let w = q.sevenDayPct {
-                            Text("wk \(max(0, 100 - w))%")
-                                .font(Theme.mono(Type.micro)).foregroundColor(Quota.tint(w))
-                                .contentTransition(.numericText(value: Double(w)))
-                                .animation(Motion.value, value: w)
-                        }
                     }
                     .lineLimit(1)
                 }
@@ -545,7 +488,9 @@ struct PanelView: View {
     static var listHeight: CGFloat {
         visibleRows * AgentRowView.height + (visibleRows - 1) * rowGap + 2 * listPadding
     }
-    static var height: CGFloat { headerHeight + 1 + listHeight }
+    /// The limits live along the bottom, out of the header's scramble and off the bar entirely.
+    static let footerHeight: CGFloat = 30
+    static var height: CGFloat { headerHeight + 1 + listHeight + 1 + footerHeight }
     @ObservedObject var store: AgentStore
     @ObservedObject var status: StatusStore
     @State private var mode: PanelMode = .sessions
@@ -576,27 +521,6 @@ struct PanelView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 7) {
                 agentPicker
-                let q = quota(for: store.effectiveVendor)
-                if q.fiveHourPct == nil && q.sevenDayPct == nil {
-                    Text("publishes no limits")
-                        .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
-                } else {
-                    window("5h", q.fiveHourPct, q.fiveHourResets)
-                    if store.effectiveVendor == .claude,
-                       let r = status.quota.burnPerHour, r >= 0.5 {
-                        HStack(spacing: 3) {
-                            Image(systemName: "flame.fill")
-                                .font(.system(size: 10)).foregroundColor(burnTint)
-                            Text(Quota.rate(r)).font(Theme.mono(Type.small)).foregroundColor(burnTint)
-                            if let e = status.quota.exhaustsIn, e < 6 * 3600 {
-                                Text("· full in \(Quota.short(e))")
-                                    .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
-                            }
-                        }
-                    }
-                    Text("|").font(Theme.mono(Type.small)).foregroundColor(Theme.hairline)
-                    window("7d", q.sevenDayPct, q.sevenDayResets)
-                }
                 Spacer()
                 if !hooksReady {
                     HStack(spacing: 4) {
@@ -689,8 +613,43 @@ struct PanelView: View {
                 .scrollIndicators(.never)
                 .clipped()
             }
+
+            Rectangle().fill(Theme.hairline).frame(height: 0.7)
+            limitsFooter
         }
         .frame(width: PanelView.width, height: PanelView.height)
+    }
+
+    /// What is left, along the bottom. It used to be wedged into the header between the picker
+    /// and the chips, and repeated on the bar where it cost more width than it was worth; down
+    /// here there is room to say when each window refills, which the bar never had.
+    private var limitsFooter: some View {
+        let q = quota(for: store.effectiveVendor)
+        return HStack(spacing: 7) {
+            if q.fiveHourPct == nil && q.sevenDayPct == nil {
+                Text("\(store.effectiveVendor.label) publishes no limits")
+                    .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
+            } else {
+                window("5h", q.fiveHourPct, q.fiveHourResets)
+                if store.effectiveVendor == .claude,
+                   let r = status.quota.burnPerHour, r >= 0.5 {
+                    HStack(spacing: 3) {
+                        Image(systemName: "flame.fill")
+                            .font(.system(size: 10)).foregroundColor(burnTint)
+                        Text(Quota.rate(r)).font(Theme.mono(Type.small)).foregroundColor(burnTint)
+                        if let e = status.quota.exhaustsIn, e < 6 * 3600 {
+                            Text("· full in \(Quota.short(e))")
+                                .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
+                        }
+                    }
+                }
+                Text("|").font(Theme.mono(Type.small)).foregroundColor(Theme.hairline)
+                window("7d", q.sevenDayPct, q.sevenDayResets)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .frame(height: PanelView.footerHeight)
     }
 
     /// Burn is only alarming when it would exhaust the window before it resets.

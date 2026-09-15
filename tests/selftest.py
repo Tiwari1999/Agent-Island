@@ -624,15 +624,21 @@ cx=open(os.path.join(REPO,"Sources/AgentIsland/CodexSource.swift")).read()
 check("codex rate limits are parsed from the rollout stream",
       '"rate_limits"' in cx and "used_percent" in cx and "static var quota" in cx)
 vw4=open(os.path.join(REPO,"Sources/AgentIsland/Views.swift")).read()
-check("the panel header shows codex's limit beside claude's",
-      "CodexSource.quota.fiveHourPct" in vw4)
-check("the resting bar shows the most-used agent's limit, not just 'idle'",
-      "primaryLimit" in vw4 and 'Text("idle")' in vw4)
+check("the panel reports the selected agent's own limit, codex included",
+      "case .codex:  return CodexSource.quota" in vw4 and "quota(for: store.effectiveVendor)" in vw4)
+# The limits left the bar entirely: they cost more width there than they were worth, and the
+# footer has room for the reset times the bar never could show.
+check("the limits live in the panel's footer, not on the bar",
+      "private var limitsFooter" in vw4 and "static let footerHeight" in vw4
+      and 'window("5h"' in vw4.split("private var limitsFooter")[1]
+      and 'window("7d"' in vw4.split("private var limitsFooter")[1])
+check("so the bar prints no percentage at all",
+      "var rightText: String? { countsText }" in vw4 and "limitText" not in vw4)
 check("the primary agent is chosen by how many rows are its own",
       "counts[r.agent.vendor, default: 0] += 1" in
       open(os.path.join(REPO,"Sources/AgentIsland/AgentStore.swift")).read())
 check("cursor is not given a limit it does not publish",
-      "case .cursor: return nil" in vw4)
+      "case .cursor: return Quota()" in vw4 and "publishes no limits" in vw4)
 
 print("\n=== 9l. one click, and sessions that argv cannot name ===")
 isl5=open(os.path.join(REPO,"Sources/AgentIsland/Island.swift")).read()
@@ -690,8 +696,9 @@ check("spend is attributed per agent by model family",
       "static func vendor(ofModel" in cs2 and "static func spend(" in cs2)
 check("the cost chip follows the selection",
       "Costs.spend(Costs.today(store.costTable), for: store.effectiveVendor)" in vw5)
-check("the resting bar cannot disagree with the header",
-      "for v in [store.effectiveVendor]" in vw5)
+# Only one surface prints a limit now, so the two can no longer disagree at all.
+check("one surface owns the limit, so nothing can disagree with it",
+      "quota(for: store.effectiveVendor)" in vw5 and "limitText" not in vw5)
 
 print("\n=== 9n. the bar fits what it has to say ===")
 vw6=open(os.path.join(REPO,"Sources/AgentIsland/Views.swift")).read()
@@ -2017,13 +2024,14 @@ check("the fade can never exceed the empty space below the content",
 check("no dead surface code is asserted on",
       "SleekChip" not in _sf and "struct SleekChip" not in _sf)
 
-print("\n=== 30. idle bar spends its empty space on what is left ===")
-check("idle shows remaining, not consumed",
-      "max(0, 100 - f))%" in _vw and "max(0, 100 - w))%" in _vw)
-# One number hid the other: the 5h is what you feel now, the weekly is what ends the week.
-check("and shows BOTH the hourly and the weekly window",
-      '"5h \\(max(0, 100 - f))%"' in _vw and '"wk \\(max(0, 100 - w))%"' in _vw
-      and "q.sevenDayResets" in _vw)
+print("\n=== 30. the footer says what is left, the bar says what is happening ===")
+# Both windows, because one hid the other: the 5h is what you feel now, the weekly is what ends
+# the week. They sit in the footer with their reset times, which the bar had no width for.
+check("the footer shows BOTH the hourly and the weekly window",
+      'window("5h", q.fiveHourPct, q.fiveHourResets)' in _vw
+      and 'window("7d", q.sevenDayPct, q.sevenDayResets)' in _vw)
+check("and each says when it refills",
+      "Quota.remaining(resets)" in _vw)
 # The reset countdowns moved to the panel: on the bar they doubled the width for a number you
 # act on far less often, and the panel already shows one against each window.
 check("the reset countdown is the panel's job, not the bar's",

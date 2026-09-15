@@ -100,6 +100,14 @@ owner's tab), "a background agent resolves the terminal that owns it".
   sides pair as one sentence, spent / left, and balance each other. The quiet-vs-working render
   branches collapsed into one. Pixel-verified from a silent screencapture: content clears the
   notch by 30px both sides (notch retina x1326-1696; left ends 1296, "1 working" starts 1726).
+- **The limits moved to a panel FOOTER and off the bar entirely** (2026-09-15, user's call). They
+  were wedged into the panel header between the picker and the chips, and repeated on the bar where
+  they cost more width than they were worth. `PanelView.limitsFooter` is a new 30pt strip below the
+  rows (`height` = header + 1 + list + 1 + footer = 290), carrying both windows WITH their reset
+  times and the burn rate — which the bar never had room for. The bar's `rightText` is now just
+  `countsText`, so with one agent working it prints nothing on the right: **519pt working / 449pt
+  idle**, down from 591/525 and from ~727 at the symmetric worst. CollapsedView's `primaryQuota` /
+  `primaryLimit` / `limitText` are deleted as dead.
 - **The bar now steps aside whenever nothing is running, on every display.** `autoHides` was
   gated on `safeAreaInsets.top == 0` (no-notch only), on the reasoning that a notch is dead pixels
   — but the bar outgrew the notch, so at rest it sat on the menu bar showing a stale number.
