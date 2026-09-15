@@ -140,9 +140,6 @@ struct CursorSource: AgentSource {
             .split(whereSeparator: \.isNewline).last.map(String.init) ?? ""
     }
 
-    private static func shellQuote(_ s: String) -> String {
-        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
 
     /// The first thing the user asked, read from the session transcript.
     ///

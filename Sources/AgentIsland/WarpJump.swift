@@ -12,11 +12,4 @@ enum WarpJump {
         ProcEnv.prime(pids: [pid])
         return ProcEnv.warp(pid: pid).focusURL
     }
-
-    @discardableResult
-    static func jump(pid: Int) -> Bool {
-        guard let url = focusURL(pid: pid), let target = URL(string: url) else { return false }
-        NSWorkspace.shared.open(target)
-        return true
-    }
 }

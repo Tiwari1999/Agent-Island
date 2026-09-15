@@ -246,6 +246,58 @@ of the menu bar, so merely heading for something else up there opened the island
 §49 pins all of it. Verified structurally: `CGWindowListCopyWindowInfo` shows AgentIsland owning
 **one** on-screen window (the 980x420 panel), the 32pt sensor strip is gone.
 
+## Terminal / iTerm verification + cleanup (2026-09-15)
+
+Verified against REAL `claude` chats, not synthetic processes — one started in iTerm2, one in
+Terminal.app, each in its own scratch directory:
+
+- `HostTerminal.resolve` on the live pid returns `.iterm` (handle `w1t0p0:<uuid>`) and
+  `.appleTerminal`, both `isPrecise`. Both rows reach `/tmp/agentisland.rows.json` with
+  `host: iTerm2` / `host: Terminal`, `precise: true`.
+- Routing lands correctly in BOTH directions with a decoy in front each time: parked on Terminal
+  then routed to the iTerm chat -> iTerm2 frontmost, session `240DA7D8-...`; parked on iTerm then
+  routed to the Terminal chat -> Terminal frontmost, tab `/dev/ttys018`. Mutation-tested: pointing
+  the assertions at a wrong session/tty makes them fail.
+- Reopen-in-Terminal exercised with a marker command: `do script` lands in the session's cwd and
+  runs. `tests/terminals-e2e.py` green for iTerm2, Terminal and Warp.
+
+Two traps for whoever repeats this:
+
+- `ProcEnv.info(pid:)` only reads a cache `ProcEnv.prime(pids:)` fills. Resolving without priming
+  returns an empty `Info`, so every session looks `degraded/background`. That is a harness bug,
+  not an app bug — `tests/hostresolve.swift` primes.
+- A terminal launched FROM a Claude Code session inherits `CLAUDE_CODE_CHILD_SESSION`, so every
+  `claude` started in it writes no transcript and the island never sees the row. Launch the
+  terminal through `open -a` (launchd, login environment) before starting the test chat.
+
+`tests/hostresolve.swift` is the harness: `swiftc -parse-as-library tests/hostresolve.swift
+Sources/AgentIsland/{HostTerminal,ProcEnv,Proc,Shell,Diagnostics,Cwd}.swift -o /tmp/hostresolve`,
+then `/tmp/hostresolve <pid> [--jump]`.
+
+### The leaked Warp URL fooled our own test
+
+`selftest`'s "each interactive agent maps to a DISTINCT tab" read `WARP_FOCUS_URL` straight out of
+the env. Opening iTerm2/Terminal from a Warp tab leaks that variable in, so three correctly-routed
+sessions (one genuinely in Warp, one in iTerm2, one in Terminal) shared one URL and the check
+called it a collision. `HostTerminal` already prefers `TERM_PROGRAM` over a leaked handle; the test
+now mirrors that. It is not vacuous — 10 genuine Warp URLs still count, 2 leaks are dropped.
+
+### Dead code removed
+
+`WarpJump.jump` (only `focusURL` is ever called), `SettingsView.hasNotch`, and the unused private
+`shellQuote` copies in `CodexSource` and `CursorSource` (the live one is `Reopen`'s). Tracked
+`__pycache__` untracked and gitignored. Everything else `cursor-task` flagged as a "stray file"
+(`tests/loadtest.py`, `rival.py`, `routing.py`, `blocked_badge.py`, `terminal_write.swift`) is an
+on-demand harness like `terminals-e2e.py`, NOT dead — do not delete them on a reference count.
+
+### A rounded percentage could kill the app
+
+Rounding the quota swapped `NSNumber.intValue` for `Int(Double)`. `intValue` saturates;
+`Int(_:)` **traps**. One junk `used_percentage` in the world-writable `/tmp/agentisland-status.json`
+would kill the island on the next poll — reproduced, exit 133, "Double value cannot be converted to
+Int because the result would be greater than Int.max". Now clamped in `Status.pct`. Guarded in
+selftest and mutation-tested.
+
 ## Working rules that bit us (obey them)
 
 - **Never drive synthetic clicks/hover to verify.** It steals the pointer and raises apps on the

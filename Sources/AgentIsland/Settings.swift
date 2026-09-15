@@ -72,9 +72,6 @@ struct SettingsView: View {
     @ObservedObject private var typefaces = Typefaces.shared
     var onBack: () -> Void
 
-    /// The bar only covers content where there is no notch to sit in.
-    private var hasNotch: Bool { (NSScreen.main?.safeAreaInsets.top ?? 0) > 0 }
-
     private var version: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
     }

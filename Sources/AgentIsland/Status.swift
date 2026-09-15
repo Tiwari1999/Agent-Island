@@ -61,6 +61,12 @@ final class StatusStore: ObservableObject {
         }
     }
 
+    /// A percentage out of a file any local process can write. Int(_:) TRAPS on a value
+    /// outside Int's range or on NaN, which would kill the app on the next poll.
+    private static func pct(_ d: Double) -> Int {
+        d.isNaN ? 0 : Int(min(max(d, 0), 100).rounded())
+    }
+
     private func read() {
         guard let data = FileManager.default.contents(atPath: path),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -70,13 +76,13 @@ final class StatusStore: ObservableObject {
         // The percentages arrive as fractional doubles (28.999…): truncating reads 28, which is
         // a percent adrift and makes the number look wrong next to Claude's own display.
         if let f = rl["five_hour"] as? [String: Any] {
-            q.fiveHourPct = (f["used_percentage"] as? NSNumber).map { Int($0.doubleValue.rounded()) }
+            q.fiveHourPct = (f["used_percentage"] as? NSNumber).map { Self.pct($0.doubleValue) }
             if let r = (f["resets_at"] as? NSNumber)?.doubleValue {
                 q.fiveHourResets = Date(timeIntervalSince1970: r)
             }
         }
         if let s = rl["seven_day"] as? [String: Any] {
-            q.sevenDayPct = (s["used_percentage"] as? NSNumber).map { Int($0.doubleValue.rounded()) }
+            q.sevenDayPct = (s["used_percentage"] as? NSNumber).map { Self.pct($0.doubleValue) }
             if let r = (s["resets_at"] as? NSNumber)?.doubleValue {
                 q.sevenDayResets = Date(timeIntervalSince1970: r)
             }

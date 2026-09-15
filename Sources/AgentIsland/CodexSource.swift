@@ -234,7 +234,4 @@ struct CodexSource: AgentSource {
         return Cwd.map(pids: pids)
     }
 
-    private static func shellQuote(_ s: String) -> String {
-        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
 }

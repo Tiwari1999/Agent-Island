@@ -53,6 +53,11 @@ def focus_url(pid):
     owner = owning_pid(pid)
     if owner is None: return None
     env=subprocess.run(["ps","eww","-p",str(owner),"-o","command="],capture_output=True,text=True).stdout
+    # Opening iTerm2/Terminal from a Warp tab leaks WARP_FOCUS_URL into it, so several sessions
+    # can carry one URL. HostTerminal already prefers TERM_PROGRAM; mirror that or this reads a
+    # leak as a tab and calls correctly-routed sessions a collision.
+    tp=next((t.split("=",1)[1] for t in env.split() if t.startswith("TERM_PROGRAM=")),None)
+    if tp and "warp" not in tp.lower(): return None
     return next((t.split("=",1)[1] for t in env.split() if t.startswith("WARP_FOCUS_URL=")),None)
 
 withpid=[a for a in agents if a.get("pid")]
@@ -678,6 +683,9 @@ check("a process match falls back to argv[0] when p_comm is a version string",
 check("the ancestor walk uses the same fallback",
       "matches(pid: Int(cur), comm: comm[cur], names: names)" in _pc)
 check("tests/procname.swift present", os.path.exists(os.path.join(REPO, "tests", "procname.swift")))
+# Source-text checks prove the resolve *order*; only a real process proves the handle.
+check("tests/hostresolve.swift present (real-process host resolution)",
+      os.path.exists(os.path.join(REPO, "tests", "hostresolve.swift")))
 
 print("\n=== 9m. pick the agent the header reports on ===")
 vw5=open(os.path.join(REPO,"Sources/AgentIsland/Views.swift")).read()
@@ -2036,6 +2044,15 @@ check("the footer shows BOTH the hourly and the weekly window",
       and 'window("7d", q.sevenDayPct, q.sevenDayResets)' in _vw)
 check("and each says when it refills",
       "Quota.remaining(resets)" in _vw)
+# Rounding the quota replaced NSNumber.intValue with Int(Double), which TRAPS rather than
+# saturating: one junk percentage in the world-writable status file killed the app on the
+# next poll. Verified by running it — exit 133, "Double value cannot be converted to Int".
+_stq = open(os.path.join(REPO, "Sources/AgentIsland/Status.swift")).read()
+check("the quota percentage is clamped before Int(), which traps on a huge or NaN double",
+      "d.isNaN ? 0 : Int(min(max(d, 0), 100).rounded())" in _stq)
+check("and no unguarded Double->Int conversion is left in the quota parse",
+      "Int($0.doubleValue.rounded())" not in _stq
+      and _stq.count("Self.pct($0.doubleValue)") == 2)
 # The footer printed the CONSUMED figure bare — "5h 11%" beside a clock, which reads as easily
 # as "11% left" as "11% used", and those are opposite readings of the same glance.
 check("the footer says which way its percentage counts",
