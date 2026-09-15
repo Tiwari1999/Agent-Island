@@ -358,7 +358,7 @@ final class AgentStore: ObservableObject {
 
     /// Every vendor present on the machine. Absent tools cost nothing — `isAvailable` is a
     /// file check — so this list can grow without a settings switch.
-    private let sources: [AgentSource] = [ClaudeSource(), CodexSource(), CursorSource(), JugglerSource(), RemoteSource()]
+    private let sources: [AgentSource] = [ClaudeSource(), CodexSource(), CursorSource(), RemoteSource()]
 
     /// Discovery mutates each vendor's static caches, so exactly one may be in flight. This also
     /// stops polls from stacking up behind a slow one — the shape that made a single wedged
