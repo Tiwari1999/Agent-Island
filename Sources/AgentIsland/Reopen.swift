@@ -26,6 +26,7 @@ enum Reopen {
             case .claude: return "ssh -t \(host) claude --resume \(sid)"
             case .codex:  return "ssh -t \(host) codex resume \(sid)"
             case .cursor: return "ssh -t \(host) cursor-agent --resume \(sid)"
+            case .juggler: return nil          // no CLI resumes a conversation; see below
             }
         }
         guard Approvals.validID(agent.sessionId) else { return nil }
@@ -41,6 +42,12 @@ enum Reopen {
             return "\(Shell.codex) resume \(agent.sessionId)"
         case .cursor:
             return "\(Shell.cursorAgent) --resume \(agent.sessionId)"
+        case .juggler:
+            // Checked against v0.6.4: no URL scheme, no deep link, and no subcommand takes a
+            // conversation id — `juggler-app --project` reaches the project and no further. A
+            // live row already raises Juggler through its server pid, so rather than open the
+            // wrong conversation in a terminal, this declines and the row offers the directory.
+            return nil
         }
     }
 

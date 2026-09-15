@@ -686,6 +686,21 @@ check("tests/procname.swift present", os.path.exists(os.path.join(REPO, "tests",
 # Source-text checks prove the resolve *order*; only a real process proves the handle.
 check("tests/hostresolve.swift present (real-process host resolution)",
       os.path.exists(os.path.join(REPO, "tests", "hostresolve.swift")))
+# CLT 27's default SDK makes SwiftUI's @State a macro whose plugin ships only in Xcode, so a
+# clean build dies on every @State. install.sh must PROBE and fall back, never hard-code an SDK.
+_ins = open(os.path.join(REPO, "install.sh")).read()
+check("install.sh probes whether SwiftUI @State compiles before building",
+      "@State var n = 0" in _ins and "swiftc -typecheck" in _ins)
+check("and falls back to the newest SDK that works, rather than pinning one",
+      'SDKs/MacOSX*.sdk' in _ins and "sort -rV" in _ins and 'export SDKROOT="$sdk"' in _ins)
+check("and fails loudly when no installed SDK can build SwiftUI",
+      "no installed SDK compiles SwiftUI @State" in _ins)
+# Juggler: the title is the folder name, so no Yjs parsing; and a refresh still spawns nothing.
+_jg = open(os.path.join(REPO, "Sources/AgentIsland/JugglerSource.swift")).read()
+check("the juggler row takes its title from the folder name, not the Yjs document",
+      "doc.yjs" in _jg and "Shell.run" not in _jg)
+check("juggler discovery prefers a running server's --project over the MRU",
+      '"--project"' in _jg and "recents.json" in _jg)
 
 print("\n=== 9m. pick the agent the header reports on ===")
 vw5=open(os.path.join(REPO,"Sources/AgentIsland/Views.swift")).read()

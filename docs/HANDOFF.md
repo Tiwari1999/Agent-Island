@@ -298,6 +298,56 @@ would kill the island on the next poll — reproduced, exit 133, "Double value c
 Int because the result would be greater than Int.max". Now clamped in `Status.pct`. Guarded in
 selftest and mutation-tested.
 
+## The build needs an SDK flag, not Xcode (2026-09-15)
+
+Command Line Tools 27 ships a macOS 27 SDK in which SwiftUI's `@State` is a **macro**
+(`#externalMacro(module: "SwiftUIMacros", type: "StateMacro")`), and the plugin backing it lives
+only inside Xcode. CLT carries `libObservationMacros`, `libSwiftMacros` and `libTestingMacros` —
+no SwiftUI. So every `@State` fails to compile, and a warm `.build` hides it until the first real
+recompile: deleting `.build` (or touching anything `ConsoleView.swift` depends on) detonates it.
+Untouched `HEAD` fails the same way; it is the machine, not the diff.
+
+**The fix is free.** CLT also ships `MacOSX26.5.sdk`, where `State` is still a plain
+`@propertyWrapper struct` and no plugin is wanted:
+
+    SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk swift build
+
+`install.sh` now probes rather than hard-coding: it compiles a one-line `@State` view, and only if
+that fails does it walk the installed SDKs newest-first for one that works, failing loudly if none
+do. Install full Xcode and the probe passes and nothing changes.
+
+Only `@State` is affected. `@ObservedObject` (16 uses), `@Published` (27), `@Environment` and
+`@FocusState` are ordinary property wrappers. Dead ends, so nobody repeats them: a `typealias` of
+a *different* name works (`typealias StateW<T> = SwiftUICore.State<T>`), but shadowing the name
+`State` does not — module-level, file-level and type-nested all still resolve to the macro, and so
+does `@SwiftUICore.State`.
+
+## Juggler rows (2026-09-15)
+
+`JugglerSource` lists Juggler conversations beside Claude/Codex/Cursor. Verified against a real
+v0.6.4 server built from source and run on a throwaway project — not against the docs.
+
+    <project>/.juggler/
+      instance.json              {pid, port, host, startedAt}
+      session.json               {version, conversationOrder:[...], activeConversationId}
+      juggler.lock
+      <title>--conv_<id>/doc.yjs
+
+The folder name is Juggler's own source of truth for the title (`core/convdir.go`), so a row needs
+no document parsing — `doc.yjs` is a Yjs binary we never open. Projects are found from a running
+server's `--project` argv; `~/.juggler/cache/recents.json` is only written by the desktop app, so
+it is a bonus, never the index. Liveness is `instance.json`'s pid plus `doc.yjs` mtime.
+
+What is NOT reachable, so do not promise it: **"waiting for you"**. Approval state lives inside the
+Yjs document as `state: "pending"`, and `/api/health/active` — the one unauthenticated route that
+would answer — explicitly excludes turns parked on an approval. A Juggler row can say working,
+never waiting. Reading conversations over HTTP needs a per-instance token that is minted in memory
+and embedded in the page, never written to disk; scraping it would defeat a deliberate control.
+
+`/api/health/active` also costs a subprocess per refresh, and **a refresh must spend none** — the
+suite caught exactly that when the first cut shelled out to `curl`. Juggler core is AGPL-3.0:
+reading files it writes is fine, linking or copying its code is not.
+
 ## Working rules that bit us (obey them)
 
 - **Never drive synthetic clicks/hover to verify.** It steals the pointer and raises apps on the

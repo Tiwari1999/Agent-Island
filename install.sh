@@ -4,6 +4,21 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")" && pwd)"
 APP="$HOME/Applications/AgentIsland.app"
 
+# Command Line Tools 27 ships a macOS 27 SDK that redeclares SwiftUI's @State as a macro, but the
+# plugin backing it lives only inside Xcode — so with CLT alone every @State fails to compile, and
+# a warm .build hides it until the first real recompile. Probe, and fall back to the newest SDK
+# that still declares the plain property wrapper. Full Xcode makes the probe pass and changes nothing.
+probe="$(mktemp -t aiprobe)".swift
+printf 'import SwiftUI\nstruct _P: View { @State var n = 0\n  var body: some View { Text("\\(n)") } }\n' > "$probe"
+if ! swiftc -typecheck "$probe" >/dev/null 2>&1; then
+  for sdk in $(ls -d /Library/Developer/CommandLineTools/SDKs/MacOSX*.sdk 2>/dev/null | sort -rV); do
+    if swiftc -typecheck -sdk "$sdk" "$probe" >/dev/null 2>&1; then export SDKROOT="$sdk"; break; fi
+  done
+  [ -n "${SDKROOT:-}" ] || { echo "!! no installed SDK compiles SwiftUI @State — install Xcode"; rm -f "$probe"; exit 1; }
+  echo "==> using SDK $(basename "$SDKROOT") (the default SDK's @State needs an Xcode-only plugin)"
+fi
+rm -f "$probe"
+
 echo "==> building"
 swift build -c release --package-path "$REPO"
 

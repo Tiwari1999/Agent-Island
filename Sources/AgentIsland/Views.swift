@@ -705,6 +705,7 @@ struct PanelView: View {
         case .claude: return status.quota
         case .codex:  return CodexSource.quota
         case .cursor: return Quota()
+        case .juggler: return Quota()
         }
     }
 
