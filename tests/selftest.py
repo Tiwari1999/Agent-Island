@@ -2032,6 +2032,10 @@ check("the footer shows BOTH the hourly and the weekly window",
       and 'window("7d", q.sevenDayPct, q.sevenDayResets)' in _vw)
 check("and each says when it refills",
       "Quota.remaining(resets)" in _vw)
+# The footer printed the CONSUMED figure bare — "5h 11%" beside a clock, which reads as easily
+# as "11% left" as "11% used", and those are opposite readings of the same glance.
+check("the footer says which way its percentage counts",
+      '"\\(max(0, 100 - $0))% left"' in _vw)
 # The reset countdowns moved to the panel: on the bar they doubled the width for a number you
 # act on far less often, and the panel already shows one against each window.
 check("the reset countdown is the panel's job, not the bar's",

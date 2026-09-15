@@ -108,6 +108,9 @@ owner's tab), "a background agent resolves the terminal that owns it".
   `countsText`, so with one agent working it prints nothing on the right: **519pt working / 449pt
   idle**, down from 591/525 and from ~727 at the symmetric worst. CollapsedView's `primaryQuota` /
   `primaryLimit` / `limitText` are deleted as dead.
+  The footer's `window()` printed the CONSUMED figure bare ("5h 11%" next to a clock, which reads
+  as readily as "11% left"); it now says **`5h 89% left 3h55m`**, matching the wording the bar used.
+  Tint still keys on the consumed figure, so red still means nearly gone.
 - **The bar now steps aside whenever nothing is running, on every display.** `autoHides` was
   gated on `safeAreaInsets.top == 0` (no-notch only), on the reasoning that a notch is dead pixels
   — but the bar outgrew the notch, so at rest it sat on the menu bar showing a stale number.

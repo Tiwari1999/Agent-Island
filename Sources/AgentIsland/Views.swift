@@ -663,7 +663,10 @@ struct PanelView: View {
     private func window(_ label: String, _ pct: Int?, _ resets: Date?) -> some View {
         HStack(spacing: 4) {
             Text(label).font(Theme.label(Type.body)).foregroundColor(Theme.text)
-            Text(pct.map { "\($0)%" } ?? "—")
+            // What is LEFT, and it says so. A bare "11%" next to a clock reads as readily as
+            // "11% used" as "11% left", and those mean opposite things. The tint still keys on
+            // the consumed figure, so red still means nearly gone.
+            Text(pct.map { "\(max(0, 100 - $0))% left" } ?? "—")
                 .font(Theme.label(Type.body)).foregroundColor(Quota.tint(pct))
             Text(Quota.remaining(resets)).font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
         }
