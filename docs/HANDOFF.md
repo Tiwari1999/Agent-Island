@@ -212,9 +212,16 @@ of the menu bar, so merely heading for something else up there opened the island
 - The sensor owns **no window at all** now: a global (+ local) `.mouseMoved` monitor observes the
   same crossings and consumes nothing. Still edge-triggered — it compares against the previous
   inside/outside state, so it is not the polling the old comment rightly warned against.
-- The strip is **notch + 24** (209pt here, 144pt with no notch), and `hotWidth` is the single
-  definition both the sensor and `Island.hotRect` use — two definitions would open on a crossing
-  the island then decides it is not inside.
+- The strip has **two widths**, because it answers two questions. **Hidden**: `hotWidth` =
+  notch + 80 (265pt here) — nothing is on screen to aim at, so it is a guess about intent; notch +
+  150 opened on the way past, notch + 24 was so tight you had to hit the middle. **Visible**:
+  `max(hotWidth, barWidth)` — the bar asks itself how wide it is drawing, because a strip narrower
+  than the bar means hovering most of what you can see does nothing. `Island.hotRect` is the one
+  definition, handed to the sensor as a closure so it re-reads it as the bar's width changes.
+- **Hover can no longer be tested by driving the pointer.** Global `NSEvent` monitors do not
+  observe synthetic `CGEvent` moves — measured: 0 of 40 posted events seen. The old tracking-area
+  panel did see them, which is why the click-stealing sensor was testable and this is not. Assert
+  the geometry in the suite and ask the user to confirm the feel.
 - Hover intent **0.18s → 0.35s**, inside NN/g's 300–500ms band. Below it, the island opens on the
   way past to something else.
 - The main panel now sets `ignoresMouseEvents = true` **at creation**, not just on the first poll

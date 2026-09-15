@@ -2517,8 +2517,16 @@ check("the panel is click-through from the moment it exists",
 check("and stays click-through for as long as it is only a readout",
       "if state == .collapsed {\n            window.ignoresMouseEvents = true" in _iv12)
 # notch + 150 covered a third of the menu bar, so merely heading elsewhere up there opened it.
+# Two widths, because they answer different questions: hidden, there is nothing on screen to aim
+# at; visible, a strip narrower than the bar means hovering most of what you can see does nothing.
+check("the strip follows the bar once the bar is on screen",
+      "let w = hushed ? aim : max(aim, barWidth)" in _iv12 and "private var barWidth" in _iv12)
+check("and the bar is asked its own width, not told one",
+      "CollapsedView.sides(revealed: revealed, left: bar.leftText, right: bar.rightText)" in _iv12)
+# Synthetic CGEvent moves are NOT delivered to global monitors (verified), so hover cannot be
+# checked by driving the pointer — the geometry is asserted here instead.
 check("the reveal strip is close to the notch, not a third of the menu bar",
-      "(notchWidth > 0 ? notchWidth : 120) + 24" in _hs
+      "(notchWidth > 0 ? notchWidth : 120) + 80" in _hs
       and "HoverSensor.hotWidth(notchWidth: notchWidth)" in _iv12)
 check("one definition, so the opener and the keep-open agree",
       _iv12.count("HoverSensor.hotWidth") >= 1 and "+ 150" not in _iv12)

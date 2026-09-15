@@ -170,6 +170,7 @@ final class Island: NSObject, ObservableObject {
                                y: target.frame.maxY - size.height,
                                width: size.width, height: size.height),
                         display: false)
+        sensor.rect = { [weak self] in self?.hotRect ?? .zero }
         sensor.install(on: target, notchWidth: notchWidth, notchHeight: notchHeight)
         Diagnostics.log("island moved to screen \(target.frame)")
         return true
@@ -275,6 +276,7 @@ final class Island: NSObject, ObservableObject {
             }
         }
 
+        sensor.rect = { [weak self] in self?.hotRect ?? .zero }
         sensor.install(on: screen, notchWidth: notchWidth, notchHeight: notchHeight)
         wake()
         sensor.onEnter = { [weak self] in
@@ -313,11 +315,26 @@ final class Island: NSObject, ObservableObject {
         }
     }
 
-    /// The strip that reveals the island, and keeps it open once it is. One definition shared
-    /// with the sensor, or the island opens on a crossing it then decides it is not inside.
+    /// The width the collapsed bar is currently drawing. Asked of the bar itself, so what reveals
+    /// the island cannot drift from what the user can see of it.
+    private var barWidth: CGFloat {
+        let quiet = store.workingCount == 0 && store.waitingCount == 0 && !revealed
+        let bar = CollapsedView(store: store, status: status, notchWidth: notchWidth,
+                                revealed: revealed, quiet: quiet)
+        let w = CollapsedView.sides(revealed: revealed, left: bar.leftText, right: bar.rightText)
+        return notchWidth + w.left + w.right + 2 * CollapsedView.notchMargin
+    }
+
+    /// The strip that reveals the island, and keeps it open once it is.
+    ///
+    /// Two different questions, so two widths. While the bar is hidden there is nothing to aim at
+    /// but the notch, and a wide invisible strip is what made merely heading for a browser tab
+    /// open the island. While it is on screen, anything narrower than the bar means hovering most
+    /// of what you can see does nothing — which is just as broken, from the other end.
     private var hotRect: NSRect {
         guard let screen else { return .zero }
-        let w = HoverSensor.hotWidth(notchWidth: notchWidth)
+        let aim = HoverSensor.hotWidth(notchWidth: notchWidth)
+        let w = hushed ? aim : max(aim, barWidth)
         return NSRect(x: screen.frame.midX - w / 2, y: screen.frame.maxY - notchHeight,
                       width: w, height: notchHeight)
     }

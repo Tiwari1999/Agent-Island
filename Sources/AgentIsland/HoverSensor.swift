@@ -13,23 +13,28 @@ import AppKit
 final class HoverSensor {
     private var global: Any?
     private var local: Any?
-    private var rect: NSRect = .zero
+    /// Asked fresh on every crossing: the bar's width changes with what it says, and a strip
+    /// captured once would stop matching it the moment an agent started or finished.
+    var rect: (() -> NSRect)?
+    private var fallback: NSRect = .zero
     private var inside = false
 
     var onEnter: (() -> Void)?
     var onExit: (() -> Void)?
 
-    /// The strip that reveals the island. Deliberately close to the notch: at notch + 150 it
-    /// covered a third of the menu bar, so merely heading for something else up there opened the
-    /// island. Reaching the island should take aiming at it.
+    /// The strip that reveals the island while it is HIDDEN — there is nothing on screen to aim
+    /// at then, so it has to be a guess about intent. At notch + 150 it covered a third of the
+    /// menu bar and opened on the way past to something else; at notch + 24 it was so tight you
+    /// had to hit the middle. This sits between them, and costs little now that the sensor holds
+    /// no window and steals no clicks. Once the bar IS on screen, Island widens this to the bar.
     static func hotWidth(notchWidth: CGFloat) -> CGFloat {
-        (notchWidth > 0 ? notchWidth : 120) + 24
+        (notchWidth > 0 ? notchWidth : 120) + 80
     }
 
     func install(on screen: NSScreen, notchWidth: CGFloat, notchHeight: CGFloat) {
         let width = Self.hotWidth(notchWidth: notchWidth)
-        rect = NSRect(x: screen.frame.midX - width / 2, y: screen.frame.maxY - notchHeight,
-                      width: width, height: notchHeight)
+        fallback = NSRect(x: screen.frame.midX - width / 2, y: screen.frame.maxY - notchHeight,
+                          width: width, height: notchHeight)
         guard global == nil else { return }
         // Global fires while another app is frontmost, which is nearly always for an accessory
         // app; local covers the moments our own panel holds focus, e.g. the console composer.
@@ -43,7 +48,7 @@ final class HoverSensor {
 
     /// Edge-triggered: the callbacks fire on the crossing, not on every event inside the strip.
     private func sample() {
-        let now = rect.contains(NSEvent.mouseLocation)
+        let now = (rect?() ?? fallback).contains(NSEvent.mouseLocation)
         guard now != inside else { return }
         inside = now
         if now { onEnter?() } else { onExit?() }
