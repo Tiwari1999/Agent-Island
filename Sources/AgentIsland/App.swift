@@ -121,6 +121,13 @@ struct AgentIslandApp {
             print("host=\(host.name) precise=\(host.isPrecise) target=\(host.target ?? "-")")
             exit(host.jump() ? 0 : 1)
         }
+        // One island only. launchd starts it at login and install.sh starts it again, so without
+        // this the notch quietly carries two bars drawing over each other. A LaunchServices check
+        // misses: started straight from a shell or by launchd the process is not registered as an
+        // app yet, so it sees nobody. An advisory lock answers the same question whatever started
+        // it, and the kernel drops it when the process dies, however it dies.
+        let lock = Darwin.open("/tmp/agentisland.lock", O_CREAT | O_RDWR, 0o600)
+        if lock >= 0, flock(lock, LOCK_EX | LOCK_NB) != 0 { exit(0) }
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate

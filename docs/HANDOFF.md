@@ -183,6 +183,25 @@ branch per session row; (6) project grouping (flat 19-row list today); (7) Warp 
 - `Reopen` still spawns /usr/bin/osascript (works, but TCC attributes to osascript; migrate to
   NSAppleScript like TerminalWrite when touched next).
 
+## Autostart (2026-09-15)
+
+The island was simply **not running after a reboot** — and nothing had ever been set up to start
+it: no LaunchAgent, not in Login Items. `install.sh` now writes
+`~/Library/LaunchAgents/sh.emergent.agentisland.plist` (RunAtLoad, Aqua-only, **no KeepAlive** —
+Settings has a Quit and launchd must not undo it) and re-bootstraps it, so a fresh install or an
+upgrade fixes the path too.
+
+That means two starters — launchd at login and install.sh's own `open` — so the app grew a
+**single-instance guard**: an advisory `flock` on `/tmp/agentisland.lock`, taken before
+`NSApplication.shared`. A LaunchServices/`NSRunningApplication` check was tried first and does NOT
+work: started by launchd or straight from a shell the process is not registered as an app yet, so
+it sees nobody and both instances live (verified — two bars). The kernel drops the lock however the
+process dies, so there is nothing to clean up.
+
+Verified end to end: killed everything, `launchctl bootstrap` (what login does) → exactly one
+instance, manifest refreshing, bar drawing. Second manual launch exits immediately. §48 pins all
+of it. To undo: `launchctl bootout gui/$UID/sh.emergent.agentisland && rm ~/Library/LaunchAgents/sh.emergent.agentisland.plist`.
+
 ## Working rules that bit us (obey them)
 
 - **Never drive synthetic clicks/hover to verify.** It steals the pointer and raises apps on the

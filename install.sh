@@ -37,6 +37,29 @@ codesign --force --sign - --identifier sh.emergent.agentisland "$APP"
 echo "==> registering hooks"
 python3 "$REPO/scripts/install-hooks.py" "$REPO"
 
+echo "==> registering login item"
+# Without this the island is gone after a restart, which is the one moment the user is least
+# likely to notice it missing. RunAtLoad only, no KeepAlive: Settings has a Quit, and a quit
+# launchd undoes two seconds later is a bug.
+AGENT="$HOME/Library/LaunchAgents/sh.emergent.agentisland.plist"
+mkdir -p "$HOME/Library/LaunchAgents"
+cat > "$AGENT" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>sh.emergent.agentisland</string>
+  <key>ProgramArguments</key>
+  <array><string>$APP/Contents/MacOS/AgentIsland</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>LimitLoadToSessionType</key><string>Aqua</string>
+  <key>ProcessType</key><string>Interactive</string>
+</dict></plist>
+PLIST
+# Re-bootstrap so an upgraded path takes effect; the app's own single-instance guard means a
+# duplicate start here costs nothing.
+launchctl bootout "gui/$UID/sh.emergent.agentisland" 2>/dev/null || true
+launchctl bootstrap "gui/$UID" "$AGENT" 2>/dev/null || true
+
 echo "==> launching"
 # rm -rf on the bundle leaves LaunchServices holding a stale registration, which answers -600
 # and starts nothing. Re-register, then retry and verify: a silent failure here leaves no

@@ -2494,6 +2494,27 @@ check("and the owning terminal is found by walking the process tree, not the env
       or "Proc.ancestorWithTTY" in open(
           os.path.join(REPO, "Sources/AgentIsland/HostTerminal.swift")).read())
 
+print("\n=== 48. the island survives a restart ===")
+# It was not running after a reboot, and nothing had ever been set up to start it: no LaunchAgent,
+# not in Login Items. A notch app nobody relaunches by hand is a notch app you stop having.
+_ish = open(os.path.join(REPO, "install.sh")).read()
+check("install registers a login item, so a reboot brings the island back",
+      "LaunchAgents/sh.emergent.agentisland.plist" in _ish
+      and "<key>RunAtLoad</key><true/>" in _ish
+      and "launchctl bootstrap" in _ish)
+# KeepAlive would fight the Quit in Settings: quit, and launchd hands it straight back.
+check("but it is not resurrected against the user's wishes",
+      "<key>KeepAlive</key>" not in _ish)
+# launchd at login and install.sh's own `open` both start it, so the second must stand down.
+# A LaunchServices check is not enough: started by launchd or from a shell the process is not
+# registered as an app yet and sees nobody, which is how two bars ended up drawing at once.
+_app = open(os.path.join(REPO, "Sources/AgentIsland/App.swift")).read()
+check("a second instance stands down instead of drawing a second bar",
+      "flock(lock, LOCK_EX | LOCK_NB) != 0 { exit(0) }" in _app
+      and 'Darwin.open("/tmp/agentisland.lock"' in _app)
+check("and the guard runs before any window exists",
+      _app.index("flock(lock") < _app.index("let app = NSApplication.shared"))
+
 print("\n=== 23. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")
 check("binary exists", os.path.exists(b))
