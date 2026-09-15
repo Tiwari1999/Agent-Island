@@ -2,8 +2,8 @@ import Foundation
 
 /// Juggler conversations, from the folders it writes beside the code.
 ///
-/// A running server advertises itself twice — `--project <path>` in its argv, and
-/// `<project>/.juggler/instance.json` naming the port it bound. Conversations are folders named
+/// A project is found from the app's own `workspace.json`/`recents.json` or, for a headless
+/// server, its `--project` argv; each one names `<project>/.juggler/`. Conversations are folders named
 /// `<title>--conv_<id>`, and Juggler treats that name as the source of truth for the title, so a
 /// row needs no document parsing: the conversation itself is a Yjs binary we never open.
 ///
@@ -53,27 +53,33 @@ struct JugglerSource: AgentSource {
 
     // MARK: - Where the projects are
 
-    /// A running server carries its project in argv. `recents.json` only exists once the desktop
-    /// app has opened something — the headless server never writes it — so argv is the reliable
-    /// half and the MRU is a bonus that finds projects nobody has open.
+    /// Three places, because no single one covers both ways Juggler runs. The desktop app spawns
+    /// its server with no `--project` at all (verified against 0.6.4: `--window=false
+    /// --exit-with-parent --log-file ...`), so argv alone finds only headless servers. The app
+    /// records what it opens in `workspace.json`, which is durable, and in `cache/recents.json`,
+    /// which the docs say is safe to delete — so the cache is the convenience, not the index.
     static func projects() -> [String] {
         var found: Set<String> = []
+        let cfg = ProcessInfo.processInfo.environment["JUGGLER_CONFIG_DIR"] ?? Home.path + "/.juggler"
+
         for (pid, comm) in Proc.all() where comm == "juggler" || comm == "juggler-app" {
-            guard let argv = Proc.argsEnv(pid: Int(pid))?.argv else { continue }
-            if let i = argv.firstIndex(of: "--project"), i + 1 < argv.count {
-                found.insert(argv[i + 1])
-            }
+            guard let argv = Proc.argsEnv(pid: Int(pid))?.argv,
+                  let i = argv.firstIndex(of: "--project"), i + 1 < argv.count else { continue }
+            found.insert(argv[i + 1])
         }
-        let mru = (ProcessInfo.processInfo.environment["JUGGLER_CONFIG_DIR"]
-                   ?? Home.path + "/.juggler") + "/cache/recents.json"
-        if let d = FileManager.default.contents(atPath: mru),
+        // Open windows now.
+        if let d = FileManager.default.contents(atPath: cfg + "/workspace.json"),
+           let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+           let windows = o["windows"] as? [[String: Any]] {
+            for w in windows { (w["project"] as? String).map { found.insert($0) } }
+        }
+        // Recently opened, so a project you closed this morning is still a row.
+        if let d = FileManager.default.contents(atPath: cfg + "/cache/recents.json"),
            let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
            let paths = o["paths"] as? [String] {
-            for p in paths where FileManager.default.fileExists(atPath: p + "/.juggler") {
-                found.insert(p)
-            }
+            found.formUnion(paths)
         }
-        return Array(found)
+        return found.filter { FileManager.default.fileExists(atPath: $0 + "/.juggler") }
     }
 
     // MARK: - What is in a project

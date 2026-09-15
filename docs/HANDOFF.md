@@ -334,9 +334,11 @@ v0.6.4 server built from source and run on a throwaway project — not against t
       <title>--conv_<id>/doc.yjs
 
 The folder name is Juggler's own source of truth for the title (`core/convdir.go`), so a row needs
-no document parsing — `doc.yjs` is a Yjs binary we never open. Projects are found from a running
-server's `--project` argv; `~/.juggler/cache/recents.json` is only written by the desktop app, so
-it is a bonus, never the index. Liveness is `instance.json`'s pid plus `doc.yjs` mtime.
+no document parsing — `doc.yjs` is a Yjs binary we never open. Projects are found three ways, because no one way covers both
+modes: the desktop app spawns its server with NO `--project` in argv (`--window=false
+--exit-with-parent --log-file ...`), so argv finds only headless servers. The app instead records
+what it opens in `~/.juggler/workspace.json` (durable, `windows[].project`) and
+`~/.juggler/cache/recents.json` (a cache the docs say is safe to delete). Read all three. Liveness is `instance.json`'s pid plus `doc.yjs` mtime.
 
 What is NOT reachable, so do not promise it: **"waiting for you"**. Approval state lives inside the
 Yjs document as `state: "pending"`, and `/api/health/active` — the one unauthenticated route that
