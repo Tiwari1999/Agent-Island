@@ -879,13 +879,16 @@ src=os.path.join(REPO,"Sources/AgentIsland")
 island=open(f"{src}/Island.swift").read()
 sensor=open(f"{src}/HoverSensor.swift").read()
 check("hover is edge-triggered, not polled",
-      "NSTrackingArea" in sensor and "mouseEnteredAndExited" in sensor)
-check("tracking uses .activeAlways (nonactivating panel never becomes key)",
-      ".activeAlways" in sensor)
-check("sensor window keeps ignoresMouseEvents = false",
-      "ignoresMouseEvents = false" in sensor)
-check("already-inside bootstrap is handled",
-      "mouseLocationOutsideOfEventStream" in sensor)
+      "guard now != inside else { return }" in sensor
+      and "addGlobalMonitorForEvents" in sensor)
+# It fires while another app is frontmost — which, for an accessory app, is nearly always — and
+# the local monitor covers the moments our own panel holds focus.
+check("it watches while other apps are frontmost, and while ours is",
+      "addGlobalMonitorForEvents" in sensor and "addLocalMonitorForEvents" in sensor)
+# The sensor used to BE a window, and a window that accepts events swallows clicks meant for
+# whatever is underneath — the fullscreen tab strip being the case that made it unusable.
+check("the sensor owns no window, so it can swallow nothing",
+      "NSPanel" not in sensor and "ignoresMouseEvents" not in sensor)
 check("click-outside uses a GLOBAL monitor (other apps)",
       "addGlobalMonitorForEvents" in island)
 check("click-outside uses a LOCAL monitor (our own margin)",
@@ -2493,6 +2496,35 @@ check("and the owning terminal is found by walking the process tree, not the env
       "Proc.ancestorWithTTY(pid: pid)" in _iv12.replace("", "")
       or "Proc.ancestorWithTTY" in open(
           os.path.join(REPO, "Sources/AgentIsland/HostTerminal.swift")).read())
+
+print("\n=== 49. the island never steals a click ===")
+# The hover sensor was a real window at .statusBar with ignoresMouseEvents = false, so it
+# hit-tested and swallowed every click in its strip. With a browser fullscreen that strip sits on
+# the tab bar: the tabs under it could not be clicked at all. A monitor sees the same crossings
+# and consumes nothing.
+_hs = open(os.path.join(REPO, "Sources/AgentIsland/HoverSensor.swift")).read()
+check("hover is observed, not intercepted",
+      "addGlobalMonitorForEvents" in _hs and "NSPanel" not in _hs
+      and "ignoresMouseEvents" not in _hs)
+check("and it is still edge-triggered, not a poll",
+      "guard now != inside else { return }" in _hs)
+_iv12 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+# A 980x420 panel that accepts clicks from creation until the first poll tick is a click-blocker
+# across the top of the screen at exactly the moment after login.
+check("the panel is click-through from the moment it exists",
+      "panel.ignoresMouseEvents = true" in _iv12
+      and _iv12.index("panel.ignoresMouseEvents = true") < _iv12.index("panel.orderFrontRegardless()"))
+check("and stays click-through for as long as it is only a readout",
+      "if state == .collapsed {\n            window.ignoresMouseEvents = true" in _iv12)
+# notch + 150 covered a third of the menu bar, so merely heading elsewhere up there opened it.
+check("the reveal strip is close to the notch, not a third of the menu bar",
+      "(notchWidth > 0 ? notchWidth : 120) + 24" in _hs
+      and "HoverSensor.hotWidth(notchWidth: notchWidth)" in _iv12)
+check("one definition, so the opener and the keep-open agree",
+      _iv12.count("HoverSensor.hotWidth") >= 1 and "+ 150" not in _iv12)
+# NN/g puts hover intent at 300-500ms; below that it opens on the way past to something else.
+check("hover intent sits in the researched band",
+      "hoverDwell: TimeInterval = 0.35" in _iv12)
 
 print("\n=== 48. the island survives a restart ===")
 # It was not running after a reboot, and nothing had ever been set up to start it: no LaunchAgent,

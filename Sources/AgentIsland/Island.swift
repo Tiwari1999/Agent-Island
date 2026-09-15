@@ -93,8 +93,9 @@ final class Island: NSObject, ObservableObject {
     private var questionWork: DispatchWorkItem?
     private var dwell: DispatchWorkItem?
     /// NN/g puts the hover-intent threshold at 300-500ms; 0ms opened the panel on every trip
-    /// to the menu bar, which is the top complaint across every shipping notch app.
-    private static let hoverDwell: TimeInterval = 0.18
+    /// to the menu bar, which is the top complaint across every shipping notch app. 180ms was
+    /// still under that band and opened on the way past to something else, so it sits in it now.
+    private static let hoverDwell: TimeInterval = 0.35
     private var outsideTicks = 0
     private let store: AgentStore
     private let status: StatusStore
@@ -194,6 +195,10 @@ final class Island: NSObject, ObservableObject {
         panel.isExcludedFromWindowsMenu = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.contentView = FirstMouseHostingView(rootView: RootView(island: self, store: store, status: status))
+        // Collapsed is the state it opens in, and collapsed swallows nothing. Without this the
+        // panel accepts clicks across the top of the screen until the first poll tick says
+        // otherwise — right after login, over whatever is up there.
+        panel.ignoresMouseEvents = true
         panel.orderFrontRegardless()
         window = panel
 
@@ -308,10 +313,11 @@ final class Island: NSObject, ObservableObject {
         }
     }
 
-    /// The strip that reveals the island — the notch plus a little breathing room.
+    /// The strip that reveals the island, and keeps it open once it is. One definition shared
+    /// with the sensor, or the island opens on a crossing it then decides it is not inside.
     private var hotRect: NSRect {
         guard let screen else { return .zero }
-        let w = max(notchWidth, 120) + 150
+        let w = HoverSensor.hotWidth(notchWidth: notchWidth)
         return NSRect(x: screen.frame.midX - w / 2, y: screen.frame.maxY - notchHeight,
                       width: w, height: notchHeight)
     }
@@ -381,10 +387,9 @@ final class Island: NSObject, ObservableObject {
     private func refreshHitRegion() {
         guard let window else { return }
         // While collapsed the bar has nothing clickable, so the panel should never compete for
-        // the pointer. Both windows sit at .statusBar, and a window that accepts events hides
-        // everything beneath it from hit-testing — so if this one accepted them over the notch,
-        // the hover sensor underneath would simply never fire. Ordering alone is not a fix:
-        // orderFrontRegardless only holds until something else reorders.
+        // the pointer. Collapsed, it accepts nothing at all: the bar is a readout, and anything
+        // it swallowed up there would be a click the menu bar or a fullscreen tab strip never
+        // got. Hover is observed by a monitor now, which consumes nothing either.
         if state == .collapsed {
             window.ignoresMouseEvents = true
             return

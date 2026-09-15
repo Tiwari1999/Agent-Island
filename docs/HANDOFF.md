@@ -202,6 +202,28 @@ Verified end to end: killed everything, `launchctl bootstrap` (what login does) 
 instance, manifest refreshing, bar drawing. Second manual launch exits immediately. §48 pins all
 of it. To undo: `launchctl bootout gui/$UID/sh.emergent.agentisland && rm ~/Library/LaunchAgents/sh.emergent.agentisland.plist`.
 
+## The island was stealing clicks (2026-09-15)
+
+With a browser fullscreen the top strip IS its tab bar, and those tabs could not be clicked:
+**`HoverSensor` was a real `NSPanel` at `.statusBar` with `ignoresMouseEvents = false`**, so it
+hit-tested and swallowed every click inside it. It was also **notch + 150 = 335pt wide**, a third
+of the menu bar, so merely heading for something else up there opened the island.
+
+- The sensor owns **no window at all** now: a global (+ local) `.mouseMoved` monitor observes the
+  same crossings and consumes nothing. Still edge-triggered — it compares against the previous
+  inside/outside state, so it is not the polling the old comment rightly warned against.
+- The strip is **notch + 24** (209pt here, 144pt with no notch), and `hotWidth` is the single
+  definition both the sensor and `Island.hotRect` use — two definitions would open on a crossing
+  the island then decides it is not inside.
+- Hover intent **0.18s → 0.35s**, inside NN/g's 300–500ms band. Below it, the island opens on the
+  way past to something else.
+- The main panel now sets `ignoresMouseEvents = true` **at creation**, not just on the first poll
+  tick: a 980x420 window accepting clicks across the top of the screen right after login is
+  exactly the complaint, a second before the poll fixes it. Collapsed it always ignores events.
+
+§49 pins all of it. Verified structurally: `CGWindowListCopyWindowInfo` shows AgentIsland owning
+**one** on-screen window (the 980x420 panel), the 32pt sensor strip is gone.
+
 ## Working rules that bit us (obey them)
 
 - **Never drive synthetic clicks/hover to verify.** It steals the pointer and raises apps on the
