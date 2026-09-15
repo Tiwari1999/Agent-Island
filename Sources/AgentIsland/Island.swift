@@ -406,7 +406,8 @@ final class Island: NSObject, ObservableObject {
         // While collapsed the bar has nothing clickable, so the panel should never compete for
         // the pointer. Collapsed, it accepts nothing at all: the bar is a readout, and anything
         // it swallowed up there would be a click the menu bar or a fullscreen tab strip never
-        // got. Hover is observed by a monitor now, which consumes nothing either.
+        // got. The sensor above it declines hit-testing for the same reason.
+        sensor.resize()   // the strip tracks the bar, whose width changes with what it says
         if state == .collapsed {
             window.ignoresMouseEvents = true
             return

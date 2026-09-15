@@ -209,9 +209,17 @@ With a browser fullscreen the top strip IS its tab bar, and those tabs could not
 hit-tested and swallowed every click inside it. It was also **notch + 150 = 335pt wide**, a third
 of the menu bar, so merely heading for something else up there opened the island.
 
-- The sensor owns **no window at all** now: a global (+ local) `.mouseMoved` monitor observes the
-  same crossings and consumes nothing. Still edge-triggered — it compares against the previous
-  inside/outside state, so it is not the polling the old comment rightly warned against.
+- **Hover is a poll now, and that is the only design that works.** Three were tried:
+  1. `NSPanel` + `NSTrackingArea` — sees every crossing, but a window with
+     `ignoresMouseEvents = false` is handed the click by the WINDOW SERVER before anything
+     underneath. Fullscreen browser ⇒ its tab bar is unclickable. Declining `hitTest` does NOT
+     rescue it: that only reroutes *within* the window, so the click dies silently instead.
+  2. Global `NSEvent` monitor — consumes nothing, but never saw the crossings (measured: 0 of 40
+     synthetic moves, and no better by hand — this is what shipped briefly and did nothing).
+  3. **No window, sample `NSEvent.mouseLocation` every 80ms.** Owns nothing, so it cannot swallow
+     a click; sees a deliberate hover easily. The old "polling misses a 107ms crossing" objection
+     is backwards here — missing a fast pass-through is exactly what stops the island opening on
+     someone's way to the menu bar, and a real hover must outlast the 350ms dwell anyway.
 - The strip has **two widths**, because it answers two questions. **Hidden**: `hotWidth` =
   notch + 80 (265pt here) — nothing is on screen to aim at, so it is a guess about intent; notch +
   150 opened on the way past, notch + 24 was so tight you had to hit the middle. **Visible**:

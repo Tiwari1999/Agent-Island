@@ -878,17 +878,18 @@ print("\n=== 12. hover + dismissal wiring ===")
 src=os.path.join(REPO,"Sources/AgentIsland")
 island=open(f"{src}/Island.swift").read()
 sensor=open(f"{src}/HoverSensor.swift").read()
-check("hover is edge-triggered, not polled",
-      "guard now != inside else { return }" in sensor
-      and "addGlobalMonitorForEvents" in sensor)
-# It fires while another app is frontmost — which, for an accessory app, is nearly always — and
-# the local monitor covers the moments our own panel holds focus.
-check("it watches while other apps are frontmost, and while ours is",
-      "addGlobalMonitorForEvents" in sensor and "addLocalMonitorForEvents" in sensor)
+# It polls now, and deliberately. A window that can see a crossing is a window the window server
+# hands the click to first; a global monitor consumes nothing but never saw the crossings at all.
+# Sampling the cursor sees them, owns nothing, and missing a fast pass-through is the point — that
+# is someone on their way to the menu bar, and a real hover outlasts the 350ms dwell.
+check("hover is edge-triggered, so it fires on the crossing not on every sample",
+      "guard now != inside else { return }" in sensor)
+check("and samples faster than the dwell it has to beat",
+      "timeInterval: 0.08" in sensor and "forMode: .common" in sensor)
 # The sensor used to BE a window, and a window that accepts events swallows clicks meant for
 # whatever is underneath — the fullscreen tab strip being the case that made it unusable.
 check("the sensor owns no window, so it can swallow nothing",
-      "NSPanel" not in sensor and "ignoresMouseEvents" not in sensor)
+      "NSPanel(" not in sensor and "ignoresMouseEvents =" not in sensor)
 check("click-outside uses a GLOBAL monitor (other apps)",
       "addGlobalMonitorForEvents" in island)
 check("click-outside uses a LOCAL monitor (our own margin)",
@@ -2504,10 +2505,12 @@ print("\n=== 49. the island never steals a click ===")
 # and consumes nothing.
 _hs = open(os.path.join(REPO, "Sources/AgentIsland/HoverSensor.swift")).read()
 check("hover is observed, not intercepted",
-      "addGlobalMonitorForEvents" in _hs and "NSPanel" not in _hs
-      and "ignoresMouseEvents" not in _hs)
-check("and it is still edge-triggered, not a poll",
-      "guard now != inside else { return }" in _hs)
+      "NSPanel(" not in _hs and "ignoresMouseEvents =" not in _hs
+      and "addTrackingArea(" not in _hs)
+# Declining hitTest is NOT a fix and must not come back: it only reroutes within the window, so
+# the window server still hands our window the click and it dies silently instead of visibly.
+check("and does not try to fix a swallowing window by declining hitTest",
+      "func hitTest(" not in _hs)
 _iv12 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
 # A 980x420 panel that accepts clicks from creation until the first poll tick is a click-blocker
 # across the top of the screen at exactly the moment after login.
