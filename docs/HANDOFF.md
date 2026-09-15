@@ -220,6 +220,13 @@ of the menu bar, so merely heading for something else up there opened the island
      a click; sees a deliberate hover easily. The old "polling misses a 107ms crossing" objection
      is backwards here — missing a fast pass-through is exactly what stops the island opening on
      someone's way to the menu bar, and a real hover must outlast the 350ms dwell anyway.
+- **THE hover bug, found only by logging the user's own pointer:** `CGRect.contains` EXCLUDES its
+  max edge, and macOS parks the cursor on exactly `screen.maxY` when you shove it to the top —
+  the natural way to reach the bar. The strip ended at 1080, so a pointer at 1080 was *outside* it.
+  From their log: every miss was `y=1080` (several with x well inside), every ENTER was 1052-1079.
+  That is exactly "took it to the top, nothing; hovered just on the bar, worked". The strip is
+  `notchHeight + 1` tall now, in `Island.hotRect` and the sensor's fallback. §49 pins it, including
+  the arithmetic with their real numbers.
 - The strip has **two widths**, because it answers two questions. **Hidden**: `hotWidth` =
   notch + 80 (265pt here) — nothing is on screen to aim at, so it is a guess about intent; notch +
   150 opened on the way past, notch + 24 was so tight you had to hit the middle. **Visible**:

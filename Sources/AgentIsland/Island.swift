@@ -335,8 +335,12 @@ final class Island: NSObject, ObservableObject {
         guard let screen else { return .zero }
         let aim = HoverSensor.hotWidth(notchWidth: notchWidth)
         let w = hushed ? aim : max(aim, barWidth)
+        // One point taller than the notch, and the point matters: CGRect.contains EXCLUDES its
+        // max edge, and macOS pins the cursor to exactly screen.maxY when you push it to the top
+        // — the most natural way to reach the bar. The pointer then sat one point outside the
+        // strip and the island opened only if you stopped just short of the edge.
         return NSRect(x: screen.frame.midX - w / 2, y: screen.frame.maxY - notchHeight,
-                      width: w, height: notchHeight)
+                      width: w, height: notchHeight + 1)
     }
 
     /// What the panel actually draws. Hit-testing the window instead would swallow clicks in the

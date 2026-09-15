@@ -40,8 +40,10 @@ final class HoverSensor {
 
     func install(on screen: NSScreen, notchWidth: CGFloat, notchHeight: CGFloat) {
         let width = Self.hotWidth(notchWidth: notchWidth)
+        // +1 for the same reason as Island.hotRect: contains() excludes the max edge, and the
+        // cursor parks exactly on screen.maxY when pushed to the top.
         fallback = NSRect(x: screen.frame.midX - width / 2, y: screen.frame.maxY - notchHeight,
-                          width: width, height: notchHeight)
+                          width: width, height: notchHeight + 1)
         guard timer == nil else { return }
         let t = Timer(timeInterval: 0.08, repeats: true) { [weak self] _ in self?.sample() }
         // .common so the crossing still registers while a menu or a scroll is tracking.

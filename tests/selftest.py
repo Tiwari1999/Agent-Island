@@ -2528,6 +2528,19 @@ check("and the bar is asked its own width, not told one",
       "CollapsedView.sides(revealed: revealed, left: bar.leftText, right: bar.rightText)" in _iv12)
 # Synthetic CGEvent moves are NOT delivered to global monitors (verified), so hover cannot be
 # checked by driving the pointer — the geometry is asserted here instead.
+# The bug the user hit for three rounds: CGRect.contains EXCLUDES its max edge, and macOS parks
+# the cursor on exactly screen.maxY when you shove it to the top — the natural way to reach the
+# bar. Measured from their machine: every miss was at y=1080 against a strip ending at 1080, and
+# every ENTER was at 1052-1079. One point of height is the whole fix.
+check("the strip includes the screen's top edge, where the cursor actually lands",
+      "height: notchHeight + 1" in _iv12
+      and "height: notchHeight + 1" in _hs)
+# The arithmetic, spelled out with the real numbers from their log: a 28pt strip based at 1052
+# ends at 1080 and excludes a cursor sitting on 1080; 29pt includes it.
+_top, _base = 1080, 1052
+check("and a rect ending exactly at the top edge would not have counted",
+      not (_base <= _top < _base + 28) and (_base <= _top < _base + 29))
+
 check("the reveal strip is close to the notch, not a third of the menu bar",
       "(notchWidth > 0 ? notchWidth : 120) + 80" in _hs
       and "HoverSensor.hotWidth(notchWidth: notchWidth)" in _iv12)
