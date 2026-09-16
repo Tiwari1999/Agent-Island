@@ -694,42 +694,19 @@ check("tests/procname.swift present", os.path.exists(os.path.join(REPO, "tests",
 # Source-text checks prove the resolve *order*; only a real process proves the handle.
 check("tests/hostresolve.swift present (real-process host resolution)",
       os.path.exists(os.path.join(REPO, "tests", "hostresolve.swift")))
-# A row showed the last 5 calls, so a session that greps twenty times showed twenty near-identical
-# rows and the one that mattered was lost. Adjacent same-tool calls now fold into one counted line
-# — measured on a real transcript: 75 calls became 3 rows, and the 5 shown cover all 75.
-_tc = open(os.path.join(REPO, "Sources/AgentIsland/ToolCalls.swift")).read()
-check("adjacent calls to the same tool fold into one counted line",
-      "static func fold(" in _tc and "runLength" in _tc)
-check("but a FAILED or still-RUNNING call is never folded away — those are what a reader wants",
-      "!c.isError && !c.running" in _tc and "!last.isError, !last.running" in _tc)
-check("and a subagent launch keeps its own line",
-      "c.subagentKind == nil" in _tc and "last.subagentKind == nil" in _tc)
-_vw_f = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
-check("the row prints the run count on the tool name, costing no extra height",
-      'c.runLength > 1 ? "\\(c.runLength)× \\(c.tool)" : c.tool' in _vw_f)
-check("tests/toolfold.swift present (fold edge cases)",
-      os.path.exists(os.path.join(REPO, "tests", "toolfold.swift")))
-# The row led with the agent's `description` and threw the argument away, so it said a call
+# A tool line led with the agent's `description` and threw the argument away, so it said a call
 # happened but never what it ran — "Map the repo in one call" and the command are different
-# facts, and only one of them is checkable. Juggler leads with the argument; so do we now.
+# facts, and only one of them is checkable. Lead with the argument instead.
+_tc = open(os.path.join(REPO, "Sources/AgentIsland/ToolCalls.swift")).read()
 check("the parser keeps what was actually sent, not just the description",
       "static func arg(" in _tc and "let command: String?" in _tc)
-check("the row leads with the argument and puts the description under it",
-      "var headline: String { command ?? why }" in _tc
-      and "command != nil && !why.isEmpty ? why : nil" in _tc)
-check("and the row's height counts that extra line",
-      "if command != nil && !why.isEmpty { n += 1 }" in _tc)
 # A command almost always opens by cd-ing into the repo, so the first line is the one line that
 # tells a reader nothing. Lead with the first line that says something instead.
-check("the headline skips cd/export boilerplate to the first real command",
+check("the command skips cd/export boilerplate to the first real command",
       '!c.isEmpty { return meaningfulLine(c) }' in _tc
       and '["cd", "export", "set", "source", "shopt"].contains(head)' in _tc)
 check("an ask leads with the question, which is what it sent",
       'input["questions"] as? [[String: Any]]' in _tc)
-_vw_c = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
-check("the view draws the headline, then the description, then the result",
-      "Text(c.headline)" in _vw_c and "if let sub = c.subtitle {" in _vw_c
-      and _vw_c.index("Text(c.headline)") < _vw_c.index("if let sub = c.subtitle {"))
 # The card was sized to its content and stopped at the free-text row, so the footer holding
 # "submit" fell outside the window — the question read as unanswerable from the notch.
 _hs = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()
@@ -1481,50 +1458,47 @@ check("the card is capped by the panel it is drawn in, not the screen",
       "Self.maxSize.height - notchHeight" in _is3 and "0.62" not in _is3)
 check("number keys reset per question", "func bindKeys" in _is3 and "step: Int" in _is3)
 
-print("\n=== 24. tool call timeline ===")
+print("\n=== 24. the row's chevron opens the console ===")
 _tv = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
 _tc = open(os.path.join(REPO, "Sources/AgentIsland/ToolCalls.swift")).read()
+_cs = open(os.path.join(REPO, "Sources/AgentIsland/Console.swift")).read()
+_cv = open(os.path.join(REPO, "Sources/AgentIsland/ConsoleView.swift")).read()
+
+# The inline timeline showed five folded calls and nothing else; the console shows every call
+# with its output. Two doors to the same session is one door too many, so the chevron is it.
+check("the row's chevron is what opens the console",
+      _tv.count(".onTapGesture(perform: onConsole)") == 1)
+check("and it is the chevron, not a chip, that carries it",
+      re.search(r'Image\(systemName: "chevron.right"\)[\s\S]{0,320}?'
+                r'\.onTapGesture\(perform: onConsole\)', _tv) is not None)
+check("the separate read chip is gone", 'Text("read")' not in _tv)
+check("clicking the row still jumps", "onTapGesture { if row.canJump { onJump() } }" in _tv)
+check("no inline timeline is left behind",
+      "private var timeline" not in _tv and "openCalls" not in _tv
+      and "ToolCalls.recent" not in _tv)
+check("so a row is one fixed height again",
+      "AgentRowView.height, alignment: .center" in _tv and "expanded" not in _tv)
+
+# The console said a call happened but not what it ran, which is the whole reason to open it.
+check("a console line carries what was sent",
+      "cmd: ToolCalls.arg(input)" in _cs)
+check("and pairing the result keeps it — a finished call would otherwise lose its command",
+      "case let .ran(tool, why, cmd, _, _) = out[at].kind" in _cs
+      and "kind: .ran(tool: tool, why: why, cmd: cmd, seconds: secs," in _cs)
+check("the line leads with the command and trails the reason",
+      "Text(cmd ?? why)" in _cv
+      and _cv.index("Text(cmd ?? why)") < _cv.index("if let cmd, !why.isEmpty, why != cmd"))
+check("the command wins the room when both are long",
+      ".layoutPriority(1)" in _cv.split("Text(cmd ?? why)")[1][:300])
 
 # The whole feature is affordable only because it is lazy: a refresh must never parse calls.
 _store = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
 check("no refresh path parses tool calls", "ToolCalls.recent" not in _store)
-# Parsed calls outlive the row that asked for them unless refresh evicts them.
 check("parsed calls are evicted with their session",
       "ToolCalls.retain(ids)" in _store and "static func retain" in _tc)
-check("tool calls are parsed only from the row toggle",
-      _tv.count("ToolCalls.recent") == 1 and "private func toggle" in _tv)
-check("the parse runs off the main thread",
-      "DispatchQueue.global(qos: .userInitiated).async" in _tv.split("private func toggle")[1][:600])
-check("a row closed mid-read discards the result",
-      "guard openRow == id else { return }" in _tv)
 check("parsed calls are cached by mtime", "hit.mtime == mtime" in _tc)
-
-# Clicking a row must still jump: expansion is a separate, smaller target.
-check("the chevron has its own hit target, leaving the row's tap alone",
-      ".onTapGesture(perform: onToggle)" in _tv and "onTapGesture { if row.canJump { onJump() } }" in _tv)
-check("only one row can be open at a time", "@State private var openRow: String?" in _tv)
-check("a collapsed row keeps the height it has today",
-      "guard expanded else { return height }" in _tv)
-# A fixed cell clipped the evidence line off every call that had one, so height is summed
-# from each call's own line count rather than assumed.
-check("an expanded row's height is summed from what each call draws",
-      "calls.reduce(0) { $0 + $1.lines }" in _tv
-      and "CGFloat(c.lines) * AgentRowView.callLine" in _tv)
-check("a collapsed row keeps its centring",
-      "alignment: expanded ? .top : .center" in _tv)
-
-# The design's core rule: intent is the headline, output is evidence.
-check("the why is rendered brightest", "foregroundColor(c.isError ? Theme.failed : Theme.text)" in _tv)
-# The list is newest-first, so a bare time on the right reads as age when it is duration —
-# correct ordering looked broken because of it.
-check("a call's duration is marked as a duration",
-      'Image(systemName: "timer")' in _tv)
-check("the response is rendered faint",
-      "Theme.failed.opacity(0.75) : Theme.faint" in _tv)
-check("no new colours were invented for the timeline",
-      not re.search(r'timeline[\s\S]{0,1800}Color\(red:', _tv))
-check("a subagent call is visually distinct",
-      "c.isAgent ? Theme.waiting : Theme.agentTint" in _tv)
+check("the console is read off the main thread, not during a refresh",
+      "DispatchQueue.global" in _cv and "Console.recent" not in _store)
 
 # Output is frequently minified source or a binary scan; it must never be unbounded.
 check("a response preview is hard-bounded", 't.count > 120 ? String(t.prefix(120))' in _tc)
@@ -2177,7 +2151,7 @@ check("and the total is input + output, from the session's own statusLine",
       and "if i + o > 0 { s.totalTokens = i + o }" in _ss)
 
 # Console can only resolve Claude transcripts, so other vendors opened an empty reader.
-check("the read chip is only offered where a transcript exists",
+check("the chevron is only offered where a transcript exists",
       "row.agent.vendor == .claude" in _vw)
 check("and the summon chord skips vendors it cannot read",
       "store.rows.filter { $0.agent.vendor == .claude }" in _iv)

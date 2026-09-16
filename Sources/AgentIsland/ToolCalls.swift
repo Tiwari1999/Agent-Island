@@ -18,24 +18,6 @@ struct ToolCall: Identifiable {
     /// A subagent launch is an ordinary tool call that happens to have children.
     let subagentKind: String?
     var isAgent: Bool { subagentKind != nil }
-    /// How many adjacent calls of this tool this line stands for. 1 is an ordinary call; more
-    /// means a folded run, which is the difference between five rows of "Bash" and one that
-    /// says what the burst was. Never hides a failure or a still-running call — those break it.
-    var runLength: Int = 1
-
-    /// One line of intent, plus one of evidence when there is any. The row's height is summed
-    /// from this, so a cell can never be shorter than what it draws.
-    var lines: Int {
-        var n = 1                                             // the argument, or the description
-        if command != nil && !why.isEmpty { n += 1 }          // the description under it
-        if (response.map { !$0.isEmpty } ?? false) || running { n += 1 }
-        return n
-    }
-    /// What the row leads with: what was sent when we have it, the description otherwise.
-    var headline: String { command ?? why }
-    /// The second line, present only when the headline is the argument and a description exists.
-    var subtitle: String? { command != nil && !why.isEmpty ? why : nil }
-
     var duration: String? {
         guard let s = seconds else { return nil }
         if s < 1 { return String(format: "%.1fs", s) }
@@ -69,32 +51,11 @@ enum ToolCalls {
         }
         lock.unlock()
 
-        let calls = fold(parse(Tail.read(path: path, bytes: window)))
+        let calls = parse(Tail.read(path: path, bytes: window))
         lock.lock()
         cache[session] = (mtime, calls)
         lock.unlock()
         return Array(calls.prefix(limit))
-    }
-
-    /// Collapse a run of adjacent calls to the same tool into one line.
-    ///
-    /// A session that greps twenty times prints twenty near-identical rows, and the one call that
-    /// mattered is lost among them. Folding keeps the newest of a run — its words are the most
-    /// recent intent — and counts the rest. A failed or still-running call is never folded away:
-    /// those are the two a reader is actually looking for.
-    static func fold(_ calls: [ToolCall]) -> [ToolCall] {
-        var out: [ToolCall] = []
-        for c in calls {
-            let joinable = !c.isError && !c.running && c.subagentKind == nil
-            if joinable, var last = out.last, last.tool == c.tool,
-               !last.isError, !last.running, last.subagentKind == nil {
-                last.runLength += 1
-                out[out.count - 1] = last
-                continue
-            }
-            out.append(c)
-        }
-        return out
     }
 
     /// Newest first. Pairs each tool_use with its tool_result; a use with no result is still

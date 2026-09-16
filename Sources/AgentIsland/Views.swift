@@ -192,8 +192,6 @@ struct PeekView: View {
 
 struct AgentRowView: View {
     static let height: CGFloat = 64
-    /// One tool call: a line of intent, and a second of evidence when there is any.
-    static let callLine: CGFloat = 15
 
     let row: AgentRow
     let model: String?
@@ -201,22 +199,11 @@ struct AgentRowView: View {
     /// Present when this row has a question still waiting. A card that timed out is otherwise
     /// unreachable: the user has no way of knowing the row will bring it back.
     var onAnswer: (() -> Void)? = nil
-    /// Read this session's recent output without leaving the notch.
+    /// Read this session's recent output without leaving the notch. The row's own chevron
+    /// opens it — the console shows every call with what was sent, so nothing needs two doors.
     var onConsole: (() -> Void)? = nil
-    /// Recent tool calls, parsed only while this row is open. Empty means collapsed.
-    var calls: [ToolCall] = []
-    var expanded = false
-    var onToggle: (() -> Void)? = nil
     let onJump: () -> Void
     @State private var hover = false
-
-    /// The panel sizes itself from this, so it has to agree with what the body draws — a
-    /// fixed cell clipped the evidence line off every call that had one.
-    static func height(expanded: Bool, calls: [ToolCall]) -> CGFloat {
-        guard expanded else { return height }
-        let lines = calls.isEmpty ? 1 : calls.reduce(0) { $0 + $1.lines }
-        return height + CGFloat(lines) * callLine + 10   // 6 top padding + the stack's 4
-    }
 
     /// "Claude · Fable 5 · Warp", with a ⇅ host prefix when the session is remote.
     private var identity: String {
@@ -233,76 +220,7 @@ struct AgentRowView: View {
     /// What the agent has actually been doing, newest first. The intent is the headline and
     /// the output is evidence — leading with commands would be unreadable, since most of them
     /// are shell noise and a good share of the output is minified source.
-    private var timeline: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if calls.isEmpty {
-                Text("no tool calls recorded")
-                    .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
-                    .frame(height: AgentRowView.callLine, alignment: .leading)
-            }
-            ForEach(calls) { c in
-                HStack(alignment: .top, spacing: 8) {
-                    Dot(color: dot(c), size: 5, pulse: c.running)
-                        .padding(.top, 5)
-                    VStack(alignment: .leading, spacing: 1) {
-                        HStack(spacing: 7) {
-                            // "4× Bash" for a folded run. The count rides on the tool name
-                            // rather than taking a row of its own, so five lines now stand for
-                            // however many calls the burst held instead of exactly five.
-                            Text(c.runLength > 1 ? "\(c.runLength)× \(c.tool)" : c.tool)
-                                .font(Theme.mono(Type.small))
-                                .foregroundColor(c.isAgent ? Theme.waiting : Theme.agentTint)
-                                .frame(minWidth: 46, alignment: .leading)
-                            // What was SENT leads the row — the command, the path, the pattern.
-                            // A description alone says a call happened, never what it did.
-                            Text(c.headline)
-                                .font(Theme.mono(Type.small))
-                                .foregroundColor(c.isError ? Theme.failed : Theme.text)
-                                .lineLimit(1).truncationMode(.tail)
-                            Spacer(minLength: 4)
-                            if let d = c.duration {
-                                // A bare number on the right of a newest-first list reads as
-                                // "ago". This one is how long the call took, so it says so.
-                                HStack(spacing: 2) {
-                                    Image(systemName: "timer").font(.system(size: 9))
-                                    Text(d).font(Theme.mono(Type.micro))
-                                }
-                                .foregroundColor(Theme.faint)
-                            }
-                        }
-                        // The agent's own words for why, under the thing it actually ran.
-                        if let sub = c.subtitle {
-                            Text(sub)
-                                .font(Theme.mono(Type.small)).foregroundColor(Theme.muted)
-                                .lineLimit(1).truncationMode(.tail)
-                        }
-                        if let out = c.response, !out.isEmpty {
-                            Text(out)
-                                .font(Theme.mono(Type.small))
-                                .foregroundColor(c.isError ? Theme.failed.opacity(0.75) : Theme.faint)
-                                .lineLimit(1).truncationMode(.tail)
-                        } else if c.running {
-                            Text(c.isAgent ? "\(c.subagentKind ?? "agent") · running" : "running…")
-                                .font(Theme.mono(Type.small)).foregroundColor(Theme.working.opacity(0.7))
-                        }
-                    }
-                }
-                .frame(height: CGFloat(c.lines) * AgentRowView.callLine, alignment: .top)
-            }
-        }
-        .padding(.leading, 6)
-        .padding(.top, 6)
-        // One hairline rail, so the calls read as belonging to the row above them.
-        .overlay(alignment: .leading) {
-            Rectangle().fill(Theme.hairline).frame(width: 1).padding(.vertical, 4)
-        }
-    }
 
-    private func dot(_ c: ToolCall) -> Color {
-        if c.isError { return Theme.failed }
-        if c.running { return c.isAgent ? Theme.waiting : Theme.working }
-        return Theme.faint
-    }
 
     private var tint: Color {
         if row.waiting { return Theme.waiting }
@@ -325,15 +243,14 @@ struct AgentRowView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    if let onToggle {
+                    if let onConsole {
                         // Its own hit target: clicking the row still jumps, exactly as before.
                         Image(systemName: "chevron.right")
                             .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(expanded ? Theme.muted : Theme.faint)
-                            .rotationEffect(.degrees(expanded ? 90 : 0))
+                            .foregroundColor(Theme.faint)
                             .frame(width: 11, height: 14)
                             .contentShape(Rectangle())
-                            .onTapGesture(perform: onToggle)
+                            .onTapGesture(perform: onConsole)
                     }
                     // project · title, the way the reference reads: context then subject.
                     Text(row.agent.project).font(Theme.label(Type.title)).foregroundColor(Theme.text)
@@ -355,17 +272,6 @@ struct AgentRowView: View {
                         .background(Capsule().fill(Theme.waiting.opacity(0.14)))
                         .contentShape(Capsule())
                         .onTapGesture(perform: onAnswer)
-                    }
-                    if let onConsole {
-                        HStack(spacing: 3) {
-                            Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
-                            Text("read").font(Theme.mono(Type.micro))
-                        }
-                        .foregroundColor(Theme.muted)
-                        .padding(.horizontal, 5).padding(.vertical, 1.5)
-                        .background(Capsule().stroke(Theme.hairline))
-                        .contentShape(Capsule())
-                        .onTapGesture(perform: onConsole)
                     }
                     if let onPlan {
                         HStack(spacing: 3) {
@@ -439,15 +345,12 @@ struct AgentRowView: View {
                             .lineLimit(1).truncationMode(.middle)
                     }
                 }
-
-                if expanded { timeline }
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 9)
         // Rows are a fixed height so the panel can size itself exactly; centring splits the
         // slack of a two-line row instead of pooling it all under the text as a gap.
-        .frame(height: AgentRowView.height(expanded: expanded, calls: calls),
-               alignment: expanded ? .top : .center)
+        .frame(height: AgentRowView.height, alignment: .center)
         .background(
             RoundedRectangle(cornerRadius: 9)
                 .fill(hover && row.canJump ? Theme.raised : Color.clear)
@@ -473,23 +376,6 @@ struct PanelView: View {
     static let width: CGFloat = 640
     static let visibleRows: CGFloat = 3
     static let headerHeight: CGFloat = 40
-    /// Open one row and parse it, or close the open one. The read happens off-main and only
-    /// here — a refresh never touches it, so the idle cost of the panel is unchanged.
-    private func toggle(_ row: AgentRow) {
-        if openRow == row.agent.sessionId {
-            withAnimation(Motion.content) { openRow = nil; openCalls = [] }
-            return
-        }
-        let id = row.agent.sessionId, cwd = row.agent.cwd
-        withAnimation(Motion.content) { openRow = id; openCalls = [] }
-        DispatchQueue.global(qos: .userInitiated).async {
-            let calls = ToolCalls.recent(session: id, cwd: cwd)
-            DispatchQueue.main.async {
-                guard openRow == id else { return }   // closed again while we were reading
-                withAnimation(Motion.content) { openCalls = calls }
-            }
-        }
-    }
 
     static let rowGap: CGFloat = 5
     /// Height of the scrolling area: exactly N rows and the gaps between them, nothing partial.
@@ -505,10 +391,6 @@ struct PanelView: View {
     @ObservedObject var store: AgentStore
     @ObservedObject var status: StatusStore
     @State private var mode: PanelMode = .sessions
-    /// At most one row is open at a time: the panel cannot grow without bound, and the row
-    /// you were reading does not get pushed off screen by another one opening.
-    @State private var openRow: String?
-    @State private var openCalls: [ToolCall] = []
     @State private var hooksReady = Setup.hooksInstalled()
     @State private var installing = false
     @ObservedObject private var surfaces = Surfaces.shared
@@ -597,7 +479,6 @@ struct PanelView: View {
                 ScrollView {
                     LazyVStack(spacing: PanelView.rowGap) {
                         ForEach(store.rows) { row in
-                            let open = openRow == row.agent.sessionId
                             AgentRowView(row: row, model: status.quota.model,
                                          onPlan: store.hooks.plans[row.agent.sessionId].map { _ in
                                              { withAnimation(Motion.shell) {
@@ -612,10 +493,8 @@ struct PanelView: View {
                                                  return { _ = store.onRowActivate?(row) }
                                              },
                                          onConsole: row.agent.vendor == .claude
-                                             ? { store.onOpenConsole?(row.agent.sessionId) } : nil,
-                                         calls: open ? openCalls : [],
-                                         expanded: open,
-                                         onToggle: { toggle(row) }) { store.jump(row) }
+                                             ? { store.onOpenConsole?(row.agent.sessionId) } : nil)
+                                        { store.jump(row) }
                         }
                     }
                     .padding(.horizontal, 8).padding(.vertical, PanelView.listPadding)

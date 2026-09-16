@@ -4,7 +4,9 @@ import Foundation
 struct ConsoleEntry: Identifiable {
     enum Kind {
         case said(String)                       // assistant prose, rendered as markdown
-        case ran(tool: String, why: String, seconds: Double?, failed: Bool)
+        // `cmd` is what was actually SENT — the command, path or pattern. A description
+        // alone says a call happened, never what it did.
+        case ran(tool: String, why: String, cmd: String?, seconds: Double?, failed: Bool)
     }
     let id: String
     let at: Date?
@@ -82,17 +84,18 @@ enum Console {
                     out.append(ConsoleEntry(id: "t\(i)", at: at,
                                             kind: .ran(tool: ToolCalls.short(name),
                                                        why: ToolCalls.why(tool: name, input: input),
+                                                       cmd: ToolCalls.arg(input),
                                                        seconds: nil, failed: false)))
                 case "tool_result":
                     guard let id = b["tool_use_id"] as? String, let at = pending[id],
-                          case let .ran(tool, why, _, _) = out[at].kind else { continue }
+                          case let .ran(tool, why, cmd, _, _) = out[at].kind else { continue }
                     pending[id] = nil
                     let secs = out[at].at.flatMap { start in
                         (obj["timestamp"] as? String).flatMap(Self.date)
                             .map { $0.timeIntervalSince(start) }
                     }
                     out[at] = ConsoleEntry(id: out[at].id, at: out[at].at,
-                                           kind: .ran(tool: tool, why: why, seconds: secs,
+                                           kind: .ran(tool: tool, why: why, cmd: cmd, seconds: secs,
                                                       failed: b["is_error"] as? Bool ?? false))
                 default: continue
                 }

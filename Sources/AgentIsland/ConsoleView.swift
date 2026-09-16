@@ -176,15 +176,23 @@ struct ConsoleView: View {
 
     @ViewBuilder
     private func ran(_ e: ConsoleEntry) -> some View {
-        if case let .ran(tool, why, seconds, failed) = e.kind {
+        if case let .ran(tool, why, cmd, seconds, failed) = e.kind {
             HStack(alignment: .firstTextBaseline, spacing: 7) {
                 Text(tool)
                     .font(Theme.mono(Type.small))
                     .foregroundColor(failed ? Theme.failed : Theme.muted)
                     .frame(width: 56, alignment: .leading)
-                Text(why)
-                    .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
+                // What was sent leads the line; the agent's reason trails it, quieter.
+                Text(cmd ?? why)
+                    .font(Theme.mono(Type.small))
+                    .foregroundColor(failed ? Theme.failed : Theme.text)
                     .lineLimit(1).truncationMode(.middle)
+                    .layoutPriority(1)
+                if let cmd, !why.isEmpty, why != cmd {
+                    Text(why)
+                        .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
+                        .lineLimit(1).truncationMode(.tail)
+                }
                 Spacer(minLength: 4)
                 if let s = seconds, s >= 0.5 {
                     Text(s < 60 ? String(format: "%.0fs", s)

@@ -333,11 +333,20 @@ excludes turns parked on an approval, so a row could say "working" but never "wa
 Reading conversations over HTTP needs a per-instance token minted in memory and never written to
 disk. Do not rebuild this without a Yjs decoder.
 
-What was worth keeping came from their UI, not their code: fold a run of adjacent tool calls into
-one counted line, and lead a tool row with the ARGUMENT that was sent rather than the agent's
-description of it. Both now live in `ToolCalls.swift`. Their claim that this saves ~100x tokens
-does not survive checking — it compares one smart call against 42 naive reads, and Claude Code
-makes the same one smart call.
+What was worth keeping came from their UI, not their code: lead a tool line with the ARGUMENT that
+was sent rather than the agent's description of it (`ToolCalls.arg`, rendered by the console). Run
+folding was taken too and then dropped with the inline timeline — see below. Their claim that this
+saves ~100x tokens does not survive checking — it compares one smart call against 42 naive reads,
+and Claude Code makes the same one smart call.
+
+## The row chevron opens the console (2026-09-16)
+
+A row had two doors: a chevron that expanded an inline timeline of the last 5 folded tool calls,
+and a `read` chip that opened the console. The timeline was never used — it showed less than the
+console (5 folded lines, no output, no prose) and cost a variable row height, a second parse path
+and `ToolCalls.fold`/`headline`/`subtitle`/`lines`. The chevron now opens the console and the chip
+is gone; `ConsoleEntry.ran` gained `cmd`, so the console shows what was sent, which is the one
+thing the timeline had that it lacked. Rows are a fixed height again.
 
 ## Working rules that bit us (obey them)
 

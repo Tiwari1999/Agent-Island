@@ -52,8 +52,8 @@ struct AgentIslandApp {
                 switch e.kind {
                 case .said(let t):
                     print("SAID " + t.replacingOccurrences(of: "\n", with: " ").prefix(88))
-                case .ran(let tool, let why, let secs, let failed):
-                    print("RAN  \(tool) · \(why.prefix(50)) · "
+                case .ran(let tool, let why, let cmd, let secs, let failed):
+                    print("RAN  \(tool) · \(cmd ?? "-") · \(why.prefix(50)) · "
                           + (secs.map { String(format: "%.1fs", $0) } ?? "-")
                           + (failed ? " FAILED" : ""))
                 }
@@ -75,7 +75,7 @@ struct AgentIslandApp {
             for c in ToolCalls.recent(session: session, cwd: cwd, limit: 8) {
                 let state = c.isError ? "ERR" : c.running ? "RUN" : "ok "
                 print("\(state) \(c.tool.padding(toLength: min(14, max(c.tool.count, 14)), withPad: " ", startingAt: 0)) "
-                      + "| \(c.duration ?? "-") | why=\(c.why.prefix(56))"
+                      + "| \(c.duration ?? "-") | cmd=\(c.command ?? "-") | why=\(c.why.prefix(56))"
                       + (c.isAgent ? " | agent=\(c.subagentKind ?? "")" : "")
                       + "\n      out=\(c.response?.prefix(60) ?? "<none>")")
             }
