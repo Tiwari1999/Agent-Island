@@ -927,10 +927,16 @@ struct QuestionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
-            HStack(alignment: .top, spacing: 0) {
-                options
-                if showsPreview { preview }
+            // Only the options scroll. Four long options overran the card, and what fell off
+            // the bottom was the free-text box and the submit button — so a question you could
+            // read was one you could not answer. The controls stay put; the reading scrolls.
+            ScrollView(.vertical, showsIndicators: true) {
+                HStack(alignment: .top, spacing: 0) {
+                    options
+                    if showsPreview { preview }
+                }
             }
+            if !handedOver { other.padding(.horizontal, 16) }
             footer
         }
         .padding(.vertical, 10)
@@ -1043,7 +1049,6 @@ struct QuestionCard: View {
                     .onHover { h in withAnimation(Motion.hover) { hot = h ? opt.label : nil } }
                     .onTapGesture { if !handedOver { onPick(opt.label) } }
                 }
-                if !handedOver { other }
             }
         }
         .padding(.horizontal, 16)

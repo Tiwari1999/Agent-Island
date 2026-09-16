@@ -1451,7 +1451,11 @@ check("an incomplete sequence is never submitted", "body.count == question.items
 check("the card is sized by its content", "func cardHeight(width:" in _hs3)
 check("window and view size from one accessor",
       _is3.count("island.questionSize(q)") == 2 and "func questionSize" in _is3)
-check("the card cannot outgrow the screen", "0.62" in _is3)
+# It was capped against the SCREEN, but it is drawn inside the panel — which is maxSize tall
+# and never resized. So the cap described a card twice the size of the one on screen, and since
+# this size is also the click region, the island swallowed presses far below the visible card.
+check("the card is capped by the panel it is drawn in, not the screen",
+      "Self.maxSize.height - notchHeight" in _is3 and "0.62" not in _is3)
 check("number keys reset per question", "func bindKeys" in _is3 and "step: Int" in _is3)
 
 print("\n=== 24. tool call timeline ===")
@@ -1888,7 +1892,13 @@ check("a handed-over question stays on screen as a copy",
       "@Published var handedOver: Set<String> = []" in _is5
       and "handedOver.insert(q.id)" in _is5)
 check("the copy cannot be answered",
-      "if !handedOver { onPick(opt.label) }" in _vw5 and "if !handedOver { other }" in _vw5)
+      "if !handedOver { onPick(opt.label) }" in _vw5 and "if !handedOver { other" in _vw5)
+# Four long options overran the card and what fell off was the free-text box and submit — the
+# question was readable but unanswerable. The options scroll; the controls never do.
+check("the options scroll so a long ask cannot hide its own controls",
+      "ScrollView(.vertical, showsIndicators: true)" in _vw5)
+check("and the input box and footer sit OUTSIDE that scroll",
+      "\n            if !handedOver { other.padding(.horizontal, 16) }\n            footer\n" in _vw5)
 check("and it says where the question went",
       "waiting for your answer in the chat" in _vw5 and "go to the chat" in _vw5)
 check("the copy clears once the chat answers",

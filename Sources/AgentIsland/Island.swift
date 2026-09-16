@@ -382,8 +382,11 @@ final class Island: NSObject, ObservableObject {
     func questionSize(_ q: Question) -> CGSize {
         guard let item = questionItem(q) else { return CGSize(width: 600, height: 98) }
         let w: CGFloat = item.hasPreview ? 830 : 600
-        let cap = (screen?.frame.height ?? 900) * 0.62
-        return CGSize(width: w, height: min(item.cardHeight(width: w), cap))
+        // The card is drawn inside the panel, which is maxSize tall and never resized — so a
+        // cap taken from the SCREEN described a card twice the size of the one on it, and this
+        // size is also the click region: the island swallowed presses far below the card.
+        let cap = Self.maxSize.height - notchHeight - Self.notchClearance - 6
+        return CGSize(width: w, height: min(item.cardHeight(width: w), max(120, cap)))
     }
 
     private var consoleRect: NSRect {
