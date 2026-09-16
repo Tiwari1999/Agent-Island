@@ -55,6 +55,10 @@ struct QuestionItem: Equatable, Identifiable {
         }
         if multi { h += 30 }
         h += 32                                                    // the free-text row
+        // The footer carries "submit", and a card sized without it clips the one control that
+        // sends the answer — the question then looks unanswerable from the notch. A capsule
+        // button is 24pt at Type.body, and the card's VStack puts 8pt above it.
+        h += 32                                                    // the submit/answer-in-chat row
         let preview = hasPreview
             ? CGFloat(options.map { $0.preview.split(whereSeparator: \.isNewline).count }.max() ?? 0) * 13 + 44
             : 0

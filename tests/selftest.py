@@ -701,6 +701,14 @@ check("the row prints the run count on the tool name, costing no extra height",
       'c.runLength > 1 ? "\\(c.runLength)× \\(c.tool)" : c.tool' in _vw_f)
 check("tests/toolfold.swift present (fold edge cases)",
       os.path.exists(os.path.join(REPO, "tests", "toolfold.swift")))
+# The card was sized to its content and stopped at the free-text row, so the footer holding
+# "submit" fell outside the window — the question read as unanswerable from the notch.
+_hs = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()
+_cardh = _hs.split("func cardHeight")[1].split("return max(h")[0]
+check("the question card reserves height for the submit row, not just its content",
+      "the submit/answer-in-chat row" in _cardh)
+check("and still reserves the free-text row it used to end at",
+      "the free-text row" in _cardh and _cardh.count("h += 32") == 2)
 # CLT 27's default SDK makes SwiftUI's @State a macro whose plugin ships only in Xcode, so a
 # clean build dies on every @State. install.sh must PROBE and fall back, never hard-code an SDK.
 _ins = open(os.path.join(REPO, "install.sh")).read()
