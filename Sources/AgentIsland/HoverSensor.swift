@@ -56,20 +56,10 @@ final class HoverSensor {
         let r = rect?() ?? fallback
         let m = NSEvent.mouseLocation
         let now = r.contains(m)
-        // Near the top but not counted as inside is the case that cannot be reproduced from
-        // here — log it once a second, with both the pointer and the strip it was judged against.
-        if !now, m.y >= r.minY - 12, Date().timeIntervalSince(lastMiss) > 1 {
-            lastMiss = Date()
-            Diagnostics.log(String(format: "hover miss mouse=(%.0f,%.0f) strip x%.0f..%.0f y%.0f..%.0f",
-                                   m.x, m.y, r.minX, r.maxX, r.minY, r.maxY))
-        }
         guard now != inside else { return }
         inside = now
-        Diagnostics.log(String(format: "hover %@ mouse=(%.0f,%.0f) strip x%.0f..%.0f y%.0f..%.0f",
-                               now ? "ENTER" : "exit", m.x, m.y, r.minX, r.maxX, r.minY, r.maxY))
         if now { onEnter?() } else { onExit?() }
     }
-    private var lastMiss = Date.distantPast
 
     /// Nothing to resize — the rect is read at every sample. Kept so callers need not care which
     /// of the three designs is in place.
