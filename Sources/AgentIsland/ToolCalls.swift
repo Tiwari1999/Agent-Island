@@ -4,9 +4,12 @@ import Foundation
 struct ToolCall: Identifiable {
     let id: String
     let tool: String
-    /// The agent's own words for what it is doing. Present on every Bash call and most others,
-    /// and far more readable than the command — this is the headline, not the argument.
+    /// The agent's own words for what it is doing — the `description` it wrote.
     let why: String
+    /// What was actually SENT: the command, the path, the pattern, the url. The row led with
+    /// `why` alone, which says a call happened but never what it did — "Map the repo in one
+    /// call" and the command it ran are different facts, and only one of them is checkable.
+    let command: String?
     let response: String?
     let isError: Bool
     /// No result yet: still executing.
@@ -22,7 +25,16 @@ struct ToolCall: Identifiable {
 
     /// One line of intent, plus one of evidence when there is any. The row's height is summed
     /// from this, so a cell can never be shorter than what it draws.
-    var lines: Int { (response.map { !$0.isEmpty } ?? false) || running ? 2 : 1 }
+    var lines: Int {
+        var n = 1                                             // the argument, or the description
+        if command != nil && !why.isEmpty { n += 1 }          // the description under it
+        if (response.map { !$0.isEmpty } ?? false) || running { n += 1 }
+        return n
+    }
+    /// What the row leads with: what was sent when we have it, the description otherwise.
+    var headline: String { command ?? why }
+    /// The second line, present only when the headline is the argument and a description exists.
+    var subtitle: String? { command != nil && !why.isEmpty ? why : nil }
 
     var duration: String? {
         guard let s = seconds else { return nil }
@@ -88,7 +100,7 @@ enum ToolCalls {
     /// Newest first. Pairs each tool_use with its tool_result; a use with no result is still
     /// running, which is the state most worth seeing.
     static func parse(_ text: String) -> [ToolCall] {
-        var uses: [(id: String, tool: String, why: String, kind: String?, at: Date?)] = []
+        var uses: [(id: String, tool: String, why: String, cmd: String?, kind: String?, at: Date?)] = []
         var results: [String: (text: String, isError: Bool, at: Date?)] = [:]
 
         for line in text.split(whereSeparator: \.isNewline) {
@@ -105,7 +117,7 @@ enum ToolCalls {
                 case "tool_use":
                     guard let id = b["id"] as? String, let name = b["name"] as? String else { continue }
                     let input = b["input"] as? [String: Any] ?? [:]
-                    uses.append((id, short(name), why(tool: name, input: input),
+                    uses.append((id, short(name), why(tool: name, input: input), arg(input),
                                  input["subagent_type"] as? String, at))
                 case "tool_result":
                     guard let id = b["tool_use_id"] as? String else { continue }
@@ -120,7 +132,7 @@ enum ToolCalls {
         // ambiguous — it animates and recycles the wrong one.
         return uses.enumerated().reversed().map { (i, u) in
             let r = results[u.id]
-            return ToolCall(id: "\(u.id)#\(i)", tool: u.tool, why: u.why,
+            return ToolCall(id: "\(u.id)#\(i)", tool: u.tool, why: u.why, command: u.cmd,
                             response: r?.text, isError: r?.isError ?? false,
                             seconds: (r?.at).flatMap { end in u.at.map { end.timeIntervalSince($0) } },
                             subagentKind: u.kind)
@@ -129,8 +141,34 @@ enum ToolCalls {
 
     // MARK: - reading a call the way a person would
 
-    /// The agent's stated intent, in the field each tool happens to use. Falls back to the
-    /// argument itself, which for a file tool is already the clearest possible description.
+    /// The agent's stated intent, in the field each tool happens to use. No longer falls back
+    /// to the argument: `arg` carries that, and the row draws them on separate lines.
+    /// The literal argument, in the order a reader would want it: what was run, what was
+    /// touched, what was searched for, what was fetched.
+    static func arg(_ input: [String: Any]) -> String? {
+        if let c = input["command"] as? String, !c.isEmpty { return meaningfulLine(c) }
+        for key in ["file_path", "path", "notebook_path", "pattern", "url"] {
+            if let v = input[key] as? String, !v.isEmpty { return firstLine(v) }
+        }
+        // An ask has no argument of its own; the question IS what was sent.
+        if let qs = input["questions"] as? [[String: Any]],
+           let q = qs.first?["question"] as? String, !q.isEmpty { return firstLine(q) }
+        return nil
+    }
+
+    /// The first line that says something. A command usually opens with `cd` into the repo, or
+    /// an `export`, and leading with that tells a reader nothing they did not already know.
+    static func meaningfulLine(_ s: String) -> String {
+        for raw in s.split(whereSeparator: \.isNewline) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty { continue }
+            let head = line.split(separator: " ").first.map(String.init) ?? ""
+            if ["cd", "export", "set", "source", "shopt"].contains(head) { continue }
+            return firstLine(line)
+        }
+        return firstLine(s)
+    }
+
     static func why(tool: String, input: [String: Any]) -> String {
         for key in ["description", "query", "prompt", "instructions"] {
             if let v = input[key] as? String, !v.isEmpty { return firstLine(v) }

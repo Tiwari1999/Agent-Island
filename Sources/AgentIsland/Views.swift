@@ -253,7 +253,9 @@ struct AgentRowView: View {
                                 .font(Theme.mono(Type.small))
                                 .foregroundColor(c.isAgent ? Theme.waiting : Theme.agentTint)
                                 .frame(minWidth: 46, alignment: .leading)
-                            Text(c.why)
+                            // What was SENT leads the row — the command, the path, the pattern.
+                            // A description alone says a call happened, never what it did.
+                            Text(c.headline)
                                 .font(Theme.mono(Type.small))
                                 .foregroundColor(c.isError ? Theme.failed : Theme.text)
                                 .lineLimit(1).truncationMode(.tail)
@@ -267,6 +269,12 @@ struct AgentRowView: View {
                                 }
                                 .foregroundColor(Theme.faint)
                             }
+                        }
+                        // The agent's own words for why, under the thing it actually ran.
+                        if let sub = c.subtitle {
+                            Text(sub)
+                                .font(Theme.mono(Type.small)).foregroundColor(Theme.muted)
+                                .lineLimit(1).truncationMode(.tail)
                         }
                         if let out = c.response, !out.isEmpty {
                             Text(out)

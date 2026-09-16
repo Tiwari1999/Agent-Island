@@ -5,7 +5,7 @@ import Foundation
 @main enum ToolFoldCheck {
   static func call(_ tool: String, why: String = "w", err: Bool = false,
                    running: Bool = false, agent: String? = nil) -> ToolCall {
-    ToolCall(id: UUID().uuidString, tool: tool, why: why,
+    ToolCall(id: UUID().uuidString, tool: tool, why: why, command: "cmd " + tool,
              response: running ? nil : (err ? "boom" : "ok"),
              isError: err, seconds: 1, subagentKind: agent)
   }

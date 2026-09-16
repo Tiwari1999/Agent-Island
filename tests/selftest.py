@@ -701,6 +701,27 @@ check("the row prints the run count on the tool name, costing no extra height",
       'c.runLength > 1 ? "\\(c.runLength)× \\(c.tool)" : c.tool' in _vw_f)
 check("tests/toolfold.swift present (fold edge cases)",
       os.path.exists(os.path.join(REPO, "tests", "toolfold.swift")))
+# The row led with the agent's `description` and threw the argument away, so it said a call
+# happened but never what it ran — "Map the repo in one call" and the command are different
+# facts, and only one of them is checkable. Juggler leads with the argument; so do we now.
+check("the parser keeps what was actually sent, not just the description",
+      "static func arg(" in _tc and "let command: String?" in _tc)
+check("the row leads with the argument and puts the description under it",
+      "var headline: String { command ?? why }" in _tc
+      and "command != nil && !why.isEmpty ? why : nil" in _tc)
+check("and the row's height counts that extra line",
+      "if command != nil && !why.isEmpty { n += 1 }" in _tc)
+# A command almost always opens by cd-ing into the repo, so the first line is the one line that
+# tells a reader nothing. Lead with the first line that says something instead.
+check("the headline skips cd/export boilerplate to the first real command",
+      '!c.isEmpty { return meaningfulLine(c) }' in _tc
+      and '["cd", "export", "set", "source", "shopt"].contains(head)' in _tc)
+check("an ask leads with the question, which is what it sent",
+      'input["questions"] as? [[String: Any]]' in _tc)
+_vw_c = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
+check("the view draws the headline, then the description, then the result",
+      "Text(c.headline)" in _vw_c and "if let sub = c.subtitle {" in _vw_c
+      and _vw_c.index("Text(c.headline)") < _vw_c.index("if let sub = c.subtitle {"))
 # The card was sized to its content and stopped at the free-text row, so the footer holding
 # "submit" fell outside the window — the question read as unanswerable from the notch.
 _hs = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()
