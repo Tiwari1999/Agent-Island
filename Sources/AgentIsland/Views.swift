@@ -246,7 +246,10 @@ struct AgentRowView: View {
                         .padding(.top, 5)
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: 7) {
-                            Text(c.tool)
+                            // "4× Bash" for a folded run. The count rides on the tool name
+                            // rather than taking a row of its own, so five lines now stand for
+                            // however many calls the burst held instead of exactly five.
+                            Text(c.runLength > 1 ? "\(c.runLength)× \(c.tool)" : c.tool)
                                 .font(Theme.mono(Type.small))
                                 .foregroundColor(c.isAgent ? Theme.waiting : Theme.agentTint)
                                 .frame(minWidth: 46, alignment: .leading)

@@ -686,6 +686,21 @@ check("tests/procname.swift present", os.path.exists(os.path.join(REPO, "tests",
 # Source-text checks prove the resolve *order*; only a real process proves the handle.
 check("tests/hostresolve.swift present (real-process host resolution)",
       os.path.exists(os.path.join(REPO, "tests", "hostresolve.swift")))
+# A row showed the last 5 calls, so a session that greps twenty times showed twenty near-identical
+# rows and the one that mattered was lost. Adjacent same-tool calls now fold into one counted line
+# — measured on a real transcript: 75 calls became 3 rows, and the 5 shown cover all 75.
+_tc = open(os.path.join(REPO, "Sources/AgentIsland/ToolCalls.swift")).read()
+check("adjacent calls to the same tool fold into one counted line",
+      "static func fold(" in _tc and "runLength" in _tc)
+check("but a FAILED or still-RUNNING call is never folded away — those are what a reader wants",
+      "!c.isError && !c.running" in _tc and "!last.isError, !last.running" in _tc)
+check("and a subagent launch keeps its own line",
+      "c.subagentKind == nil" in _tc and "last.subagentKind == nil" in _tc)
+_vw_f = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
+check("the row prints the run count on the tool name, costing no extra height",
+      'c.runLength > 1 ? "\\(c.runLength)× \\(c.tool)" : c.tool' in _vw_f)
+check("tests/toolfold.swift present (fold edge cases)",
+      os.path.exists(os.path.join(REPO, "tests", "toolfold.swift")))
 # CLT 27's default SDK makes SwiftUI's @State a macro whose plugin ships only in Xcode, so a
 # clean build dies on every @State. install.sh must PROBE and fall back, never hard-code an SDK.
 _ins = open(os.path.join(REPO, "install.sh")).read()
