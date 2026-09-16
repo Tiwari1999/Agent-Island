@@ -82,20 +82,28 @@ check("every live agent has somewhere to jump to",
 check("URLs are warp://session/<uuid>", all(u.startswith("warp://session/") for u in got))
 
 print("\n=== 3. jump actually drives Warp (log-verified, all agents) ===")
-LOG=os.path.expanduser("~/Library/Logs/warp.log")
-def logsize(): return os.path.getsize(LOG) if os.path.exists(LOG) else 0
-ok_recv=ok_nav=0
-for sid,u in list(resolved.items()):
-    if not u: continue
-    m=logsize(); subprocess.run(["open",u]); time.sleep(2.2)
-    with open(LOG,"rb") as f:
-        f.seek(m); new=f.read().decode("utf8","replace")
-    if "received url" in new: ok_recv+=1
-    if "handle_pane_navigation_event" in new: ok_nav+=1
-# Warp always receives the intent; pane navigation only fires when the tab actually changes,
-# so a target that is already focused legitimately reports no navigation.
-check("Warp receives every jump intent", ok_recv==len(got), f"{ok_recv}/{len(got)}")
-check("jumps navigate panes (allowing already-focused)", ok_nav>=len(got)-1, f"{ok_nav}/{len(got)}")
+# OPT-IN, because this is not a test you can run while someone is working: it opens every live
+# agent's warp:// URL for real, so it yanks the front tab once per agent with a 2.2s settle —
+# half a minute of someone else's machine, every run. It was on by default and cost exactly that,
+# many times a day. Run it deliberately: AGENTISLAND_JUMP_E2E=1 python3 tests/selftest.py
+if os.environ.get("AGENTISLAND_JUMP_E2E") == "1":
+    LOG=os.path.expanduser("~/Library/Logs/warp.log")
+    def logsize(): return os.path.getsize(LOG) if os.path.exists(LOG) else 0
+    ok_recv=ok_nav=0
+    for sid,u in list(resolved.items()):
+        if not u: continue
+        m=logsize(); subprocess.run(["open",u]); time.sleep(2.2)
+        with open(LOG,"rb") as f:
+            f.seek(m); new=f.read().decode("utf8","replace")
+        if "received url" in new: ok_recv+=1
+        if "handle_pane_navigation_event" in new: ok_nav+=1
+    # Warp always receives the intent; pane navigation only fires when the tab actually changes,
+    # so a target that is already focused legitimately reports no navigation.
+    check("Warp receives every jump intent", ok_recv==len(got), f"{ok_recv}/{len(got)}")
+    check("jumps navigate panes (allowing already-focused)", ok_nav>=len(got)-1, f"{ok_nav}/{len(got)}")
+else:
+    print(f"  SKIP  driving {len(got)} real Warp jumps — steals the front tab for ~{len(got)*2.2:.0f}s."
+          " Set AGENTISLAND_JUMP_E2E=1 to run it.")
 
 print("\n=== 4. hook stream parsing ===")
 open(SPOOL,"a").close()
@@ -739,12 +747,6 @@ check("and falls back to the newest SDK that works, rather than pinning one",
       'SDKs/MacOSX*.sdk' in _ins and "sort -rV" in _ins and 'export SDKROOT="$sdk"' in _ins)
 check("and fails loudly when no installed SDK can build SwiftUI",
       "no installed SDK compiles SwiftUI @State" in _ins)
-# Juggler: the title is the folder name, so no Yjs parsing; and a refresh still spawns nothing.
-_jg = open(os.path.join(REPO, "Sources/AgentIsland/JugglerSource.swift")).read()
-check("the juggler row takes its title from the folder name, not the Yjs document",
-      "doc.yjs" in _jg and "Shell.run" not in _jg)
-check("juggler discovery prefers a running server's --project over the MRU",
-      '"--project"' in _jg and "recents.json" in _jg)
 
 print("\n=== 9m. pick the agent the header reports on ===")
 vw5=open(os.path.join(REPO,"Sources/AgentIsland/Views.swift")).read()

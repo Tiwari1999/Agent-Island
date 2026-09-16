@@ -4,14 +4,13 @@ import Foundation
 /// session state somewhere different — but once discovered they are all just a pid in a terminal,
 /// which is why jump and host detection stay vendor-agnostic.
 enum Vendor: String {
-    case claude, codex, cursor, juggler
+    case claude, codex, cursor
 
     var label: String {
         switch self {
         case .claude: return "Claude"
         case .codex:  return "Codex"
         case .cursor: return "Cursor"
-        case .juggler: return "Juggler"
         }
     }
 }

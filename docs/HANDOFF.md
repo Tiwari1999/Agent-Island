@@ -322,33 +322,22 @@ a *different* name works (`typealias StateW<T> = SwiftUICore.State<T>`), but sha
 `State` does not — module-level, file-level and type-nested all still resolve to the macro, and so
 does `@SwiftUICore.State`.
 
-## Juggler rows (2026-09-15)
+## Juggler: evaluated, integrated, removed (2026-09-16)
 
-`JugglerSource` lists Juggler conversations beside Claude/Codex/Cursor. Verified against a real
-v0.6.4 server built from source and run on a throwaway project — not against the docs.
+Juggler (juggler-ai/juggler, AGPL-3.0) is a GUI agent workbench that RUNS Claude rather than
+competing with it. A `JugglerSource` listing its conversations as island rows was built, verified
+against a real v0.6.4 server, and then removed: a Juggler conversation is one more chat row, and
+the thing actually wanted — visibility INTO delegated work — is not reachable. Sub-threads live in
+`doc.yjs`, a Yjs CRDT binary, and `/api/health/active`, the one unauthenticated route, explicitly
+excludes turns parked on an approval, so a row could say "working" but never "waiting for you".
+Reading conversations over HTTP needs a per-instance token minted in memory and never written to
+disk. Do not rebuild this without a Yjs decoder.
 
-    <project>/.juggler/
-      instance.json              {pid, port, host, startedAt}
-      session.json               {version, conversationOrder:[...], activeConversationId}
-      juggler.lock
-      <title>--conv_<id>/doc.yjs
-
-The folder name is Juggler's own source of truth for the title (`core/convdir.go`), so a row needs
-no document parsing — `doc.yjs` is a Yjs binary we never open. Projects are found three ways, because no one way covers both
-modes: the desktop app spawns its server with NO `--project` in argv (`--window=false
---exit-with-parent --log-file ...`), so argv finds only headless servers. The app instead records
-what it opens in `~/.juggler/workspace.json` (durable, `windows[].project`) and
-`~/.juggler/cache/recents.json` (a cache the docs say is safe to delete). Read all three. Liveness is `instance.json`'s pid plus `doc.yjs` mtime.
-
-What is NOT reachable, so do not promise it: **"waiting for you"**. Approval state lives inside the
-Yjs document as `state: "pending"`, and `/api/health/active` — the one unauthenticated route that
-would answer — explicitly excludes turns parked on an approval. A Juggler row can say working,
-never waiting. Reading conversations over HTTP needs a per-instance token that is minted in memory
-and embedded in the page, never written to disk; scraping it would defeat a deliberate control.
-
-`/api/health/active` also costs a subprocess per refresh, and **a refresh must spend none** — the
-suite caught exactly that when the first cut shelled out to `curl`. Juggler core is AGPL-3.0:
-reading files it writes is fine, linking or copying its code is not.
+What was worth keeping came from their UI, not their code: fold a run of adjacent tool calls into
+one counted line, and lead a tool row with the ARGUMENT that was sent rather than the agent's
+description of it. Both now live in `ToolCalls.swift`. Their claim that this saves ~100x tokens
+does not survive checking — it compares one smart call against 42 naive reads, and Claude Code
+makes the same one smart call.
 
 ## Working rules that bit us (obey them)
 

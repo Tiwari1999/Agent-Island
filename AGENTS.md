@@ -26,8 +26,20 @@ silently takes over if it is ever installed.
 
 ```sh
 python3 tests/selftest.py     # must end "0 failure(s) — all green"
-python3 tests/terminals-e2e.py  # on demand: opens real iTerm/Terminal windows
 ```
+
+Run it ONCE, at the end of a task. It reads live process state, so it is not free, and running
+it after every edit is how you burn someone's afternoon.
+
+Two sections are opt-in because they take over the machine. Never enable them by default:
+
+```sh
+AGENTISLAND_JUMP_E2E=1 python3 tests/selftest.py   # opens every agent's warp:// URL for real
+python3 tests/terminals-e2e.py                     # opens real iTerm/Terminal windows
+```
+
+The jump section yanks the front tab once per live agent with a 2.2s settle — half a minute of
+someone else's machine, per run. It was on by default and cost exactly that, many times a day.
 
 The suite greps source TEXT as well as running the binary, so a rename can fail a check that
 has nothing to do with your change — read the failure before "fixing" it. Several `tests/*.py`
