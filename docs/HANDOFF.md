@@ -396,10 +396,20 @@ which keeps the turn going and hands the reason to the model. `hooks/agentisland
 the line the island left in `/tmp/agentisland-input/<session>` and does exactly that. Verified
 end to end: a headless turn told to reply `FIRST` replied with the queued message instead.
 
-The limit is inherent and the UI states it: **Stop only fires when a turn ends.** An agent that
-is already idle has no turn left, so the composer offers this only while the session is working
-and otherwise still says to open the terminal. A scriptable terminal keeps the direct path, which
-works idle or busy.
+**Stop only fires when a turn ends**, so this reaches a session that is working or parked on a
+question, not one already idle. Gating the whole field on that was wrong — ten of twelve rows on
+this machine are idle, and idle is exactly when you want to write to a session. The field is
+always live; `delivery(_:)` picks the route and the placeholder says which it will take:
+
+| route | when | what happens |
+|---|---|---|
+| `.typed` | the terminal is scriptable | written straight in, idle or busy |
+| `.queued` | not scriptable, but working or waiting | left for the Stop hook — "queued" |
+| `.pasted` | not scriptable and idle | clipboard + focus the tab — "copied — ⌘V there" |
+
+`.pasted` exists because saying "queued" for a line nothing will ever pick up is a lie. The suite
+guards that by anchoring on where `delivery()` *routes*, not on the case body: an early version of
+the check passed while every idle session was silently routed to `.queued`.
 
 The queued line is deleted before it is printed, never after: delivered twice is worse than lost,
 and a crash in between would otherwise repeat it on every turn for ever.

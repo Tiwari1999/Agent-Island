@@ -44,11 +44,10 @@ struct ConsoleView: View {
         if let row {
             Rectangle().fill(Theme.hairline).frame(height: 0.7)
             HStack(spacing: 7) {
-                if TerminalWrite.canWrite(row.host) || queues(row) {
+                if true {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 9, weight: .bold)).foregroundColor(Theme.working)
-                    TextField(queues(row) ? "steer \(row.displayName) — lands when it finishes"
-                                          : "reply to \(row.displayName)", text: $draft)
+                    TextField(delivery(row).placeholder(row.displayName), text: $draft)
                         .textFieldStyle(.plain)
                         .font(Theme.mono(Type.small)).foregroundColor(Theme.text)
                         .focused($writing)
@@ -57,13 +56,6 @@ struct ConsoleView: View {
                     if let note {
                         Text(note).font(Theme.mono(Type.micro)).foregroundColor(Theme.muted)
                     }
-                } else {
-                    Image(systemName: "keyboard.badge.ellipsis")
-                        .font(.system(size: 9)).foregroundColor(Theme.faint)
-                    // Warp publishes no scripting interface and macOS refuses TIOCSTI, so an
-                    // idle session there is genuinely out of reach until it is working again.
-                    Text("\(row.host.name) takes no input while idle — open in terminal")
-                        .font(Theme.mono(Type.micro)).foregroundColor(Theme.faint)
                 }
             }
             .padding(.horizontal, 14).padding(.vertical, 8)
@@ -71,19 +63,46 @@ struct ConsoleView: View {
         }
     }
 
-    /// A terminal with no scripting interface can still be reached through Claude Code itself,
-    /// but only while there is a turn left to end.
-    private func queues(_ row: AgentRow) -> Bool {
-        !TerminalWrite.canWrite(row.host) && row.isWorking && row.agent.vendor == .claude
+    /// How this session can be reached. Warp publishes no scripting interface and macOS refuses
+    /// TIOCSTI, so the only way in is Claude Code's own Stop hook — which needs a turn to end.
+    private enum Delivery {
+        case typed          // the terminal takes a line directly, idle or busy
+        case queued         // no scripting interface, but a turn is running to hand it to
+        case pasted         // no scripting interface and no turn: focus the tab, load the clipboard
+
+        func placeholder(_ name: String) -> String {
+            switch self {
+            case .typed:  return "reply to \(name)"
+            case .queued: return "steer \(name) — lands when it finishes"
+            case .pasted: return "write to \(name) — opens Warp with it copied"
+            }
+        }
+    }
+
+    private func delivery(_ row: AgentRow) -> Delivery {
+        if TerminalWrite.canWrite(row.host) { return .typed }
+        // `waiting` counts too: a session parked on a question is mid-turn, so Stop is still coming.
+        if row.agent.vendor == .claude, row.isWorking || row.waiting { return .queued }
+        return .pasted
     }
 
     private func send(to row: AgentRow) {
         let line = draft
         guard !line.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        let ok = TerminalWrite.canWrite(row.host)
-            ? TerminalWrite.send(line, to: row.host)
-            : TerminalWrite.queue(line, session: row.agent.sessionId)
-        note = ok ? (queues(row) ? "queued" : "sent") : "could not deliver"
+        let how = delivery(row)
+        var ok: Bool
+        switch how {
+        case .typed:  ok = TerminalWrite.send(line, to: row.host)
+        case .queued: ok = TerminalWrite.queue(line, session: row.agent.sessionId)
+        case .pasted:
+            // Nothing can put this line into an idle Warp tab, so put it one paste away and go
+            // there. Two keystrokes beats retyping it, and it never lands in the wrong window.
+            NSPasteboard.general.clearContents()
+            ok = NSPasteboard.general.setString(line, forType: .string)
+            if ok { onJump() }
+        }
+        note = ok ? (how == .typed ? "sent" : how == .queued ? "queued" : "copied — ⌘V there")
+                  : "could not deliver"
         if ok { draft = "" }
         // Hand focus back, or the next keystroke anywhere lands in this field.
         onEndType?()

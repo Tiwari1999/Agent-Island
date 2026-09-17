@@ -2509,8 +2509,12 @@ check("the script runs in-process so the permission lands on us",
       "NSAppleScript(source: source)" in _tw and "/usr/bin/osascript" not in _tw)
 check("a host with no scripting interface declines rather than pretending",
       "case .warp, .app, .degraded, .unknown: return false" in _tw)
-check("and the console says so instead of showing a dead field",
-      "takes no input while idle" in _cv2 and "TerminalWrite.canWrite(row.host)" in _cv2)
+# This used to assert the console hid the field when it could not write. It no longer hides it:
+# an unwritable host now gets the Stop-hook queue or the clipboard instead (section 51). What
+# still must hold is that declining is never silent — every route reports what it did.
+check("and the console picks a real route rather than a dead field",
+      "TerminalWrite.canWrite(row.host) { return .typed }" in _cv2
+      and '"could not deliver"' in _cv2)
 # A literal cannot span lines, so a pasted multi-line answer must not be half-delivered.
 check("control characters are refused before anything is sent",
       "$0.value < 0x20 || $0.value == 0x7F" in _tw)
@@ -2673,16 +2677,30 @@ _cvw = open(os.path.join(REPO, "Sources/AgentIsland/ConsoleView.swift")).read()
 _ih = open(os.path.join(REPO, "hooks/agentisland-input.py")).read()
 _ihs = open(os.path.join(REPO, "scripts/install-hooks.py")).read()
 
-check("a scriptable terminal is still written to directly, not queued",
-      "TerminalWrite.canWrite(row.host)\n            ? TerminalWrite.send(line, to: row.host)" in _cvw)
-check("and one that is not gets the line left for its Stop hook",
-      ": TerminalWrite.queue(line, session: row.agent.sessionId)" in _cvw)
-# An idle agent has no turn left to end, so a queued line would sit there unseen. Saying "queued"
-# when nothing will ever pick it up is worse than saying the session is out of reach.
-check("but only while it is working, because an idle turn never ends",
-      "!TerminalWrite.canWrite(row.host) && row.isWorking && row.agent.vendor == .claude" in _cvw)
-check("and the composer says which of the two it is doing",
-      "lands when it finishes" in _cvw and '"queued" : "sent"' in _cvw)
+# The field was hidden whenever the line could not be delivered outright, which on this machine
+# meant ten of twelve rows: almost every session is idle, and idle is exactly when you want to
+# write to it. It is always live now; only the route changes.
+check("the composer is never hidden — every session has some route",
+      "if true {" in _cvw and "keyboard.badge.ellipsis" not in _cvw)
+check("a scriptable terminal is written to directly, idle or busy",
+      "case .typed:  ok = TerminalWrite.send(line, to: row.host)" in _cvw
+      and "if TerminalWrite.canWrite(row.host) { return .typed }" in _cvw)
+check("one with a turn still running gets the line left for its Stop hook",
+      "case .queued: ok = TerminalWrite.queue(line, session: row.agent.sessionId)" in _cvw)
+# A session parked on a question has not ended its turn either, so Stop is still coming for it.
+check("and a session waiting on a question counts as mid-turn",
+      "row.isWorking || row.waiting { return .queued }" in _cvw)
+# Nothing can reach an idle Warp tab. Saying "queued" there would be a lie.
+# Anchored on where delivery() ROUTES, not on the case body: leaving the .pasted branch in place
+# while routing every idle session to .queued still compiles and says "queued" for a line nothing
+# will ever pick up. That is the exact lie this guards.
+check("an idle one it cannot reach is copied and opened, never silently queued",
+      re.search(r'row\.isWorking \|\| row\.waiting \{ return \.queued \}\s*\n\s*return \.pasted',
+                _cvw) is not None
+      and "NSPasteboard.general.setString(line" in _cvw and "if ok { onJump() }" in _cvw)
+check("and the composer names which of the three it will do, before and after",
+      "lands when it finishes" in _cvw and "opens Warp with it copied" in _cvw
+      and '"queued" : "copied — ⌘V there"' in _cvw)
 
 check("the hook is registered on Stop", '("Stop",              INPUT' in _ihs)
 check("the session id is validated before it becomes a path",
