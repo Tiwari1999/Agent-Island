@@ -109,11 +109,27 @@ struct ConsoleView: View {
         case .typed:  ok = TerminalWrite.send(line, to: row.host)
         case .queued: ok = TerminalWrite.queue(line, session: row.agent.sessionId)
         case .pasted:
-            // Nothing can put this line into an idle Warp tab, so put it one paste away and go
-            // there. Two keystrokes beats retyping it, and it never lands in the wrong window.
+            // Nothing can put this line into an idle Warp tab from outside, so the clipboard
+            // carries it and the keyboard sends it — but only once Warp is verifiably frontmost.
             NSPasteboard.general.clearContents()
             ok = NSPasteboard.general.setString(line, forType: .string)
-            if ok { onJump() }
+            if ok {
+                onJump()
+                if let target = row.host.pasteTarget, Keystroke.trusted {
+                    note = "sending…"
+                    Keystroke.pasteAndReturn(into: target) { posted in
+                        note = posted ? "sent" : "copied — ⌘V there"
+                        Task { try? await Task.sleep(nanoseconds: 1_600_000_000); note = nil }
+                    }
+                    draft = ""
+                    onEndType?()
+                    writing = false
+                    return
+                }
+                // Without Accessibility nothing can be posted, and asking every time would be
+                // nagging — ask once, and meanwhile say plainly what is left to do by hand.
+                Keystroke.requestTrust()
+            }
         }
         note = ok ? (how == .typed ? "sent" : how == .queued ? "queued" : "copied — ⌘V there")
                   : "could not deliver"

@@ -415,7 +415,26 @@ is BUILT when typing starts and takes focus in `.onAppear` — a runloop later, 
 already key. The composer now uses exactly that shape, and the whole row is the click target
 rather than a caret in a dark strip.
 
-`.pasted` exists because saying "queued" for a line nothing will ever pick up is a lie. The suite
+`.pasted` exists because saying "queued" for a line nothing will ever pick up is a lie. It copies
+the line, focuses the tab, and then — this is the part to be careful with — posts ⌘V and Return.
+
+That is the only route left for an idle Warp session, and it was reached only after ruling the
+others out by measurement: no `warp` CLI, no `.sdef` and `NSAppleScriptEnabled` unset, no deeplink
+in the binary that writes to a pane, and TIOCSTI refused by macOS 27. `Keystroke.swift` is
+therefore the most dangerous code here, and is fenced accordingly:
+
+- `HostTerminal.pasteTarget` is **nil for every host with a scripting interface**. The keyboard is
+  never used where AppleScript or tmux can put the line in precisely.
+- Nothing is posted until the target app is verifiably frontmost — polled for up to 1.5s, then
+  checked *again* on the same runloop turn as the post. Either check failing abandons the attempt
+  and leaves the line on the clipboard.
+- Two keystrokes, never the text: posting a string drops characters into a TUI.
+- Accessibility is checked rather than assumed, because CGEvent fails silently without it and the
+  message would look like it had vanished.
+
+The grant is keyed to the code signature, and `install.sh` ad-hoc signs a freshly built binary
+every time — so macOS may ask for Accessibility again after a rebuild. That is expected, not a
+bug. The suite
 guards that by anchoring on where `delivery()` *routes*, not on the case body: an early version of
 the check passed while every idle session was silently routed to `.queued`.
 

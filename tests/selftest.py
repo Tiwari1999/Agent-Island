@@ -2698,7 +2698,8 @@ check("and a session waiting on a question counts as mid-turn",
 check("an idle one it cannot reach is copied and opened, never silently queued",
       re.search(r'row\.isWorking \|\| row\.waiting \{ return \.queued \}\s*\n\s*return \.pasted',
                 _cvw) is not None
-      and "NSPasteboard.general.setString(line" in _cvw and "if ok { onJump() }" in _cvw)
+      and "NSPasteboard.general.setString(line" in _cvw
+      and re.search(r'if ok \{\s*\n\s*onJump\(\)', _cvw) is not None)
 check("and the composer names which of the three it will do, before and after",
       "lands when it finishes" in _cvw and "opens Warp with it copied" in _cvw
       and '"queued" : "copied — ⌘V there"' in _cvw)
@@ -2721,6 +2722,29 @@ check("the whole row starts typing, not just the field",
       ".contentShape(Rectangle())\n            .onTapGesture { if !typing { onBeginType?() } }" in _cvw)
 check("a draft that failed to send is still shown after focus is lost",
       "Text(draft.isEmpty ? delivery(row).placeholder(row.displayName) : draft)" in _cvw)
+
+# Warp has no CLI, no AppleScript dictionary (no .sdef, NSAppleScriptEnabled unset) and no
+# deeplink that writes to a pane, and macOS refuses TIOCSTI. For a session that is not mid-turn
+# the keyboard is all that is left — which is the most dangerous thing in this repo, because two
+# keystrokes aimed at the wrong window go somewhere nobody asked for.
+_ks = open(os.path.join(REPO, "Sources/AgentIsland/Keystroke.swift")).read()
+_ht = open(os.path.join(REPO, "Sources/AgentIsland/HostTerminal.swift")).read()
+check("the keyboard is never used where a real scripting interface exists",
+      "case .tmux, .iterm, .appleTerminal, .kitty, .wezterm, .unknown: return nil" in _ht)
+check("nothing is posted unless the intended app came forward",
+      "waitForFront(bundleID, tries: 15)" in _ks and "guard front else { done(false); return }" in _ks)
+# The poll proves it came forward; this proves it has not gone away again before the post.
+check("and it is checked again on the same turn as the post",
+      re.search(r'guard NSWorkspace\.shared\.frontmostApplication\?\.bundleIdentifier == bundleID,'
+                r'[\s\S]{0,120}?else \{ done\(false\); return \}\s*\n\s*tap\(', _ks) is not None)
+check("only two keystrokes are ever posted, never the text",
+      _ks.count("tap(source, key:") == 2 and "key: 9, command: true" in _ks
+      and "key: 36, command: false" in _ks)
+# Without Accessibility CGEvent silently does nothing, which would read as the message vanishing.
+check("Accessibility is checked, not assumed",
+      "guard trusted else { done(false); return }" in _ks and "AXIsProcessTrusted()" in _ks)
+check("and the console says what is left to do by hand when it is missing",
+      "Keystroke.requestTrust()" in _cvw and '"copied — ⌘V there"' in _cvw)
 
 check("the hook is registered on Stop", '("Stop",              INPUT' in _ihs)
 check("the session id is validated before it becomes a path",

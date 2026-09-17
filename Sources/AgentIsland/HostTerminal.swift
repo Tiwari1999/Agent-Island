@@ -23,6 +23,16 @@ enum HostTerminal: Equatable {
     case unknown
 
     /// Friendly label for the row's chip.
+    /// The app a keystroke would land in, when the island has to fall back to the keyboard
+    /// because this host takes no input any other way. nil means do not post anything.
+    var pasteTarget: String? {
+        switch self {
+        case .warp: return "dev.warp.Warp-Stable"
+        case .degraded(let bundle, _, _), .app(let bundle, _): return bundle
+        case .tmux, .iterm, .appleTerminal, .kitty, .wezterm, .unknown: return nil
+        }
+    }
+
     var name: String {
         switch self {
         case .tmux: return "tmux"
