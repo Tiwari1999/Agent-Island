@@ -26,6 +26,7 @@ HOOK       = _cmd("agentisland-hook.sh")
 PERM       = _cmd("agentisland-permission.sh")
 RULES      = _cmd("agentisland-rules.py")
 QUESTION   = _cmd("agentisland-question.py")
+INPUT      = _cmd("agentisland-input.py")
 STATUSLINE = os.path.join(REPO, "hooks/agentisland-status.sh")   # quoted where it is used
 
 MARK = "agentisland"          # how we recognise our own entries
@@ -162,6 +163,8 @@ claude_plan += [
     ("PermissionRequest", RULES,    {"first": True, "timeout": 10}),   # rules run before we ask
     ("PermissionRequest", PERM,     {"timeout": 30}),
     ("PreToolUse",        QUESTION, {"matcher": "AskUserQuestion", "timeout": 310}),
+    # Answers a reply typed in the notch for a terminal that takes no input of its own.
+    ("Stop",              INPUT,    {"timeout": 5}),
 ]
 install("Claude Code", os.path.expanduser("~/.claude/settings.json"),
         claude_plan, statusline=True)

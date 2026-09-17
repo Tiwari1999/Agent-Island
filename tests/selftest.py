@@ -355,8 +355,13 @@ check("pure logic handles every shape that has broken a row",
 # Codex publishes its own window and per-turn usage; reading the cumulative total instead
 # pinned every row at the compaction cliff, and reading the wrong nesting level showed nothing.
 cx=[r["context"] for r in rows if r["vendor"]=="codex"]
-check("codex rows carry a context reading", any(c>=0 for c in cx),
-      f"{sum(1 for c in cx if c>=0)}/{len(cx)} rows")
+# Same precondition as the discovery check below: with no codex row on the roster this asserts
+# the machine has run codex lately, not that the reading is parsed correctly.
+if cx:
+    check("codex rows carry a context reading", any(c>=0 for c in cx),
+          f"{sum(1 for c in cx if c>=0)}/{len(cx)} rows")
+else:
+    print("  SKIP  no codex row on the roster, so there is no reading to check")
 check("no codex row is pinned at the compaction cliff", not [c for c in cx if c>=99],
       f"max {max(cx) if cx else 0}%")
 
@@ -1025,7 +1030,11 @@ if os.path.isdir(codex_dir):
     import glob as _g
     n=len([f for f in _g.glob(codex_dir+"/**/rollout-*.jsonl",recursive=True)
            if time.time()-os.path.getmtime(f) < 10*86400])
-    check("codex sessions are discoverable on disk", n>0, f"{n} in window")
+    if n:
+        check("codex sessions are discoverable on disk", n>0, f"{n} in window")
+    else:
+        print(f"  SKIP  no codex session within 10 days ({len(_g.glob(codex_dir+chr(47)+chr(42)*2+chr(47)+'rollout-*.jsonl',recursive=True))} older)."
+              " Nothing to discover, so nothing to check.")
 cur=os.path.expanduser("~/.cursor/chats")
 if os.path.isdir(cur):
     import glob as _g
@@ -1187,7 +1196,7 @@ _spc = [h["command"] for _e, _i in
         json.load(open(_sph + "/.claude/settings.json")).get("hooks", {}).items()
         for _it in _i for h in _it.get("hooks", []) if "agentisland" in h.get("command", "")]
 check("a repo path with spaces installs and re-installs cleanly",
-      len(_spc) == 12 and not any(_sp1 in c for c in _spc), f"{len(_spc)} entries")
+      len(_spc) == 13 and not any(_sp1 in c for c in _spc), f"{len(_spc)} entries")
 
 
 # A session id becomes a filename; a path inside it escaped the status directory.
@@ -2501,7 +2510,7 @@ check("the script runs in-process so the permission lands on us",
 check("a host with no scripting interface declines rather than pretending",
       "case .warp, .app, .degraded, .unknown: return false" in _tw)
 check("and the console says so instead of showing a dead field",
-      "takes no input from here" in _cv2 and "TerminalWrite.canWrite(row.host)" in _cv2)
+      "takes no input while idle" in _cv2 and "TerminalWrite.canWrite(row.host)" in _cv2)
 # A literal cannot span lines, so a pasted multi-line answer must not be half-delivered.
 check("control characters are refused before anything is sent",
       "$0.value < 0x20 || $0.value == 0x7F" in _tw)
@@ -2653,6 +2662,38 @@ check("a question logs every step it takes, so a lost one says where it went",
       and 'question \\(q.id): handed to the chat' in _qi)
 check("and both of ask()'s silent returns now say why",
       'dropped, island is snoozing' in _qi and 'queued behind' in _qi)
+
+print("\n=== 51. replying from the notch ===")
+# iTerm, Terminal, tmux, kitty and WezTerm each publish a way to put a line into a running
+# session. Warp publishes none, and macOS refuses TIOCSTI (verified: "Operation not permitted"),
+# so the only remaining route into a Warp session is Claude Code itself: a Stop hook may answer
+# {"decision":"block","reason":...}, which keeps the turn going and hands the reason to the model.
+_tw = open(os.path.join(REPO, "Sources/AgentIsland/TerminalWrite.swift")).read()
+_cvw = open(os.path.join(REPO, "Sources/AgentIsland/ConsoleView.swift")).read()
+_ih = open(os.path.join(REPO, "hooks/agentisland-input.py")).read()
+_ihs = open(os.path.join(REPO, "scripts/install-hooks.py")).read()
+
+check("a scriptable terminal is still written to directly, not queued",
+      "TerminalWrite.canWrite(row.host)\n            ? TerminalWrite.send(line, to: row.host)" in _cvw)
+check("and one that is not gets the line left for its Stop hook",
+      ": TerminalWrite.queue(line, session: row.agent.sessionId)" in _cvw)
+# An idle agent has no turn left to end, so a queued line would sit there unseen. Saying "queued"
+# when nothing will ever pick it up is worse than saying the session is out of reach.
+check("but only while it is working, because an idle turn never ends",
+      "!TerminalWrite.canWrite(row.host) && row.isWorking && row.agent.vendor == .claude" in _cvw)
+check("and the composer says which of the two it is doing",
+      "lands when it finishes" in _cvw and '"queued" : "sent"' in _cvw)
+
+check("the hook is registered on Stop", '("Stop",              INPUT' in _ihs)
+check("the session id is validated before it becomes a path",
+      'all(c.isalnum() or c in "-_" for c in session)' in _ih)
+check("and so is the one the island writes", "Approvals.validID(session)" in _tw)
+# A message delivered twice is worse than one lost: the agent would act on it again every turn.
+check("the queued line is removed before it is acted on",
+      _ih.index("os.remove(path)") < _ih.index('print(json.dumps('))
+check("nothing is printed when there is nothing queued, so the agent stops as usual",
+      'if message:' in _ih and _ih.count("sys.exit(0)") >= 1)
+check("the queue is private to its owner", "0o700" in _tw and "0o600" in _tw)
 
 print("\n=== 50. explain the question ===")
 # An ask can be unreadable to the person being asked, and the agent that wrote it is blocked

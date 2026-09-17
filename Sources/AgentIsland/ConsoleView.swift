@@ -44,10 +44,11 @@ struct ConsoleView: View {
         if let row {
             Rectangle().fill(Theme.hairline).frame(height: 0.7)
             HStack(spacing: 7) {
-                if TerminalWrite.canWrite(row.host) {
+                if TerminalWrite.canWrite(row.host) || queues(row) {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 9, weight: .bold)).foregroundColor(Theme.working)
-                    TextField("reply to \(row.displayName)", text: $draft)
+                    TextField(queues(row) ? "steer \(row.displayName) — lands when it finishes"
+                                          : "reply to \(row.displayName)", text: $draft)
                         .textFieldStyle(.plain)
                         .font(Theme.mono(Type.small)).foregroundColor(Theme.text)
                         .focused($writing)
@@ -59,8 +60,9 @@ struct ConsoleView: View {
                 } else {
                     Image(systemName: "keyboard.badge.ellipsis")
                         .font(.system(size: 9)).foregroundColor(Theme.faint)
-                    // Warp publishes no scripting interface, so there is nothing to write to.
-                    Text("\(row.host.name) takes no input from here — open in terminal")
+                    // Warp publishes no scripting interface and macOS refuses TIOCSTI, so an
+                    // idle session there is genuinely out of reach until it is working again.
+                    Text("\(row.host.name) takes no input while idle — open in terminal")
                         .font(Theme.mono(Type.micro)).foregroundColor(Theme.faint)
                 }
             }
@@ -69,11 +71,19 @@ struct ConsoleView: View {
         }
     }
 
+    /// A terminal with no scripting interface can still be reached through Claude Code itself,
+    /// but only while there is a turn left to end.
+    private func queues(_ row: AgentRow) -> Bool {
+        !TerminalWrite.canWrite(row.host) && row.isWorking && row.agent.vendor == .claude
+    }
+
     private func send(to row: AgentRow) {
         let line = draft
         guard !line.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        let ok = TerminalWrite.send(line, to: row.host)
-        note = ok ? "sent" : "could not deliver"
+        let ok = TerminalWrite.canWrite(row.host)
+            ? TerminalWrite.send(line, to: row.host)
+            : TerminalWrite.queue(line, session: row.agent.sessionId)
+        note = ok ? (queues(row) ? "queued" : "sent") : "could not deliver"
         if ok { draft = "" }
         // Hand focus back, or the next keystroke anywhere lands in this field.
         onEndType?()

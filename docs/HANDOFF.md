@@ -380,6 +380,30 @@ still clamps to the same cap.
 `--explain <session> [cwd]` runs the whole path from the CLI, which is how it is verified without
 anyone clicking. The suite's real call is opt-in (`AGENTISLAND_EXPLAIN_E2E=1`) because it is billed.
 
+## Replying to a Warp session from the notch (2026-09-17)
+
+The console's composer wrote into the session's terminal through that terminal's own scripting
+interface. Warp publishes none, so the field was replaced by "takes no input from here". Two
+other routes were tried and ruled out, both measured:
+
+- **TIOCSTI** — inject characters into the session's tty from outside. macOS 27 answers
+  `Operation not permitted` even for the same user on a pty we created. Dead end.
+- **A `warp://` deeplink** — Warp's binary carries no action that puts text into an existing
+  pane (`action/new_tab`, `tab_config`, `launch` are the ones that exist and the island uses).
+
+What works is Claude Code itself. A `Stop` hook may answer `{"decision":"block","reason":...}`,
+which keeps the turn going and hands the reason to the model. `hooks/agentisland-input.py` reads
+the line the island left in `/tmp/agentisland-input/<session>` and does exactly that. Verified
+end to end: a headless turn told to reply `FIRST` replied with the queued message instead.
+
+The limit is inherent and the UI states it: **Stop only fires when a turn ends.** An agent that
+is already idle has no turn left, so the composer offers this only while the session is working
+and otherwise still says to open the terminal. A scriptable terminal keeps the direct path, which
+works idle or busy.
+
+The queued line is deleted before it is printed, never after: delivered twice is worse than lost,
+and a crash in between would otherwise repeat it on every turn for ever.
+
 ## Working rules that bit us (obey them)
 
 - **Never drive synthetic clicks/hover to verify.** It steals the pointer and raises apps on the

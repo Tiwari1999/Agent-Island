@@ -3,6 +3,25 @@ import AppKit
 /// Sending a line to the session's own terminal. Not synthetic typing: CGEvents drop characters
 /// into a TUI and a timed ⌘V lands on whatever holds focus, so each terminal delivers its own.
 enum TerminalWrite {
+    /// Where a line waits for a session whose terminal takes no input. `agentisland-input.py`
+    /// is a Stop hook: it picks the line up the moment the agent finishes its turn and hands it
+    /// back as the reason to keep going.
+    static let queueDir = "/tmp/agentisland-input"
+
+    /// Leave a line for the Stop hook. Only worth offering while the agent is working — an idle
+    /// one has no turn left to end, so the message would sit here unseen.
+    @discardableResult
+    static func queue(_ line: String, session: String) -> Bool {
+        let text = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, text.count <= 4096, Approvals.validID(session) else { return false }
+        let fm = FileManager.default
+        try? fm.createDirectory(atPath: queueDir, withIntermediateDirectories: true,
+                                attributes: [.posixPermissions: 0o700])
+        let path = (queueDir as NSString).appendingPathComponent(session)
+        return fm.createFile(atPath: path, contents: Data(text.utf8),
+                             attributes: [.posixPermissions: 0o600])
+    }
+
     /// Whether this host can be written to at all — Warp publishes no scripting interface.
     static func canWrite(_ host: HostTerminal) -> Bool {
         switch host {
