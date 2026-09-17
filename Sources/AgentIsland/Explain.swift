@@ -118,9 +118,13 @@ enum Explain {
         OPTIONS:
         \(options.joined(separator: "\n"))
 
-        Explain in ONE paragraph of at most 60 words, plain language: what is actually being
-        decided, and what the options mean in practice. No preamble, no markdown, no bullet
-        characters, no headings, no blank lines.
+        Reply in plain language, in exactly this shape and nothing else:
+
+        First line: what is actually being decided, at most 20 words. No number in front of it.
+        Then ONE line per option, in the same order, each starting with its number and a dot:
+        what picking it actually means and when you would want it, at most 20 words.
+
+        No preamble, no markdown, no bullet characters, no headings, no blank lines.
         """
     }
 }

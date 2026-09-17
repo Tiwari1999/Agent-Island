@@ -241,6 +241,9 @@ final class HookStream: ObservableObject {
                         Date(timeIntervalSince1970: $0.doubleValue)
                     } ?? Date().addingTimeInterval(45),
                     cwd: obj["cwd"] as? String))
+                // Paired with "on screen" in Island.ask: between them, a question that never
+                // reaches the notch says which half lost it.
+                Diagnostics.log("question \(qid): parsed from the spool")
                 continue
             }
 

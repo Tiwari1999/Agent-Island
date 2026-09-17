@@ -850,7 +850,8 @@ struct QuestionCard: View {
                 Text(p).font(Theme.label(Type.title)).foregroundColor(Theme.text).lineLimit(1)
                 Text("·").font(Theme.label(Type.title)).foregroundColor(Theme.faint)
             }
-            Text(agentName).font(Theme.label(Type.title)).foregroundColor(Theme.muted).lineLimit(1)
+            Text(agentName).font(Theme.label(Type.title)).foregroundColor(Theme.muted)
+                .lineLimit(1).truncationMode(.tail).layoutPriority(-1)
             if !item.header.isEmpty {
                 Text(item.header)
                     .font(Theme.mono(Type.micro)).foregroundColor(Theme.waiting)
@@ -870,6 +871,7 @@ struct QuestionCard: View {
                 .padding(.horizontal, 6).padding(.vertical, 2)
                 .background(Capsule().stroke(explaining ? Theme.hairline
                                              : Theme.amber.opacity(0.4)))
+                .fixedSize()
                 .contentShape(Capsule())
                 .onTapGesture { if !explaining { onExplain() } }
             }

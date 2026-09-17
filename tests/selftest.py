@@ -2420,8 +2420,10 @@ check("preferences are written as they change, not on an Apply",
 # Nothing else watches the clock, so quiet would otherwise outlast its own deadline.
 check("quiet ends on its own",
       "private func armExpiry()" in _st and "Task { @MainActor in self?.snoozedUntil = nil }" in _st)
+# Counted on the condition, not on the whole one-line statement: one of the three now logs why
+# it dropped the thing, and a guard with a body is still a guard.
 check("quiet stops the island putting anything over your screen",
-      _iv10.count("guard !Prefs.shared.snoozing else { return }") == 3)
+      _iv10.count("guard !Prefs.shared.snoozing else {") == 3)
 # Losing the notification too would mean missing things silently, which is not what quiet means.
 check("but system notifications still arrive",
       "Notifier.notify" in _iv10)
@@ -2640,6 +2642,17 @@ check("and the flag is cleared when the panel goes away",
       "stickyOpen = false" in _iv12.split("private func tearDownPanel")[1][:400])
 check("coming back from the console is a click too, so it is sticky as well",
       "consoleFromPanel = false\n        expand(sticky: true)" in _iv12)
+
+# A question reached the chat and never the notch, and nothing anywhere recorded which half
+# lost it: both silent returns in ask() returned without a trace. Every step now leaves a line.
+_qi = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_qh = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()
+check("a question logs every step it takes, so a lost one says where it went",
+      'question \\(qid): parsed from the spool' in _qh
+      and 'question \\(question.id): on screen' in _qi
+      and 'question \\(q.id): handed to the chat' in _qi)
+check("and both of ask()'s silent returns now say why",
+      'dropped, island is snoozing' in _qi and 'queued behind' in _qi)
 
 print("\n=== 50. explain the question ===")
 # An ask can be unreadable to the person being asked, and the agent that wrote it is blocked

@@ -396,7 +396,8 @@ final class Island: NSObject, ObservableObject {
         let cap = Self.maxSize.height - notchHeight - Self.notchClearance - 6
         // An explanation is five lines and a rule; it scrolls with the options, so this only has
         // to make room for it, never to measure it exactly.
-        let extra: CGFloat = explaining.contains(item.id) || explanations[item.id] != nil ? 84 : 0
+        let shown = explaining.contains(item.id) || explanations[item.id] != nil
+        let extra: CGFloat = shown ? 42 + CGFloat(item.options.prefix(4).count) * 17 : 0
         return CGSize(width: w, height: min(item.cardHeight(width: w) + extra, max(120, cap)))
     }
 
@@ -676,7 +677,10 @@ final class Island: NSObject, ObservableObject {
 
     /// A question outranks everything: an agent is blocked until it is answered.
     func ask(_ question: Question) {
-        guard !Prefs.shared.snoozing else { return }
+        guard !Prefs.shared.snoozing else {
+            Diagnostics.log("question \(question.id): dropped, island is snoozing")
+            return
+        }
         // A question may take over from an approval, which returns to the queue rather than
         // being dropped; another question waits its turn.
         if case .approval(let a) = state, a.deadline > Date() {
@@ -691,6 +695,8 @@ final class Island: NSObject, ObservableObject {
                 if !queuedQuestions.contains(where: { $0.id == question.id }) {
                     queuedQuestions.append(question)
                 }
+                Diagnostics.log("question \(question.id): queued behind \(q.id), "
+                                + "which is on screen and not stale")
                 return
             }
         }
@@ -710,6 +716,7 @@ final class Island: NSObject, ObservableObject {
         // question's options" rather than a running index across the whole ask.
         bindKeys(question, step: questionStep)
         withAnimation(Motion.shell) { state = .question(question) }
+        Diagnostics.log("question \(question.id): on screen")
         // Keep the hook waiting while the card is on screen: it used to expire underneath the
         // reader after 45 seconds, taking the only way to answer with it.
         holdQuestion(question)
@@ -831,6 +838,7 @@ final class Island: NSObject, ObservableObject {
     }
 
     func handToChat(_ q: Question) {
+        Diagnostics.log("question \(q.id): handed to the chat")
         Approvals.skip(q.id)
         handedOver.insert(q.id)
         releaseQuestion(q.id)
