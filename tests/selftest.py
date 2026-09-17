@@ -2612,6 +2612,28 @@ check("one definition, so the opener and the keep-open agree",
 check("hover intent sits in the researched band",
       "hoverDwell: TimeInterval = 0.35" in _iv12)
 
+# Clicking the menu bar icon opened the panel and it vanished again ~180ms later: the expanded
+# poll runs every 60ms and collapses after 3 ticks with the pointer away from the notch — which
+# is exactly where the pointer is when you just clicked the menu bar. Distance may dismiss a
+# panel you hovered open; it must not dismiss one you clicked open.
+_app = open(os.path.join(REPO, "Sources/AgentIsland/App.swift")).read()
+check("the menu bar item toggles the island",
+      "#selector(toggle)" in _app and "island.toggle()" in _app)
+check("and a toggled-open panel is sticky",
+      "state == .expanded ? collapse() : expand(sticky: true)" in _iv12)
+check("so the distance poll leaves it alone",
+      re.search(r'case \.expanded:\s*\n\s*if stickyOpen \{ return \}', _iv12) is not None)
+check("but hover still opens it non-sticky, so walking away still closes it",
+      re.search(r'guard let self, self\.state == \.collapsed else \{ return \}\s*\n\s*'
+                r'self\.expand\(\)', _iv12) is not None)
+check("a click outside still dismisses it — sticky is not unclosable",
+      "if self.panelRect.contains(m) { return event }" in _iv12
+      and "self.collapse()" in _iv12)
+check("and the flag is cleared when the panel goes away",
+      "stickyOpen = false" in _iv12.split("private func tearDownPanel")[1][:400])
+check("coming back from the console is a click too, so it is sticky as well",
+      "consoleFromPanel = false\n        expand(sticky: true)" in _iv12)
+
 print("\n=== 48. the island survives a restart ===")
 # It was not running after a reboot, and nothing had ever been set up to start it: no LaunchAgent,
 # not in Login Items. A notch app nobody relaunches by hand is a notch app you stop having.

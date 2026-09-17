@@ -97,6 +97,10 @@ final class Island: NSObject, ObservableObject {
     /// still under that band and opened on the way past to something else, so it sits in it now.
     private static let hoverDwell: TimeInterval = 0.35
     private var outsideTicks = 0
+    /// Opened by a click (menu bar, console back) rather than by hover. Pointer distance
+    /// dismisses a panel you hovered open and walked away from; a clicked-open one is deliberate
+    /// and its pointer is wherever the click was, so distance must not close it.
+    private var stickyOpen = false
     private let store: AgentStore
     private let status: StatusStore
 
@@ -479,6 +483,7 @@ final class Island: NSObject, ObservableObject {
             // won. The poll now only keeps the island on the right display.
             return
         case .expanded:
+            if stickyOpen { return }   // dismissed by a click outside or Esc, never by distance
             if panelRect.union(hotRect).insetBy(dx: -8, dy: -8).contains(mouse) {
                 outsideTicks = 0
                 return
@@ -488,8 +493,9 @@ final class Island: NSObject, ObservableObject {
         }
     }
 
-    func expand() {
+    func expand(sticky: Bool = false) {
         guard state != .expanded else { return }
+        stickyOpen = sticky
         if let v = window?.contentView { frames.start(on: v) }
         withAnimation(Motion.shell) { state = .expanded }
         store.setPanelVisible(true)
@@ -534,6 +540,7 @@ final class Island: NSObject, ObservableObject {
         dwell?.cancel()
         removeClickMonitors()
         outsideTicks = 0
+        stickyOpen = false
         store.setPanelVisible(false)
     }
 
@@ -552,7 +559,7 @@ final class Island: NSObject, ObservableObject {
         }
     }
 
-    func toggle() { state == .expanded ? collapse() : expand() }
+    func toggle() { state == .expanded ? collapse() : expand(sticky: true) }
 
     /// Drop a toast below the notch, hold, spring back. Never interrupts an open panel.
     func peek(_ payload: PeekPayload) {
@@ -803,7 +810,7 @@ final class Island: NSObject, ObservableObject {
         guard case .console = state else { return }
         stopWatchingClicks()
         consoleFromPanel = false
-        expand()
+        expand(sticky: true)
     }
 
     /// The session a bare summon opens: whoever needs you, else whoever is working.
