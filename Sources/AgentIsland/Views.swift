@@ -783,6 +783,10 @@ struct QuestionCard: View {
     let onStep: (Int) -> Void
     /// Leave the card and land in the session's own terminal, question still pending.
     let onJump: () -> Void
+    /// A plain-language read of this question, once it has been asked for.
+    let explanation: String?
+    let explaining: Bool
+    let onExplain: () -> Void
     @State private var hot: String?
     @FocusState private var writing: Bool
 
@@ -817,9 +821,12 @@ struct QuestionCard: View {
             // the bottom was the free-text box and the submit button — so a question you could
             // read was one you could not answer. The controls stay put; the reading scrolls.
             ScrollView(.vertical, showsIndicators: true) {
-                HStack(alignment: .top, spacing: 0) {
-                    options
-                    if showsPreview { preview }
+                VStack(alignment: .leading, spacing: 8) {
+                    if explaining || explanation != nil { explainer }
+                    HStack(alignment: .top, spacing: 0) {
+                        options
+                        if showsPreview { preview }
+                    }
                 }
             }
             if !handedOver { other.padding(.horizontal, 16) }
@@ -851,6 +858,21 @@ struct QuestionCard: View {
                     .background(Capsule().fill(Theme.waiting.opacity(0.14)))
             }
             Spacer(minLength: 6)
+            // Not every ask is legible to the person being asked. This costs a headless call of
+            // its own, so it is a button rather than something the card does on its own.
+            if explanation == nil {
+                HStack(spacing: 3) {
+                    Image(systemName: explaining ? "hourglass" : "lightbulb")
+                        .font(.system(size: 9, weight: .bold))
+                    Text(explaining ? "explaining…" : "explain").font(Theme.mono(Type.micro))
+                }
+                .foregroundColor(explaining ? Theme.faint : Theme.amber)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(Capsule().stroke(explaining ? Theme.hairline
+                                             : Theme.amber.opacity(0.4)))
+                .contentShape(Capsule())
+                .onTapGesture { if !explaining { onExplain() } }
+            }
             if !handedOver {
                 // Time left before the question hands to the chat. Any interaction resets it;
                 // let it run out and the card becomes a read-only copy of the chat picker.
@@ -892,6 +914,27 @@ struct QuestionCard: View {
                 }
             }
         }
+        .padding(.horizontal, 16)
+    }
+
+    /// What the question means, in words that do not assume the codebase. Sits above the
+    /// options and inside the same scroll, so it can be long without costing anyone a control.
+    private var explainer: some View {
+        HStack(alignment: .top, spacing: 9) {
+            Image(systemName: "lightbulb")
+                .font(.system(size: 10)).foregroundColor(Theme.amber)
+                .frame(width: 15, height: 15)
+            if let explanation {
+                Text(explanation)
+                    .font(Theme.mono(Type.small)).foregroundColor(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("reading the question…")
+                    .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 9).padding(.vertical, 7)
         .padding(.horizontal, 16)
     }
 

@@ -67,6 +67,10 @@ final class Island: NSObject, ObservableObject {
     /// Questions whose hook has gone: Claude is asking in the chat now, and the card stays
     /// as a read-only copy so the question is visible in both places rather than vanishing.
     @Published var handedOver: Set<String> = []
+    /// A plain-language read of a question, keyed by the question's own text. Asked for by hand,
+    /// kept for as long as the card is up: the call costs about ten seconds.
+    @Published var explanations: [String: String] = [:]
+    @Published var explaining: Set<String> = []
     private let frames = FrameMeter()
     @Published var revealed = false
     /// The collapsed bar has gone quiet and stepped out of the way.
@@ -390,7 +394,10 @@ final class Island: NSObject, ObservableObject {
         // cap taken from the SCREEN described a card twice the size of the one on it, and this
         // size is also the click region: the island swallowed presses far below the card.
         let cap = Self.maxSize.height - notchHeight - Self.notchClearance - 6
-        return CGSize(width: w, height: min(item.cardHeight(width: w), max(120, cap)))
+        // An explanation is five lines and a rule; it scrolls with the options, so this only has
+        // to make room for it, never to measure it exactly.
+        let extra: CGFloat = explaining.contains(item.id) || explanations[item.id] != nil ? 84 : 0
+        return CGSize(width: w, height: min(item.cardHeight(width: w) + extra, max(120, cap)))
     }
 
     private var consoleRect: NSRect {
@@ -695,6 +702,7 @@ final class Island: NSObject, ObservableObject {
         if answeringId != question.id {
             answeringId = question.id
             questionStep = 0; picks = [:]; typed = [:]
+            explanations = [:]; explaining = []
             graceBase = Date()
         }
         endTyping()
@@ -834,7 +842,8 @@ final class Island: NSObject, ObservableObject {
     private func releaseQuestion(_ id: String) {
         guard heldQuestion == id else { return }
         heldQuestion = nil
-        if answeringId == id { answeringId = nil; picks = [:]; typed = [:]; questionStep = 0 }
+        if answeringId == id { answeringId = nil; picks = [:]; typed = [:]; questionStep = 0
+                               explanations = [:]; explaining = [] }
         expiryWork?.cancel(); expiryWork = nil
     }
 
@@ -878,6 +887,24 @@ final class Island: NSObject, ObservableObject {
     func markInteraction(_ id: String) {
         graceBase = Date()
         Approvals.touch(id)
+    }
+
+    /// Explain the question on screen. The call takes about ten seconds, so it marks an
+    /// interaction at both ends — the hook's grace is 60s of idle, and waiting for an
+    /// explanation is not idling.
+    func explain(_ q: Question, step: Int) {
+        guard step < q.items.count else { return }
+        let item = q.items[step]
+        markInteraction(q.id)
+        guard explanations[item.id] == nil, !explaining.contains(item.id) else { return }
+        explaining.insert(item.id)
+        Explain.run(item: item, session: q.session, cwd: q.cwd) { [weak self] text in
+            guard let self else { return }
+            self.explaining.remove(item.id)
+            self.explanations[item.id] = text
+            // 45s later this ask may be gone and another one up; its grace is not ours to slide.
+            if case .question(let live) = self.state, live.id == q.id { self.markInteraction(q.id) }
+        }
     }
 
     func pick(_ question: Question, step: Int, option: String) {
@@ -1138,7 +1165,12 @@ private struct RootView: View {
                             if let row = store.rows.first(where: { $0.agent.sessionId == q.session }) {
                                 store.jumpToTerminal(row)
                             }
-                        })
+                        },
+                        explanation: island.questionItem(q).flatMap {
+                            island.explanations[$0.id] },
+                        explaining: island.questionItem(q).map {
+                            island.explaining.contains($0.id) } ?? false,
+                        onExplain: { island.explain(q, step: island.questionStep) })
                         .frame(maxHeight: .infinity, alignment: .bottom)
                         .padding(.bottom, 6)
                 case .console(let sid):

@@ -81,6 +81,26 @@ struct AgentIslandApp {
             }
             exit(0)
         }
+        // Run the explain button's whole path for real — prompt, headless call, sweep — so it
+        // can be measured and asserted on without anyone clicking a card.
+        if let i = CommandLine.arguments.firstIndex(of: "--explain"),
+           let session = CommandLine.arguments.dropFirst(i + 1).first {
+            let cwd = CommandLine.arguments.dropFirst(i + 2).first
+            let item = QuestionItem(
+                header: "Approach", text: "How should the card handle options that overflow?",
+                multi: false,
+                options: [QuestionOption(label: "Scroll the options, pin the controls",
+                                         detail: "header and footer stay fixed", preview: ""),
+                          QuestionOption(label: "Grow the card and scroll the panel",
+                                         detail: "one scroll region for everything", preview: "")])
+            let start = Date()
+            Explain.run(item: item, session: session, cwd: cwd) { text in
+                print(String(format: "took %.1fs", Date().timeIntervalSince(start)))
+                print(text)
+                exit(text.hasPrefix("Could not reach") ? 1 : 0)
+            }
+            RunLoop.main.run()
+        }
         // Synchronous probe of one remote, for the suite: async polling can't be asserted on.
         if let i = CommandLine.arguments.firstIndex(of: "--probe-remote"),
            let host = CommandLine.arguments.dropFirst(i + 1).first {

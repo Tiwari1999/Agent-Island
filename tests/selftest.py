@@ -574,8 +574,15 @@ spawn_sites=[l for l in blob2.splitlines() if "Shell.runSync" in l or "Shell.run
 # that shares a directory, whose only correct bind is a live hook lost on relaunch. It is not a
 # free refresh spawn — it is gated on an unbound session existing and throttled, so steady state
 # (all bound) stays at zero, which the runtime "a refresh spawns zero" check above still enforces.
+# The 8th is the explain button's headless `claude -p`: a click, never a poll.
 check("every remaining spawn site is user-action or the gated bind oracle",
-      len(spawn_sites) <= 7, f"{len(spawn_sites)} sites")
+      len(spawn_sites) <= 8, f"{len(spawn_sites)} sites")
+check("and the new one is the explain button, which only a click reaches",
+      any("Shell.run(Shell.claude," in l for l in spawn_sites)
+      and "Shell.run(Shell.claude," in open(
+          os.path.join(REPO, "Sources/AgentIsland/Explain.swift")).read()
+      and "onTapGesture { if !explaining { onExplain() } }" in open(
+          os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read())
 _ca=open(os.path.join(REPO,"Sources/AgentIsland/CursorSource.swift")).read()
 _as_ca=open(os.path.join(REPO,"Sources/AgentIsland/AgentStore.swift")).read()
 check("the bind oracle seeds once per launch, only when a session is unbound",
@@ -2633,6 +2640,87 @@ check("and the flag is cleared when the panel goes away",
       "stickyOpen = false" in _iv12.split("private func tearDownPanel")[1][:400])
 check("coming back from the console is a click too, so it is sticky as well",
       "consoleFromPanel = false\n        expand(sticky: true)" in _iv12)
+
+print("\n=== 50. explain the question ===")
+# An ask can be unreadable to the person being asked, and the agent that wrote it is blocked
+# inside its own hook and cannot be asked anything. A separate headless call can.
+_ex = open(os.path.join(REPO, "Sources/AgentIsland/Explain.swift")).read()
+_exv = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
+_exi = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_exs = open(os.path.join(REPO, "Sources/AgentIsland/Shell.swift")).read()
+_exh = open(os.path.join(REPO, "hooks/agentisland-hook.sh")).read()
+
+check("the chip asks for an explanation, and not twice at once",
+      "onTapGesture { if !explaining { onExplain() } }" in _exv)
+# The card already clipped its own submit button once. The explanation goes INSIDE the scroll,
+# above the options, so nothing fixed can be pushed off the bottom by it.
+check("the explanation scrolls with the options, so no control is pushed off the card",
+      re.search(r'ScrollView\(\.vertical, showsIndicators: true\) \{\s*\n\s*'
+                r'VStack\(alignment: \.leading, spacing: 8\) \{\s*\n\s*'
+                r'if explaining \|\| explanation != nil \{ explainer \}', _exv) is not None)
+check("and the card is allowed to grow for it, still under the same cap",
+      "min(item.cardHeight(width: w) + extra, max(120, cap))" in _exi)
+
+# ~3s of the call was the user's nine MCP servers booting for a call that uses no tools, and
+# another 3s was the CLI waiting on a stdin that never arrives.
+check("the call runs with MCP off", '"--strict-mcp-config", "--mcp-config", config' in _ex)
+check("and with stdin closed", "task.standardInput = FileHandle.nullDevice" in _exs)
+check("it runs in its own directory, not the island's",
+      'static let dir = "/tmp/agentisland-explain"' in _ex and "cwd: dir) { out, code in" in _ex)
+# Each call writes a ~50KB transcript and four lifecycle events. Neither belongs in the island.
+check("the throwaway transcript is swept", "sweep()" in _ex and "private static func sweep()" in _ex)
+# A bash substring match on the whole hook line dropped any real event whose payload merely
+# MENTIONED the path — editing Explain.swift was enough. The decoded cwd is the only honest test.
+_exhs = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()
+check("and its hook events are dropped on the decoded cwd, not on a substring of the line",
+      '(payload["cwd"] as? String).map(Explain.isOwn) ?? false { continue }' in _exhs
+      and "agentisland-explain" not in _exh)
+check("and /private/tmp counts as the same directory, which is what a hook reports",
+      'cwd == dir || cwd == "/private" + dir' in _ex)
+# One 45s timeout would otherwise leave that question permanently answered with the failure.
+check("a failure is never cached", "if text != unavailable { lock.lock()" in _ex)
+# Two explains in flight: the first to finish must not delete the transcript the second is writing.
+check("the transcript sweep waits for the last call in flight",
+      "inFlight -= 1; let idle = inFlight <= 0" in _ex and "if idle { sweep() }" in _ex)
+# A callback can land 45s late, by which time another ask may be on screen.
+check("a late callback does not slide a different question's grace",
+      "if case .question(let live) = self.state, live.id == q.id { self.markInteraction(q.id) }"
+      in _exi)
+check("and the in-flight mark is cleared with the ask, so the chip cannot stick",
+      _exi.count("explaining = []") == 2)
+
+# The hook's grace is 60s of IDLE. A 10-18s call is not idling, and letting it elapse would hand
+# the question to the chat while the user was waiting for help reading it.
+check("the grace is marked at both ends of the call",
+      _exi.split("func explain(")[1][:700].count("markInteraction(q.id)") == 2)
+check("the same question is only ever asked once",
+      "if let hit = cached(item.id) { done(hit); return }" in _ex)
+# Shell.run has no deadline, so a hung CLI would leave the chip saying "explaining…" forever.
+check("a deadline releases the card if the call never returns",
+      "DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { finish(unavailable) }" in _ex)
+check("and only one of the call and the deadline can answer",
+      "guard settled.claim() else { return }" in _ex)
+check("the explanation is dropped with the ask that carried it",
+      _exi.count("explanations = [:]") == 2)
+
+# Opt-in: it is a real ~14s billed call. Never on by default.
+if os.environ.get("AGENTISLAND_EXPLAIN_E2E") == "1":
+    _sid = next((r.get("sessionId") for r in json.load(open("/tmp/agentisland.rows.json"))
+                 if r.get("vendor") == "claude"), None)
+    _t0 = time.time()
+    _r = subprocess.run([os.path.join(REPO, ".build/release/AgentIsland"), "--explain", _sid or ""],
+                        capture_output=True, text=True, timeout=90)
+    check("a real explain call comes back with prose", _r.returncode == 0 and len(_r.stdout) > 80,
+          _r.stdout.strip()[:70])
+    check("and it took under 30s", time.time() - _t0 < 30, f"{time.time()-_t0:.0f}s")
+    # There is deliberately no "and no row appeared" check here. Removing the filter entirely
+    # was tried and the manifest still showed no row: the throwaway session ends before any
+    # refresh sees it, so such a check passes either way. What the filter actually saves is a
+    # process-tree walk per click and a possible flicker mid-call, neither of which this suite
+    # can observe from outside. The source check above is the one with teeth.
+else:
+    print("  SKIP  the real explain call (a billed ~14s headless agent)."
+          " Set AGENTISLAND_EXPLAIN_E2E=1 to run it.")
 
 print("\n=== 48. the island survives a restart ===")
 # It was not running after a reboot, and nothing had ever been set up to start it: no LaunchAgent,

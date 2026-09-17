@@ -244,6 +244,11 @@ final class HookStream: ObservableObject {
                 continue
             }
 
+            // The explain button runs its own throwaway `claude -p`, whose lifecycle events
+            // would otherwise read as a session nobody started. Matched on the decoded cwd, not
+            // on the raw line: a tool payload that merely mentions the path is a real event.
+            if let payload = obj["payload"] as? [String: Any],
+               (payload["cwd"] as? String).map(Explain.isOwn) ?? false { continue }
             // The event hook wraps its payload to carry the shell's parent, from which the
             // agent process is found by walking up the tree.
             if let ppid = obj["ai_ppid"] as? Int, let payload = obj["payload"] as? [String: Any] {

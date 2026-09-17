@@ -34,8 +34,9 @@ it after every edit is how you burn someone's afternoon.
 Two sections are opt-in because they take over the machine. Never enable them by default:
 
 ```sh
-AGENTISLAND_JUMP_E2E=1 python3 tests/selftest.py   # opens every agent's warp:// URL for real
-python3 tests/terminals-e2e.py                     # opens real iTerm/Terminal windows
+AGENTISLAND_JUMP_E2E=1 python3 tests/selftest.py     # opens every agent's warp:// URL for real
+AGENTISLAND_EXPLAIN_E2E=1 python3 tests/selftest.py  # makes a real billed ~12s headless call
+python3 tests/terminals-e2e.py                       # opens real iTerm/Terminal windows
 ```
 
 The jump section yanks the front tab once per live agent with a 2.2s settle — half a minute of

@@ -28,11 +28,16 @@ enum Shell {
     }
 
     /// Run a command off the main thread; completion is delivered on the main queue.
-    static func run(_ path: String, _ args: [String], done: @escaping (String, Int32) -> Void) {
+    static func run(_ path: String, _ args: [String], cwd: String? = nil,
+                    done: @escaping (String, Int32) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
             let task = Process()
             task.executableURL = URL(fileURLWithPath: path)
             task.arguments = args
+            if let cwd { task.currentDirectoryURL = URL(fileURLWithPath: cwd) }
+            // An inherited terminal stdin makes the claude CLI wait 3s for input it will never
+            // get. Nothing we run here reads stdin, so close it rather than pay that.
+            task.standardInput = FileHandle.nullDevice
             let out = Pipe()
             task.standardOutput = out
             task.standardError = Pipe()

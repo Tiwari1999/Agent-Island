@@ -348,6 +348,38 @@ and `ToolCalls.fold`/`headline`/`subtitle`/`lines`. The chevron now opens the co
 is gone; `ConsoleEntry.ran` gained `cmd`, so the console shows what was sent, which is the one
 thing the timeline had that it lacked. Rows are a fixed height again.
 
+## Explain the question (2026-09-17)
+
+An ask can be unreadable to the person being asked, and the agent that wrote it is blocked inside
+its own hook — it cannot be asked anything. The card's `explain` chip runs a separate headless
+`claude -p --model haiku` (`Explain.swift`) and shows a ~50-word paragraph above the options.
+
+Measured, not guessed: **10–18s per call.** ~3s of that was nine MCP servers booting for a call
+that uses no tools (`--strict-mcp-config --mcp-config`), and ~3s was the CLI waiting on an
+inherited stdin (`Shell.run` now closes it). The rest is Claude Code startup plus the model, and
+there is no lever left for it. A direct Anthropic API call would be 1–2s and less code, but there
+is no `ANTHROPIC_API_KEY` on this machine, so it was not an option.
+
+Four things the call must not disturb, each with its own guard:
+
+- **The hook's grace is 60s of IDLE.** Waiting for an explanation is not idling, so `explain()`
+  marks an interaction at both ends. A callback landing 45s late checks the ask is still the one
+  on screen before sliding anything — otherwise it extends a *different* question's countdown.
+- **Each call writes a ~50 KB transcript.** Swept, but only once nothing is in flight: the first
+  call to finish must not delete the transcript the second is still writing.
+- **Each call fires four lifecycle hooks.** Dropped in `HookStream` on the *decoded* cwd. A bash
+  substring filter in `agentisland-hook.sh` was tried first and was wrong — it dropped any real
+  event whose payload merely mentioned the path, which editing `Explain.swift` was enough to do.
+- **`Shell.run` has no deadline.** A hung CLI would leave the chip on "explaining…" forever, so a
+  45s timer races the call and whichever lands first owns the answer. A failure is never cached.
+
+The explanation renders INSIDE the options ScrollView. This card has clipped its own submit button
+once already; nothing fixed may be added above the footer. `questionSize` adds a flat 84pt and
+still clamps to the same cap.
+
+`--explain <session> [cwd]` runs the whole path from the CLI, which is how it is verified without
+anyone clicking. The suite's real call is opt-in (`AGENTISLAND_EXPLAIN_E2E=1`) because it is billed.
+
 ## Working rules that bit us (obey them)
 
 - **Never drive synthetic clicks/hover to verify.** It steals the pointer and raises apps on the
