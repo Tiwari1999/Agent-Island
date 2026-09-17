@@ -2681,7 +2681,8 @@ _ihs = open(os.path.join(REPO, "scripts/install-hooks.py")).read()
 # meant ten of twelve rows: almost every session is idle, and idle is exactly when you want to
 # write to it. It is always live now; only the route changes.
 check("the composer is never hidden — every session has some route",
-      "if true {" in _cvw and "keyboard.badge.ellipsis" not in _cvw)
+      "keyboard.badge.ellipsis" not in _cvw and "takes no input" not in _cvw
+      and re.search(r'private var composer: some View \{\s*\n\s*if let row \{', _cvw) is not None)
 check("a scriptable terminal is written to directly, idle or busy",
       "case .typed:  ok = TerminalWrite.send(line, to: row.host)" in _cvw
       and "if TerminalWrite.canWrite(row.host) { return .typed }" in _cvw)
@@ -2701,6 +2702,25 @@ check("an idle one it cannot reach is copied and opened, never silently queued",
 check("and the composer names which of the three it will do, before and after",
       "lands when it finishes" in _cvw and "opens Warp with it copied" in _cvw
       and '"queued" : "copied — ⌘V there"' in _cvw)
+
+# The field was visible but took no keystrokes and showed no caret. The panel is not the key
+# window until beginTyping() makes it one, and focus asked for in the same runloop is dropped —
+# so a field that is always present can never take it. The question card's free-text row has
+# always worked because it is BUILT when typing starts and takes focus in .onAppear, a runloop
+# later. The composer now does the same.
+check("the composer's field is built only once typing has begun",
+      re.search(r'if typing \{\s*\n\s*TextField\("", text: \$draft\)', _cvw) is not None)
+check("and takes focus in onAppear, not inline where the window is not key yet",
+      ".onAppear { writing = true }" in _cvw and "onBeginType?(); writing = true" not in _cvw)
+check("the key it watches is the one the island grants",
+      'typingFor == "console:\\(session)"' in _cvw
+      and 'beginTyping("console:\\(sid)")' in open(
+          os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read())
+# A caret in a dark strip is not something to aim at, and the field is gone before you click it.
+check("the whole row starts typing, not just the field",
+      ".contentShape(Rectangle())\n            .onTapGesture { if !typing { onBeginType?() } }" in _cvw)
+check("a draft that failed to send is still shown after focus is lost",
+      "Text(draft.isEmpty ? delivery(row).placeholder(row.displayName) : draft)" in _cvw)
 
 check("the hook is registered on Stop", '("Stop",              INPUT' in _ihs)
 check("the session id is validated before it becomes a path",

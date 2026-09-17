@@ -23,6 +23,7 @@ struct ConsoleView: View {
     private let tick = Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()
 
     private var row: AgentRow? { store.rows.first { $0.agent.sessionId == session } }
+    private var typing: Bool { typingFor == "console:\(session)" }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -44,21 +45,34 @@ struct ConsoleView: View {
         if let row {
             Rectangle().fill(Theme.hairline).frame(height: 0.7)
             HStack(spacing: 7) {
-                if true {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .bold)).foregroundColor(Theme.working)
-                    TextField(delivery(row).placeholder(row.displayName), text: $draft)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(typing ? Theme.working : Theme.faint)
+                // The panel is not the key window until beginTyping makes it one, and SwiftUI
+                // drops focus asked for before that. The field is therefore built only once
+                // typing has started, so .onAppear runs a runloop later — with the window key.
+                if typing {
+                    TextField("", text: $draft)
                         .textFieldStyle(.plain)
                         .font(Theme.mono(Type.small)).foregroundColor(Theme.text)
                         .focused($writing)
+                        .onAppear { writing = true }
                         .onSubmit { send(to: row) }
-                        .onTapGesture { onBeginType?(); writing = true }
-                    if let note {
-                        Text(note).font(Theme.mono(Type.micro)).foregroundColor(Theme.muted)
-                    }
+                } else {
+                    Text(draft.isEmpty ? delivery(row).placeholder(row.displayName) : draft)
+                        .font(Theme.mono(Type.small))
+                        .foregroundColor(draft.isEmpty ? Theme.faint : Theme.text)
+                        .lineLimit(1).truncationMode(.tail)
+                }
+                Spacer(minLength: 0)
+                if let note {
+                    Text(note).font(Theme.mono(Type.micro)).foregroundColor(Theme.muted)
                 }
             }
             .padding(.horizontal, 14).padding(.vertical, 8)
+            // The whole row is the target: a bare caret in a dark strip is not something to aim at.
+            .contentShape(Rectangle())
+            .onTapGesture { if !typing { onBeginType?() } }
             .onChange(of: typingFor) { _, v in if v == nil { writing = false } }
         }
     }

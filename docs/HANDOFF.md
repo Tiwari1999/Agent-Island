@@ -407,6 +407,14 @@ always live; `delivery(_:)` picks the route and the placeholder says which it wi
 | `.queued` | not scriptable, but working or waiting | left for the Stop hook — "queued" |
 | `.pasted` | not scriptable and idle | clipboard + focus the tab — "copied — ⌘V there" |
 
+The field itself took no keystrokes and drew no caret for a while, and the reason is worth
+keeping: **the panel is not the key window until `beginTyping()` makes it one, and focus asked
+for in that same runloop is dropped.** A field that is always on screen can therefore never take
+focus from its own click handler. The question card's free-text row has always worked because it
+is BUILT when typing starts and takes focus in `.onAppear` — a runloop later, with the window
+already key. The composer now uses exactly that shape, and the whole row is the click target
+rather than a caret in a dark strip.
+
 `.pasted` exists because saying "queued" for a line nothing will ever pick up is a lie. The suite
 guards that by anchoring on where `delivery()` *routes*, not on the case body: an early version of
 the check passed while every idle session was silently routed to `.queued`.
