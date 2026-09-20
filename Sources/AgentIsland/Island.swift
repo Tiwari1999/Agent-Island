@@ -397,7 +397,8 @@ final class Island: NSObject, ObservableObject {
         // An explanation is five lines and a rule; it scrolls with the options, so this only has
         // to make room for it, never to measure it exactly.
         let shown = explaining.contains(item.id) || explanations[item.id] != nil
-        let extra: CGFloat = shown ? 42 + CGFloat(item.options.prefix(4).count) * 17 : 0
+        // A lead sentence, plus a line of its own under each option.
+        let extra: CGFloat = shown ? 40 + CGFloat(item.options.prefix(4).count) * 30 : 0
         return CGSize(width: w, height: min(item.cardHeight(width: w) + extra, max(120, cap)))
     }
 

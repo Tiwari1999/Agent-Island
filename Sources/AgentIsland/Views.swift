@@ -927,7 +927,7 @@ struct QuestionCard: View {
                 .font(.system(size: 10)).foregroundColor(Theme.amber)
                 .frame(width: 15, height: 15)
             if let explanation {
-                Text(explanation)
+                Text(Explain.split(explanation).lead)
                     .font(Theme.mono(Type.small)).foregroundColor(Theme.muted)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
@@ -938,6 +938,10 @@ struct QuestionCard: View {
         }
         .padding(.horizontal, 9).padding(.vertical, 7)
         .padding(.horizontal, 16)
+    }
+
+    private var explainedOptions: [Int: String] {
+        explanation.map { Explain.split($0).byIndex } ?? [:]
     }
 
     private var options: some View {
@@ -966,6 +970,19 @@ struct QuestionCard: View {
                                 Text(opt.detail)
                                     .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
                                     .lineLimit(3).fixedSize(horizontal: false, vertical: true)
+                            }
+                            // What picking THIS one means, under the option it is about — the
+                            // explanation is useless three options away from what it describes.
+                            if let why = explainedOptions[i + 1] {
+                                HStack(alignment: .top, spacing: 5) {
+                                    Image(systemName: "lightbulb")
+                                        .font(.system(size: 9)).foregroundColor(Theme.amber)
+                                    Text(why)
+                                        .font(Theme.mono(Type.small))
+                                        .foregroundColor(Theme.amber.opacity(0.85))
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .padding(.top, 1)
                             }
                         }
                         Spacer(minLength: 0)

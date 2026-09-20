@@ -27,6 +27,17 @@ enum Explain {
                     done: @escaping (String) -> Void) {
         if let hit = cached(item.id) { done(hit); return }
         guard let config = prepare() else { done(unavailable); return }
+        ask(engines: Engine.available, item: item, session: session, cwd: cwd,
+            config: config, done: done)
+    }
+
+    /// Try each installed agent in turn. Being installed is not the same as being usable — a
+    /// Claude binary with no subscription behind it fails in seconds — so a failure falls
+    /// through to the next rather than to the user.
+    private static func ask(engines: [Engine], item: QuestionItem, session: String, cwd: String?,
+                            config: String, done: @escaping (String) -> Void) {
+        guard let engine = engines.first else { done(unavailable); return }
+        let rest = Array(engines.dropFirst())
         // The call has run between 10s and 18s. Shell.run has no deadline of its own, so a
         // hung CLI would leave the card saying "explaining…" for as long as the question lives.
         let settled = Settled()
@@ -39,13 +50,38 @@ enum Explain {
             done(text)
         }
         lock.lock(); inFlight += 1; lock.unlock()
-        Shell.run(Shell.claude,
-                  ["-p", prompt(item: item, session: session, cwd: cwd),
-                   "--model", "haiku", "--strict-mcp-config", "--mcp-config", config],
+        Shell.run(engine.path,
+                  engine.args(prompt(item: item, session: session, cwd: cwd), config: config),
                   cwd: dir, timeout: timeout) { out, code in
-            let text = out.trimmingCharacters(in: .whitespacesAndNewlines)
-            finish((code == 0 && !text.isEmpty) ? text : unavailable)
+            let text = engine.answer(from: out) ?? ""
+            if code == 0, !text.isEmpty { finish(text); return }
+            // This engine is installed but got us nothing. Release it and try the next.
+            release()
+            settled.reset()
+            ask(engines: rest, item: item, session: session, cwd: cwd, config: config, done: done)
         }
+    }
+
+    /// The explanation as the card draws it: a lead sentence, and whatever was said about each
+    /// option, keyed by the number the card already shows beside that option.
+    ///
+    /// An answer that never numbered anything is not discarded — it all becomes the lead, which
+    /// is what the card used to show anyway.
+    static func split(_ text: String) -> (lead: String, byIndex: [Int: String]) {
+        var lead: [String] = []
+        var byIndex: [Int: String] = [:]
+        for raw in text.split(whereSeparator: \.isNewline) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty { continue }
+            if let mark = line.firstIndex(where: { $0 == "." || $0 == ")" }),
+               let n = Int(line[line.startIndex..<mark]), (1...4).contains(n) {
+                byIndex[n] = String(line[line.index(after: mark)...])
+                    .trimmingCharacters(in: .whitespaces)
+            } else if byIndex.isEmpty {
+                lead.append(line)
+            }
+        }
+        return (lead.joined(separator: " "), byIndex)
     }
 
     private static let unavailable = "Could not reach an agent to explain this one."
@@ -62,6 +98,58 @@ enum Explain {
             lock.lock(); defer { lock.unlock() }
             if taken { return false }
             taken = true; return true
+        }
+        /// Handing the question to the next engine means this one never answered after all.
+        func reset() { lock.lock(); taken = false; lock.unlock() }
+    }
+
+    /// The agent CLIs that can answer this, in the order they are tried. The card is always a
+    /// Claude one — only Claude Code raises an AskUserQuestion — but the machine it is on need
+    /// not have a Claude subscription, and explaining is not work that cares who does it.
+    enum Engine: String, CaseIterable {
+        case claude, codex, cursor
+
+        var path: String {
+            switch self {
+            case .claude: return Shell.claude
+            case .codex:  return Shell.codex
+            case .cursor: return Shell.cursorAgent
+            }
+        }
+
+        /// Shell.resolve falls back to the bare name when it finds nothing, so ask the disk.
+        var installed: Bool { FileManager.default.isExecutableFile(atPath: path) }
+        static var available: [Engine] { allCases.filter(\.installed) }
+
+        func args(_ prompt: String, config: String) -> [String] {
+            switch self {
+            case .claude:
+                // MCP off: the servers cost ~3s of startup and this uses no tools.
+                return ["-p", prompt, "--model", "haiku",
+                        "--strict-mcp-config", "--mcp-config", config]
+            case .codex:
+                // The explain directory is not a git repo, and nothing here may touch the disk.
+                return ["exec", "--skip-git-repo-check", "--sandbox", "read-only", "--json", prompt]
+            case .cursor:
+                return ["-p", "--trust", "--output-format", "text", prompt]
+            }
+        }
+
+        /// Codex narrates its run on stdout; its answer is the last agent_message it emits.
+        func answer(from out: String) -> String? {
+            let trimmed = out.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard self == .codex else { return trimmed.isEmpty ? nil : trimmed }
+            var last: String?
+            for line in out.split(whereSeparator: \.isNewline) {
+                guard line.hasPrefix("{"), let d = line.data(using: .utf8),
+                      let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+                      o["type"] as? String == "item.completed",
+                      let item = o["item"] as? [String: Any],
+                      item["type"] as? String == "agent_message",
+                      let text = item["text"] as? String else { continue }
+                last = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            return (last?.isEmpty ?? true) ? nil : last
         }
     }
 

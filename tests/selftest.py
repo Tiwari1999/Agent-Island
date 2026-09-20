@@ -285,7 +285,9 @@ def codex_truth():
         except Exception: continue
         if o.get("type")!="session_meta": continue
         pay=o.get("payload",{})
-        if pay.get("id") and os.path.isdir(pay.get("cwd") or ""): out.add(pay["id"])
+        _cwd = pay.get("cwd") or ""
+        if "agentisland-explain" in _cwd: continue   # ours, and deliberately never a row
+        if pay.get("id") and os.path.isdir(_cwd): out.add(pay["id"])
     return out
 
 truth={"codex":codex_truth()}
@@ -583,8 +585,8 @@ spawn_sites=[l for l in blob2.splitlines() if "Shell.runSync" in l or "Shell.run
 check("every remaining spawn site is user-action or the gated bind oracle",
       len(spawn_sites) <= 8, f"{len(spawn_sites)} sites")
 check("and the new one is the explain button, which only a click reaches",
-      any("Shell.run(Shell.claude," in l for l in spawn_sites)
-      and "Shell.run(Shell.claude," in open(
+      any("Shell.run(engine.path," in l for l in spawn_sites)
+      and "Shell.run(engine.path," in open(
           os.path.join(REPO, "Sources/AgentIsland/Explain.swift")).read()
       and "onTapGesture { if !explaining { onExplain() } }" in open(
           os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read())
@@ -2837,6 +2839,38 @@ check("Accessibility is checked, not assumed",
       "guard trusted else { done(false); return }" in _ks and "AXIsProcessTrusted()" in _ks)
 check("and the console says what is left to do by hand when it is missing",
       "Keystroke.requestTrust()" in _cvw and '"copied — ⌘V there"' in _cvw)
+
+# The card is always a Claude one — only Claude Code raises an AskUserQuestion — but the machine
+# it is on need not have a Claude subscription, and explaining is not work that cares who does it.
+_ex = open(os.path.join(REPO, "Sources/AgentIsland/Explain.swift")).read()
+_exv = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
+check("explaining falls back to codex and cursor when claude cannot answer",
+      "enum Engine: String, CaseIterable" in _ex
+      and 'case claude, codex, cursor' in _ex
+      and "ask(engines: rest, item: item" in _ex)
+check("an engine that is merely installed is not assumed to work",
+      "FileManager.default.isExecutableFile(atPath: path)" in _ex
+      and "if code == 0, !text.isEmpty { finish(text); return }" in _ex)
+# Measured: claude ~15s, codex ~17s, cursor ~19s — all three answer headlessly.
+check("each engine is invoked the way it actually runs headless",
+      '"exec", "--skip-git-repo-check", "--sandbox", "read-only", "--json"' in _ex
+      and '"-p", "--trust", "--output-format", "text"' in _ex)
+check("and codex's narration is parsed down to its answer",
+      'o["type"] as? String == "item.completed"' in _ex
+      and 'item["type"] as? String == "agent_message"' in _ex)
+# Whichever CLI answers, it starts a session of its own. None of them may become a row.
+check("no engine's throwaway session can become a row",
+      "if let c = agent.cwd, Explain.isOwn(c) { return false }" in open(
+          os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read())
+
+# An explanation three options away from the option it describes is not much of an explanation.
+check("each option carries its own line of the explanation",
+      "if let why = explainedOptions[i + 1] {" in _exv
+      and "Text(Explain.split(explanation).lead)" in _exv)
+check("and an answer that numbered nothing is still shown whole",
+      "} else if byIndex.isEmpty {" in _ex and "lead.joined(separator: \" \")" in _ex)
+check("tests/explainsplit.swift present (splitter edge cases)",
+      os.path.exists(os.path.join(REPO, "tests", "explainsplit.swift")))
 
 check("the hook is registered on Stop", '("Stop",              INPUT' in _ihs)
 check("the session id is validated before it becomes a path",

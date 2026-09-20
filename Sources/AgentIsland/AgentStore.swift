@@ -451,6 +451,9 @@ final class AgentStore: ObservableObject {
                 let now = Date()
                 let built = resolved
                     .filter { agent, _, lastActive, _ in
+                        // The explain button runs a throwaway agent of its own. Whichever CLI
+                        // answers, its session must never become a row: nobody started it.
+                        if let c = agent.cwd, Explain.isOwn(c) { return false }
                         if agent.isWorking { return true }
                         // A blocked agent is waiting on a human. Hiding it for being old is how
                         // two real work items sat unanswered for months.
