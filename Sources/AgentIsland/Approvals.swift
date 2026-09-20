@@ -78,7 +78,19 @@ enum Approvals {
         guard body.count == question.items.count,
               let data = try? JSONSerialization.data(withJSONObject: body) else { return false }
         let path = (decisionsDir as NSString).appendingPathComponent(question.id)
-        do { try data.write(to: URL(fileURLWithPath: path), options: .atomic) } catch { return false }
+        // This file holds the question and what the user typed in answer to it — the most
+        // private thing in a world-writable directory. `Data.write(.atomic)` takes the process
+        // umask, which made it 0644 while every other mark beside it was 0600. Create it owner-
+        // only and rename into place: rename(2) is atomic, so the hook never reads half of it.
+        let part = path + ".part"
+        guard FileManager.default.createFile(atPath: part, contents: data,
+                                             attributes: [.posixPermissions: 0o600]) else {
+            return false
+        }
+        guard rename(part, path) == 0 else {
+            try? FileManager.default.removeItem(atPath: part)
+            return false
+        }
         return true
     }
 

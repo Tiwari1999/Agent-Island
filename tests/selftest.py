@@ -2757,6 +2757,16 @@ check("and the real job files on this machine all carry them",
           for _f in glob.glob(os.path.expanduser("~/.claude/jobs/*/state.json"))) or
       not glob.glob(os.path.expanduser("~/.claude/jobs/*/state.json")))
 
+# The answer file carries the question and whatever the user typed in reply, and it sat in a
+# world-writable directory at 0644 because Data.write(.atomic) takes the umask — every other
+# mark beside it was already 0600. Found by reading one off disk after a real answer.
+_rv_ap = open(os.path.join(REPO, "Sources/AgentIsland/Approvals.swift")).read()
+check("an answer is written owner-only, like every other mark beside it",
+      "attributes: [.posixPermissions: 0o600]) else {" in _rv_ap
+      and "data.write(to: URL(fileURLWithPath: path), options: .atomic)" not in _rv_ap)
+check("and still lands atomically, so the hook never reads half of it",
+      "guard rename(part, path) == 0 else {" in _rv_ap)
+
 check("Claude hooks install only where Claude is installed",
       'if os.path.isdir(os.path.expanduser("~/.claude")):' in _rv_ih)
 
