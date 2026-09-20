@@ -165,9 +165,12 @@ struct CodexSource: AgentSource {
 
         var r = parse(Tail.head(path: path, bytes: 256 * 1024) + "\n"
                       + Tail.read(path: path, bytes: 2 * 1024 * 1024))
-        if r.firstPrompt == nil || r.contextPct == nil,
-           let whole = try? String(contentsOfFile: path, encoding: .utf8) {
-            r = parse(whole)
+        // A rollout with neither marker in its head or tail is either huge or malformed. Widen
+        // the window once; never read the whole file, which a refresh cannot afford.
+        if r.firstPrompt == nil || r.contextPct == nil {
+            let wider = parse(Tail.head(path: path, bytes: 2 * 1024 * 1024) + "\n"
+                              + Tail.read(path: path, bytes: 8 * 1024 * 1024))
+            if wider.firstPrompt != nil || wider.contextPct != nil { r = wider }
         }
         cache[path] = (mtime, r)
         return r

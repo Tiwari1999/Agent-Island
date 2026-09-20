@@ -39,17 +39,19 @@ enum Explain {
             done(text)
         }
         lock.lock(); inFlight += 1; lock.unlock()
-        DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { finish(unavailable) }
         Shell.run(Shell.claude,
                   ["-p", prompt(item: item, session: session, cwd: cwd),
                    "--model", "haiku", "--strict-mcp-config", "--mcp-config", config],
-                  cwd: dir) { out, code in
+                  cwd: dir, timeout: timeout) { out, code in
             let text = out.trimmingCharacters(in: .whitespacesAndNewlines)
             finish((code == 0 && !text.isEmpty) ? text : unavailable)
         }
     }
 
     private static let unavailable = "Could not reach an agent to explain this one."
+    /// Measured at 10-18s. The deadline is on the process itself, so a wedged CLI is killed
+    /// rather than merely abandoned — abandoning it left the child writing a transcript that the
+    /// sweep, now believing nothing was in flight, deleted underneath it.
     private static let timeout: TimeInterval = 45
 
     /// Whichever of the call and the deadline lands first owns the answer.

@@ -265,6 +265,16 @@ struct ClaudeSource: AgentSource {
     var isAvailable: Bool { FileManager.default.fileExists(atPath: projects) }
 
     /// cwd per session, keyed on transcript mtime — an unchanged file cannot move directories.
+    /// Two formatters because the flag is not optional: one parses fractional seconds, the
+    /// other whole ones, and neither accepts the shape the other was built for.
+    private static let isoFrac: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+    private static let isoWhole = ISO8601DateFormatter()
+    static func iso(_ s: String) -> Date? { isoFrac.date(from: s) ?? isoWhole.date(from: s) }
+
     private static var cwdCache: [String: (mtime: Date, cwd: String?)] = [:]
 
     func discover() -> [Agent] {
@@ -282,8 +292,10 @@ struct ClaudeSource: AgentSource {
             jobs[sid] = Job(name: o["name"] as? String,
                             state: o["state"] as? String,
                             cwd: o["cwd"] as? String,
-                            at: (o["updatedAt"] as? String).flatMap {
-                                ISO8601DateFormatter().date(from: $0) })
+                            // Every job file writes fractional seconds ("…:27.504Z"), which a
+                            // default ISO8601DateFormatter cannot read — so every blocked job
+                            // came through with no last-active time at all.
+                            at: (o["updatedAt"] as? String).flatMap(Self.iso))
         }
 
         // Sessions are transcript files; recency is the file's own mtime.

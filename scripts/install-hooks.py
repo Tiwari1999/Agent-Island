@@ -166,8 +166,14 @@ claude_plan += [
     # Answers a reply typed in the notch for a terminal that takes no input of its own.
     ("Stop",              INPUT,    {"timeout": 5}),
 ]
-install("Claude Code", os.path.expanduser("~/.claude/settings.json"),
-        claude_plan, statusline=True)
+# Gated like Codex and Cursor below. Installing unconditionally created a settings file — and
+# a statusLine — for a tool a Codex-only or Cursor-only user has never had. Re-running this
+# after installing Claude Code picks it up; install.sh runs it every time.
+if os.path.isdir(os.path.expanduser("~/.claude")):
+    install("Claude Code", os.path.expanduser("~/.claude/settings.json"),
+            claude_plan, statusline=True)
+else:
+    print("  Claude Code: not installed, skipped")
 
 # --- Codex -------------------------------------------------------------------
 # Same hooks.json shape as Claude Code, so the same hook script handles both.

@@ -16,12 +16,17 @@ enum Approvals {
 
     /// The directory lives in world-writable /tmp, and a file in it approves a shell command, so
     /// it is owner-only: otherwise any local process could answer on the user's behalf.
-    private static func ensureDir() {
+    @discardableResult
+    private static func ensureDir() -> Bool {
         try? FileManager.default.createDirectory(
             atPath: decisionsDir, withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700])
         try? FileManager.default.setAttributes([.posixPermissions: 0o700],
                                                ofItemAtPath: decisionsDir)
+        // A file in here approves a shell command, and /tmp is world-writable. chmod only
+        // succeeds on a directory we own, so ownership is the thing worth checking: one
+        // somebody else pre-created is one they can plant an approval in.
+        return TmpDir.ours(decisionsDir)
     }
 
     /// Mark that the reader is engaged with this card, so the hook waits its full window

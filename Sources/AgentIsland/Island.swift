@@ -546,6 +546,11 @@ final class Island: NSObject, ObservableObject {
     private func tearDownPanel() {
         frames.stopAndReport()
         dwell?.cancel()
+        // Quiet mode collapses straight out of a live card. Without these the card's chords stay
+        // bound to a card nobody can see, and the panel keeps the key window — so the next
+        // keystroke anywhere goes nowhere.
+        Hotkeys.shared.unbind()
+        endTyping()
         removeClickMonitors()
         outsideTicks = 0
         stickyOpen = false
@@ -573,7 +578,8 @@ final class Island: NSObject, ObservableObject {
     func peek(_ payload: PeekPayload) {
         guard !Prefs.shared.snoozing else { return }
         followActiveScreen()
-        guard state != .expanded else { return }
+        guard state != .expanded, !showingCard else { return }
+        if case .console = state { return }   // someone is reading; a toast loses their place
         peekWork?.cancel()
         withAnimation(Motion.shell) { state = .peek(payload) }
         refreshHitRegion()
@@ -812,6 +818,9 @@ final class Island: NSObject, ObservableObject {
     func closeConsole() {
         guard case .console = state else { return }
         stopWatchingClicks()
+        // The composer may hold the key window. Leaving it held means every keystroke the user
+        // makes next lands in a field that is no longer on screen.
+        endTyping()
         // Dismiss means dismiss, for the outside click, the chord and the chord's tag alike.
         // Only the `‹ agents` control goes back to the list, via consoleBackToPanel().
         consoleFromPanel = false
@@ -824,6 +833,7 @@ final class Island: NSObject, ObservableObject {
     func consoleBackToPanel() {
         guard case .console = state else { return }
         stopWatchingClicks()
+        endTyping()
         consoleFromPanel = false
         expand(sticky: true)
     }

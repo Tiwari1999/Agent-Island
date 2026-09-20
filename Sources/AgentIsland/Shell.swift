@@ -29,6 +29,7 @@ enum Shell {
 
     /// Run a command off the main thread; completion is delivered on the main queue.
     static func run(_ path: String, _ args: [String], cwd: String? = nil,
+                    timeout: TimeInterval? = nil,
                     done: @escaping (String, Int32) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
             let task = Process()
@@ -44,6 +45,13 @@ enum Shell {
             do { try task.run() } catch {
                 DispatchQueue.main.async { done("", -1) }
                 return
+            }
+            // Without this a wedged child outlives the thing that wanted it — still burning CPU
+            // and quota long after the caller gave up and told the user it had failed.
+            if let timeout {
+                DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { [weak task] in
+                    if task?.isRunning == true { task?.terminate() }
+                }
             }
             let data = out.fileHandleForReading.readDataToEndOfFile()
             task.waitUntilExit()

@@ -1594,7 +1594,7 @@ check("iTerm2 jump matches the UUID after the pane prefix, not the whole env str
       'ITERM_SESSION_ID is "wNtNpN:UUID"' in _ht
       and 'let sid = Self.appleSafe(session.split(separator: ":").last' in _ht)
 check("Terminal jump matches on the controlling tty, not TERM_SESSION_ID",
-      "`session` is the controlling tty" in _ht and "tty of t contains" in _ht)
+      "`session` is the controlling tty" in _ht and 'if tty of t is "' in _ht)
 check("resolve carries Terminal's tty, degrading when it has none",
       "return .appleTerminal(session: tty)" in _ht and 'name: "Terminal"' in _ht)
 check("iTerm2 is claimed before Terminal, since iTerm2 also sets TERM_SESSION_ID",
@@ -2652,7 +2652,7 @@ check("a click outside still dismisses it — sticky is not unclosable",
       "if self.panelRect.contains(m) { return event }" in _iv12
       and "self.collapse()" in _iv12)
 check("and the flag is cleared when the panel goes away",
-      "stickyOpen = false" in _iv12.split("private func tearDownPanel")[1][:400])
+      "stickyOpen = false" in _iv12.split("private func tearDownPanel")[1].split("\n    }")[0])
 check("coming back from the console is a click too, so it is sticky as well",
       "consoleFromPanel = false\n        expand(sticky: true)" in _iv12)
 
@@ -2666,6 +2666,97 @@ check("a question logs every step it takes, so a lost one says where it went",
       and 'question \\(q.id): handed to the chat' in _qi)
 check("and both of ask()'s silent returns now say why",
       'dropped, island is snoozing' in _qi and 'queued behind' in _qi)
+
+print("\n=== 52. pre-release review fixes ===")
+_rv_hs = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()
+_rv_ht = open(os.path.join(REPO, "Sources/AgentIsland/HostTerminal.swift")).read()
+_rv_is = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_rv_cx = open(os.path.join(REPO, "Sources/AgentIsland/CodexSource.swift")).read()
+_rv_as = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
+_rv_ph = open(os.path.join(REPO, "hooks/agentisland-permission.sh")).read()
+_rv_ip = open(os.path.join(REPO, "hooks/agentisland-input.py")).read()
+_rv_ih = open(os.path.join(REPO, "scripts/install-hooks.py")).read()
+
+# Hooks append to the spool while the island reads it, so a read routinely ends mid-line. The
+# offset advanced past that partial line and the decode of the whole chunk then failed, taking
+# every complete event with it. A question reached the spool and never reached the notch.
+check("only whole lines are consumed from the spool",
+      "var pending = Data()" in _rv_hs
+      and "if let end = chunk.lastIndex(of: 0x0A)" in _rv_hs
+      and "pending = chunk.suffix(from: chunk.index(after: end))" in _rv_hs)
+check("and a spool that never gets a newline cannot grow without bound",
+      "if pending.count > 1 << 20 { pending = Data() }" in _rv_hs)
+
+# A toast is the least important thing the notch shows. Replacing a card with one left the
+# card's chords bound to something nobody could see.
+check("a toast never replaces a card someone is blocked on",
+      "guard state != .expanded, !showingCard else { return }" in _rv_is)
+check("nor a console someone is reading", "if case .console = state { return }" in _rv_is)
+# Quiet mode collapses straight out of a live card.
+check("collapsing releases the chords and the key window",
+      re.search(r'Hotkeys\.shared\.unbind\(\)\s*\n\s*endTyping\(\)\s*\n\s*removeClickMonitors\(\)',
+                _rv_is) is not None)
+check("and so does closing the console, which holds the field",
+      all("endTyping()" in _rv_is.split("func " + _f)[1].split("\n    }")[0]
+          for _f in ("closeConsole()", "consoleBackToPanel()")))
+
+# A bundle id names the app, not the session.
+check("the keyboard fallback is Warp only, never an arbitrary app",
+      "case .degraded, .app, .tmux, .iterm, .appleTerminal, .kitty, .wezterm, .unknown: return nil"
+      in _rv_ht)
+# Opening kitty from a Warp tab leaks WARP_FOCUS_URL into it — the trap TERM_PROGRAM already
+# guards iTerm and Terminal against.
+check("a terminal's own handle outranks an inherited Warp URL",
+      _rv_ht.index("if let w = i.kittyWindow") < _rv_ht.index("if let u = i.focusURL"))
+check("kitty and wezterm ids are sanitised before reaching a shell",
+      "static func numericID(" in _rv_ht and _rv_ht.count("Self.numericID(") == 2)
+# "/dev/ttys001" is a substring of "/dev/ttys0010".
+check("the Terminal tab match is exact, not a substring",
+      'if tty of t is "' in _rv_ht and "if tty of t contains" not in _rv_ht)
+
+check("no refresh reads a whole rollout file into memory",
+      "String(contentsOfFile: path" not in _rv_cx and "8 * 1024 * 1024" in _rv_cx)
+check("an empty roster does not invent Claude on a machine without it",
+      "sources.compactMap { $0.isAvailable ? $0.vendor : nil }" in _rv_as)
+
+# /tmp is world-writable, so creating a directory there proves nothing about who owns it.
+check("a decisions directory we do not own is refused",
+      "TmpDir.ours(decisionsDir)" in open(
+          os.path.join(REPO, "Sources/AgentIsland/Approvals.swift")).read()
+      and "st.st_uid == geteuid()" in open(
+          os.path.join(REPO, "Sources/AgentIsland/TmpDir.swift")).read())
+check("and so is one the permission hook does not own",
+      '[ -O "$DECISIONS" ] || exit 0' in _rv_ph and '[ -O "$DECISIONS/$id" ] || continue' in _rv_ph)
+check("the queued steer is only read from a file we own",
+      "os.path.islink(path) or not _ours(path)" in _rv_ip
+      and "os.lstat(path).st_uid == os.geteuid()" in _rv_ip)
+
+# The jump script ran fine whether or not a tab matched, so a stale session id reported a
+# successful jump while the app had merely come forward on whatever was already selected.
+check("a jump believes what the script returns, not that it ran",
+      'guard let answer = out?.stringValue, answer == "0" || answer == "1" else { return true }'
+      in _rv_ht and _rv_ht.count('return "0"') == 2 and _rv_ht.count('return "1"') == 2)
+check("a queued steer nobody collected does not live for ever",
+      "age > 24 * 3600" in open(
+          os.path.join(REPO, "Sources/AgentIsland/TerminalWrite.swift")).read())
+check("the resume fallback only opens Warp for someone who uses Warp",
+      "Prefs.shared.reopenIn == .warp, ReopenTarget.warpInstalled" in open(
+          os.path.join(REPO, "Sources/AgentIsland/Reopen.swift")).read())
+
+# Every ~/.claude/jobs/*/state.json writes fractional seconds ("…:27.504Z"), which a default
+# ISO8601DateFormatter refuses — so every blocked job row came through with no last-active time.
+# The suite's "every row has a last-active time" check is what caught it.
+_rv_cs = open(os.path.join(REPO, "Sources/AgentIsland/CursorSource.swift")).read()
+check("a blocked job's timestamp is parsed with fractional seconds",
+      "at: (o[\"updatedAt\"] as? String).flatMap(Self.iso))" in _rv_cs
+      and "isoFrac.date(from: s) ?? isoWhole.date(from: s)" in _rv_cs)
+check("and the real job files on this machine all carry them",
+      all(re.search(r"\.\d+Z?$", json.load(open(_f)).get("updatedAt", ""))
+          for _f in glob.glob(os.path.expanduser("~/.claude/jobs/*/state.json"))) or
+      not glob.glob(os.path.expanduser("~/.claude/jobs/*/state.json")))
+
+check("Claude hooks install only where Claude is installed",
+      'if os.path.isdir(os.path.expanduser("~/.claude")):' in _rv_ih)
 
 print("\n=== 51. replying from the notch ===")
 # iTerm, Terminal, tmux, kitty and WezTerm each publish a way to put a line into a running
@@ -2730,7 +2821,8 @@ check("a draft that failed to send is still shown after focus is lost",
 _ks = open(os.path.join(REPO, "Sources/AgentIsland/Keystroke.swift")).read()
 _ht = open(os.path.join(REPO, "Sources/AgentIsland/HostTerminal.swift")).read()
 check("the keyboard is never used where a real scripting interface exists",
-      "case .tmux, .iterm, .appleTerminal, .kitty, .wezterm, .unknown: return nil" in _ht)
+      "case .degraded, .app, .tmux, .iterm, .appleTerminal, .kitty, .wezterm, .unknown: return nil"
+      in _ht)
 check("nothing is posted unless the intended app came forward",
       "waitForFront(bundleID, tries: 15)" in _ks and "guard front else { done(false); return }" in _ks)
 # The poll proves it came forward; this proves it has not gone away again before the post.
@@ -2782,7 +2874,8 @@ check("and the card is allowed to grow for it, still under the same cap",
 check("the call runs with MCP off", '"--strict-mcp-config", "--mcp-config", config' in _ex)
 check("and with stdin closed", "task.standardInput = FileHandle.nullDevice" in _exs)
 check("it runs in its own directory, not the island's",
-      'static let dir = "/tmp/agentisland-explain"' in _ex and "cwd: dir) { out, code in" in _ex)
+      'static let dir = "/tmp/agentisland-explain"' in _ex
+      and "cwd: dir, timeout: timeout) { out, code in" in _ex)
 # Each call writes a ~50KB transcript and four lifecycle events. Neither belongs in the island.
 check("the throwaway transcript is swept", "sweep()" in _ex and "private static func sweep()" in _ex)
 # A bash substring match on the whole hook line dropped any real event whose payload merely
@@ -2811,9 +2904,15 @@ check("the grace is marked at both ends of the call",
       _exi.split("func explain(")[1][:700].count("markInteraction(q.id)") == 2)
 check("the same question is only ever asked once",
       "if let hit = cached(item.id) { done(hit); return }" in _ex)
-# Shell.run has no deadline, so a hung CLI would leave the chip saying "explaining…" forever.
-check("a deadline releases the card if the call never returns",
-      "DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { finish(unavailable) }" in _ex)
+# A separate timer answered the card but left the child running, and releasing on it dropped
+# inFlight to zero — so the sweep deleted the transcript that child was still writing. The
+# deadline is on the process, so one completion both answers and releases.
+check("the deadline kills the process rather than abandoning it",
+      "cwd: dir, timeout: timeout) { out, code in" in _ex
+      and "asyncAfter(deadline: .now() + timeout) { finish(unavailable) }" not in _ex)
+check("and Shell.run honours it by terminating the child",
+      "if task?.isRunning == true { task?.terminate() }" in open(
+          os.path.join(REPO, "Sources/AgentIsland/Shell.swift")).read())
 check("and only one of the call and the deadline can answer",
       "guard settled.claim() else { return }" in _ex)
 check("the explanation is dropped with the ask that carried it",

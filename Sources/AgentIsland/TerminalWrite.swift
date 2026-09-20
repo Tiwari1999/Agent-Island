@@ -17,6 +17,19 @@ enum TerminalWrite {
         let fm = FileManager.default
         try? fm.createDirectory(atPath: queueDir, withIntermediateDirectories: true,
                                 attributes: [.posixPermissions: 0o700])
+        // The hook hands this line to the model as an instruction; a directory we do not own is
+        // one somebody else can put words in.
+        guard TmpDir.ours(queueDir) else { return false }
+        // A session that never ends another turn leaves its line here for ever. Nobody will
+        // ever want a steer written yesterday delivered today, so drop those on the way past.
+        if let stale = try? fm.contentsOfDirectory(atPath: queueDir) {
+            for f in stale {
+                let p = (queueDir as NSString).appendingPathComponent(f)
+                let age = ((try? fm.attributesOfItem(atPath: p))?[.modificationDate] as? Date)
+                    .map { Date().timeIntervalSince($0) } ?? 0
+                if age > 24 * 3600 { try? fm.removeItem(atPath: p) }
+            }
+        }
         let path = (queueDir as NSString).appendingPathComponent(session)
         return fm.createFile(atPath: path, contents: Data(text.utf8),
                              attributes: [.posixPermissions: 0o600])

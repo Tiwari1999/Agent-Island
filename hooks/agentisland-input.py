@@ -22,6 +22,13 @@ QUEUE = os.environ.get("AGENTISLAND_INPUT", "/tmp/agentisland-input")
 LIMIT = 4096
 
 
+def _ours(path):
+    try:
+        return os.lstat(path).st_uid == os.geteuid()
+    except OSError:
+        return False
+
+
 def main():
     try:
         event = json.loads(sys.stdin.read() or "{}")
@@ -32,7 +39,14 @@ def main():
     if not session or not all(c.isalnum() or c in "-_" for c in session):
         return
 
+    # This text is handed to the model as its next instruction, so read it only out of a
+    # directory and a file we own. /tmp is world-writable: anything else is someone else's word
+    # put in the user's mouth.
+    if os.path.islink(QUEUE) or not _ours(QUEUE):
+        return
     path = os.path.join(QUEUE, session)
+    if os.path.islink(path) or not _ours(path):
+        return
     try:
         with open(path) as f:
             message = f.read()

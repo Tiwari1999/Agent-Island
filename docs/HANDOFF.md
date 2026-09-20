@@ -441,6 +441,44 @@ the check passed while every idle session was silently routed to `.queued`.
 The queued line is deleted before it is printed, never after: delivered twice is worse than lost,
 and a crash in between would otherwise repeat it on every turn for ever.
 
+## Pre-release review (2026-09-20)
+
+Five review passes over the whole tree. Sixteen real defects fixed; the ones worth remembering:
+
+- **The spool dropped events.** `drain()` advanced the read offset before decoding, and hooks
+  append while it reads — so a chunk ending mid-line took every complete event in that chunk with
+  it, permanently. This is the "question reached the chat and never the notch" report. Only whole
+  lines are consumed now, with the remainder carried to the next drain.
+- **An inherited `WARP_FOCUS_URL` outranked kitty's and WezTerm's own handles**, so opening either
+  from a Warp tab sent the jump to Warp. TERM_PROGRAM already guarded iTerm and Terminal against
+  exactly this; kitty and WezTerm were simply below the Warp check.
+- **`pasteTarget` returned a bare bundle id for `.app`/`.degraded`**, so the ⌘V fallback could fire
+  into Cursor, VS Code or Ghostty — into whatever document was frontmost. It is Warp-only now.
+- **kitty/WezTerm window ids went into `sh -c` unsanitised**, unlike every other handle.
+- **A jump reported success whether or not a tab matched.** The AppleScript now answers "1"/"0".
+- **`/dev/ttys001` is a substring of `/dev/ttys0010`** — the Terminal tab match is equality now.
+- **A toast replaced a live card**, leaving its chords bound to something nobody could see; and
+  collapsing (which Quiet does straight out of a card) never released the chords or the key window.
+- **Every blocked job had no last-active time**: `~/.claude/jobs/*/state.json` writes fractional
+  seconds and a default `ISO8601DateFormatter` refuses them. The suite check caught this one.
+- **A local attacker could pre-create `/tmp/agentisland-decisions`**; `chmod` then quietly fails
+  and a planted `allow` approves a shell command. Ownership is checked now, here and for the
+  queued-input directory, on both the Swift and hook sides.
+- **The installer wrote `~/.claude` on a Codex-only machine.** Gated like Codex and Cursor.
+
+Known and NOT fixed — read before promising anything:
+
+- kitty/WezTerm still report a successful jump even if their focus CLI failed; `Shell.runSync`
+  returns stdout, not exit status, so there is nothing to check yet.
+- Several Cursor chats in one repo share a single resolved pid, so a jump can focus the wrong one.
+- `CursorSource` marks its pid oracle seeded before the parse succeeds, so one failed
+  `claude agents --json` leaves bare sessions unbindable for that whole launch.
+- A backwards clock step keeps Codex sessions reading "busy" until the clock catches up.
+- Queued approvals/questions do not drain when Quiet collapses a card or a toast fires; they fall
+  back to the terminal on their own timeout rather than reappearing in the notch.
+- Uninstall matches the bare word "agentisland", so a third-party hook whose path contains it
+  would be removed.
+
 ## Working rules that bit us (obey them)
 
 - **Never drive synthetic clicks/hover to verify.** It steals the pointer and raises apps on the

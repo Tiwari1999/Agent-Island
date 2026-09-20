@@ -29,7 +29,11 @@ beat=$(stat -f %m "$ALIVE" 2>/dev/null || echo 0)
 
 id="ap-$$-${now}"
 mkdir -p "$DECISIONS" 2>/dev/null
-# A file here approves a shell command and /tmp is world-writable, so keep it owner-only.
+# A file here approves a shell command and /tmp is world-writable. chmod only works if we own
+# the directory, so owning it is the thing to check: a directory someone else pre-created is
+# one they can plant an "allow" in. Refuse it and let Claude ask the user itself.
+[ -L "$DECISIONS" ] && exit 0
+[ -O "$DECISIONS" ] || exit 0
 chmod 700 "$DECISIONS" 2>/dev/null
 printf '{"ap_request_id":"%s","payload":%s}\n' "$id" "${INPUT//$'\n'/}" >> "$SPOOL" 2>/dev/null
 
@@ -46,6 +50,9 @@ while [ "$i" -lt "$HARD_TENTHS" ]; do
     fi
     if [ -f "$DECISIONS/$id" ]; then
         rm -f "$DECISIONS/$id.touched" 2>/dev/null
+        # The id is ours and the directory is ours, but read the file only if it is ours too:
+        # this string decides whether a shell command runs.
+        [ -O "$DECISIONS/$id" ] || continue
         decision=$(cat "$DECISIONS/$id" 2>/dev/null)
         rm -f "$DECISIONS/$id" 2>/dev/null
         case "$decision" in

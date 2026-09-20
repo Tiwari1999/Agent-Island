@@ -86,7 +86,11 @@ enum Reopen {
             }
             return true
         }
-        if let u = URL(string: "warp://action/new_tab") { NSWorkspace.shared.open(u) }
+        // Only open Warp when Warp is what the user reopens in and actually has. Firing this
+        // unconditionally launched Warp for someone who had chosen Terminal, or never installed
+        // it, when the only thing left to do was hand them the command.
+        if Prefs.shared.reopenIn == .warp, ReopenTarget.warpInstalled,
+           let u = URL(string: "warp://action/new_tab") { NSWorkspace.shared.open(u) }
         note(copied)
         return true
     }

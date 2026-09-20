@@ -315,7 +315,11 @@ final class AgentStore: ObservableObject {
         var counts: [Vendor: Int] = [:]
         for r in rows { counts[r.agent.vendor, default: 0] += 1 }
         let order = counts.sorted { $0.value > $1.value }.map(\.key)
-        return order.isEmpty ? [.claude] : order
+        if !order.isEmpty { return order }
+        // No rows yet, or none in window. Naming Claude anyway told a Codex-only user they had
+        // an agent they have never installed; ask the sources which of them are actually here.
+        let installed = sources.compactMap { $0.isAvailable ? $0.vendor : nil }
+        return installed.isEmpty ? [.claude] : installed
     }
 
     var effectiveVendor: Vendor { selectedVendor ?? vendorsPresent.first ?? .claude }

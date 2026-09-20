@@ -141,6 +141,9 @@ final class HookStream: ObservableObject {
     private var resolvedPPID: [String: Int] = [:]
     private var handle: FileHandle?
     private var offset: UInt64 = 0
+    /// Bytes read but not yet ending in a newline. Hooks append while we read, so a chunk
+    /// routinely stops mid-line; consuming it would drop that event for good.
+    private var pending = Data()
     /// Sole owner of handle/offset/carried: start-replay, tail drains and delete-recovery all
     /// ran on different queues before, which was a use-after-close waiting for its moment.
     private let spoolQueue = DispatchQueue(label: "agentisland.spool", qos: .utility)
@@ -195,8 +198,25 @@ final class HookStream: ObservableObject {
         guard let h = handle else { return }
         h.seek(toFileOffset: offset)
         let data = h.readDataToEndOfFile()
+        guard !data.isEmpty else { return }
         offset = h.offsetInFile
-        guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+        // Consume whole lines only. A hook appending while this read is in flight leaves a
+        // partial line at the end — and a partial line is also a partial UTF-8 sequence, so
+        // decoding the chunk as a whole would fail and take every complete event with it.
+        // This cost a question: it reached the spool and never reached the notch.
+        var chunk = pending + data
+        pending = Data()
+        if let end = chunk.lastIndex(of: 0x0A) {
+            pending = chunk.suffix(from: chunk.index(after: end))
+            chunk = chunk.prefix(through: end)
+        } else {
+            // No newline anywhere: hold it all and wait for the rest rather than guessing.
+            pending = chunk
+            return
+        }
+        // A spool that is never newline-terminated must not grow without bound.
+        if pending.count > 1 << 20 { pending = Data() }
+        guard let text = String(data: chunk, encoding: .utf8) else { return }
 
         var updates: [String: LiveState] = [:]
         var planUpdates: [String: Plan] = [:]

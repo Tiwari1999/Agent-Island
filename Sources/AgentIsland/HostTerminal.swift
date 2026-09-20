@@ -28,8 +28,9 @@ enum HostTerminal: Equatable {
     var pasteTarget: String? {
         switch self {
         case .warp: return "dev.warp.Warp-Stable"
-        case .degraded(let bundle, _, _), .app(let bundle, _): return bundle
-        case .tmux, .iterm, .appleTerminal, .kitty, .wezterm, .unknown: return nil
+        // Only Warp. A bundle id names the app, not the session — pasting into Cursor, VS Code
+        // or Ghostty lands in whatever document is frontmost, which is not where this belongs.
+        case .degraded, .app, .tmux, .iterm, .appleTerminal, .kitty, .wezterm, .unknown: return nil
         }
     }
 
@@ -102,10 +103,10 @@ enum HostTerminal: Equatable {
                              name: i.bundleID.map { friendly($0, i) } ?? "background",
                              reason: "background session \u{2014} no terminal anywhere above it")
         }
+        if let w = i.kittyWindow, !w.isEmpty { return .kitty(window: w) }
+        if let p = i.weztermPane, !p.isEmpty { return .wezterm(pane: p) }
         if let u = i.focusURL { return .warp(focusURL: u) }
         if let s = i.itermSession { return .iterm(session: s) }
-        if let w = i.kittyWindow { return .kitty(window: w) }
-        if let p = i.weztermPane { return .wezterm(pane: p) }
         if let b = i.bundleID {
             // Warp does publish a per-session handle, so its absence means this session cannot
             // be resolved — not that Warp lacks the capability. Say so instead of guessing.
@@ -178,11 +179,12 @@ enum HostTerminal: Equatable {
                       select w
                       select t
                       select s
-                      return
+                      return "1"
                     end if
                   end repeat
                 end repeat
               end repeat
+              return "0"
             end tell
             """)
 
@@ -197,24 +199,30 @@ enum HostTerminal: Equatable {
               activate
               repeat with w in windows
                 repeat with t in tabs of w
-                  if tty of t contains "\(tty)" then
+                  if tty of t is "\(tty)" then
                     set selected of t to true
                     set index of w to 1
-                    return
+                    return "1"
                   end if
                 end repeat
               end repeat
+              return "0"
             end tell
             """)
 
         case .kitty(let window):
+            // KITTY_WINDOW_ID and WEZTERM_PANE are numbers out of the environment, and the
+            // environment is not ours. Raising the app on a bad id is still the right outcome;
+            // running whatever it contained is not.
+            guard let id = Self.numericID(window) else { return activate(bundleID: "net.kovidgoyal.kitty") }
             _ = Shell.runSync("/bin/sh", ["-c",
-                "kitty @ focus-window --match id:\(window) 2>/dev/null"])
+                "kitty @ focus-window --match id:\(id) 2>/dev/null"])
             return activate(bundleID: "net.kovidgoyal.kitty")
 
         case .wezterm(let pane):
+            guard let id = Self.numericID(pane) else { return activate(bundleID: "com.github.wez.wezterm") }
             _ = Shell.runSync("/bin/sh", ["-c",
-                "wezterm cli activate-pane --pane-id \(pane) 2>/dev/null"])
+                "wezterm cli activate-pane --pane-id \(id) 2>/dev/null"])
             return activate(bundleID: "com.github.wez.wezterm")
 
         case .app(let bundle, _):
@@ -252,6 +260,13 @@ enum HostTerminal: Equatable {
         }.prefix(64))
     }
 
+    /// A terminal's own window/pane handle: digits only, which is what both kitty and WezTerm
+    /// publish. Anything else came from somewhere we do not control.
+    static func numericID(_ s: String) -> String? {
+        let t = s.trimmingCharacters(in: .whitespaces)
+        return !t.isEmpty && t.count <= 12 && t.allSatisfy(\.isNumber) ? t : nil
+    }
+
     static func appleSafe(_ s: String) -> String {
         String(s.unicodeScalars.filter {
             CharacterSet(charactersIn:
@@ -259,10 +274,16 @@ enum HostTerminal: Equatable {
         }.prefix(128))
     }
 
+    /// Runs the script and believes what it RETURNS, not merely that it ran. A jump script
+    /// that matches nothing still succeeds as a script; reporting that as a jump told the user
+    /// the island had focused a tab it never found.
     private func osascript(_ source: String) -> Bool {
         var error: NSDictionary?
-        NSAppleScript(source: source)?.executeAndReturnError(&error)
+        let out = NSAppleScript(source: source)?.executeAndReturnError(&error)
         if let error { Diagnostics.log("osascript failed: \(error)") ; return false }
-        return true
+        // Scripts that answer "1"/"0" are jumps; the rest only had to run.
+        guard let answer = out?.stringValue, answer == "0" || answer == "1" else { return true }
+        if answer == "0" { Diagnostics.log("jump: no matching tab") }
+        return answer == "1"
     }
 }
