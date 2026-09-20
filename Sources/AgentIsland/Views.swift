@@ -875,7 +875,15 @@ struct QuestionCard: View {
                 .contentShape(Capsule())
                 .onTapGesture { if !explaining { onExplain() } }
             }
-            if !handedOver {
+            if explaining {
+                // Counting down while the reader waits to be told what the question means reads
+                // as a deadline they are losing. The wait is held open, so say so instead.
+                HStack(spacing: 3) {
+                    Image(systemName: "pause.circle").font(.system(size: 10))
+                    Text("held").font(Theme.mono(Type.small))
+                }
+                .foregroundColor(Theme.faint)
+            } else if !handedOver {
                 // Time left before the question hands to the chat. Any interaction resets it;
                 // let it run out and the card becomes a read-only copy of the chat picker.
                 TimelineView(.periodic(from: graceBase, by: 1)) { ctx in

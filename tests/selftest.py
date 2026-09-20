@@ -2863,6 +2863,26 @@ check("no engine's throwaway session can become a row",
       "if let c = agent.cwd, Explain.isOwn(c) { return false }" in open(
           os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read())
 
+# The hook's grace is 60s of IDLE, and an engine chain that falls through to a second or third
+# CLI can outlast it — so the question would reach the chat while its reader sat waiting to be
+# told what it meant. Bracketing the call was not enough; the wait is held open throughout.
+_exi2 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+check("the grace is held open for as long as the explanation takes",
+      "explainHold = Timer.scheduledTimer(withTimeInterval: 10, repeats: true)" in _exi2
+      and "guard let self, self.explaining.contains(item.id) else { t.invalidate(); return }"
+      in _exi2)
+check("and the hold stops the moment the answer lands",
+      "self.explainHold?.invalidate(); self.explainHold = nil" in _exi2)
+# Counting down while someone waits to be told what the question means reads as a deadline they
+# are losing.
+check("the countdown is paused rather than run while explaining",
+      re.search(r'if explaining \{[\s\S]{0,400}?pause\.circle[\s\S]{0,200}?\} else if !handedOver \{',
+                _exv) is not None)
+check("and it restarts from the top once the answer is in",
+      "self.explanations[item.id] = text" in _exi2
+      and _exi2.index("self.explanations[item.id] = text")
+          < _exi2.index("if case .question(let live) = self.state, live.id == q.id"))
+
 # An explanation three options away from the option it describes is not much of an explanation.
 check("each option carries its own line of the explanation",
       "if let why = explainedOptions[i + 1] {" in _exv
@@ -2934,8 +2954,10 @@ check("and the in-flight mark is cleared with the ask, so the chip cannot stick"
 
 # The hook's grace is 60s of IDLE. A 10-18s call is not idling, and letting it elapse would hand
 # the question to the chat while the user was waiting for help reading it.
-check("the grace is marked at both ends of the call",
-      _exi.split("func explain(")[1][:700].count("markInteraction(q.id)") == 2)
+# Was "marked at both ends". A slow engine chain outlasts the 60s idle grace between those two
+# ends, so it is now marked throughout — start, every 10s, and on the answer.
+check("the grace is marked at the start, throughout, and on the answer",
+      _exi.split("func explain(")[1].split("\n    }")[0].count("markInteraction(q.id)") == 3)
 check("the same question is only ever asked once",
       "if let hit = cached(item.id) { done(hit); return }" in _ex)
 # A separate timer answered the card but left the child running, and releasing on it dropped

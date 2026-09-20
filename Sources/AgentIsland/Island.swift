@@ -71,6 +71,7 @@ final class Island: NSObject, ObservableObject {
     /// kept for as long as the card is up: the call costs about ten seconds.
     @Published var explanations: [String: String] = [:]
     @Published var explaining: Set<String> = []
+    private var explainHold: Timer?
     private let frames = FrameMeter()
     @Published var revealed = false
     /// The collapsed bar has gone quiet and stepped out of the way.
@@ -917,8 +918,19 @@ final class Island: NSObject, ObservableObject {
         markInteraction(q.id)
         guard explanations[item.id] == nil, !explaining.contains(item.id) else { return }
         explaining.insert(item.id)
+        // The grace is 60s of idle and an engine that has to fall through to the next one can
+        // outlast that, so the wait is held open rather than merely bracketed: a question must
+        // never reach the chat while its reader is waiting to be told what it means.
+        explainHold?.invalidate()
+        explainHold = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] t in
+            Task { @MainActor in
+                guard let self, self.explaining.contains(item.id) else { t.invalidate(); return }
+                self.markInteraction(q.id)
+            }
+        }
         Explain.run(item: item, session: q.session, cwd: q.cwd) { [weak self] text in
             guard let self else { return }
+            self.explainHold?.invalidate(); self.explainHold = nil
             self.explaining.remove(item.id)
             self.explanations[item.id] = text
             // 45s later this ask may be gone and another one up; its grace is not ours to slide.
