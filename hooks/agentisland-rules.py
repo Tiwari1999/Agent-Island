@@ -119,8 +119,12 @@ def main():
         # A rule naming "Bash" should also govern Cursor's "Shell".
         if r.get("tool") and r["tool"] != tool and not _same_tool(r["tool"], tool):
             continue
-        if r.get("cwd") and not cwd.startswith(r["cwd"]):
-            continue
+        # startswith made a rule for /proj govern /proj-evil as well, which is a rule the user
+        # never wrote. Match the directory or something genuinely inside it.
+        if r.get("cwd"):
+            base = r["cwd"].rstrip("/")
+            if cwd != base and not cwd.startswith(base + "/"):
+                continue
         pat = r.get("pattern")
         if not pat:
             continue

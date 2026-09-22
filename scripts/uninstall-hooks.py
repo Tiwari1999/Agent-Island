@@ -8,6 +8,16 @@ statusLine to whatever it wrapped, and reports what it did.
 import json, os, shutil, time
 
 MARK = "agentisland"
+# Matching the bare word would take a third-party hook whose path merely contains it. Our hooks
+# are these six files, wherever the repo happens to sit — so an install at an old path is still
+# recognised, and somebody else's tool is not.
+SCRIPTS = ("agentisland-hook.sh", "agentisland-permission.sh", "agentisland-rules.py",
+           "agentisland-question.py", "agentisland-input.py", "agentisland-status.sh")
+
+
+def ours(obj):
+    blob = json.dumps(obj)
+    return any(name in blob for name in SCRIPTS)
 
 
 def save(path, cfg):
@@ -36,7 +46,7 @@ def clean(name, path):
             if not isinstance(entry, dict) or "hooks" not in entry:
                 survivors.append(entry)   # not ours, whatever shape it is — keep it
                 continue
-            hooks = [h for h in entry.get("hooks", []) if MARK not in json.dumps(h)]
+            hooks = [h for h in entry.get("hooks", []) if not ours(h)]
             removed += len(entry.get("hooks", [])) - len(hooks)
             if hooks:
                 survivors.append({**entry, "hooks": hooks})
@@ -89,7 +99,7 @@ def clean_cursor(path):
         return
     removed, kept = 0, {}
     for event, entries in cfg.get("hooks", {}).items():
-        survivors = [e for e in entries if MARK not in json.dumps(e)]
+        survivors = [e for e in entries if not ours(e)]
         removed += len(entries) - len(survivors)
         if survivors:
             kept[event] = survivors
@@ -118,5 +128,16 @@ else:
     for d in ["/tmp/agentisland-decisions", "/tmp/agentisland-status"]:
         shutil.rmtree(d, ignore_errors=True)
     print("  removed runtime files from /tmp")
+# install.sh registers a login item so a reboot brings the island back. Leaving it behind
+# means an uninstalled app is relaunched at every login — the exact orphan this repo has
+# already had to chase out of System Events once.
+AGENT = os.path.expanduser("~/Library/LaunchAgents/sh.emergent.agentisland.plist")
+if os.environ.get("AGENTISLAND_KEEP_RUNTIME"):
+    print("  kept the login item (AGENTISLAND_KEEP_RUNTIME)")
+elif os.path.exists(AGENT):
+    os.system(f"launchctl bootout gui/{os.getuid()}/sh.emergent.agentisland 2>/dev/null")
+    os.remove(AGENT)
+    print("  removed the login item, so a reboot no longer relaunches it")
+
 print("\n  Left in place (yours, not ours): ~/.agentisland/rules.json")
 print("  Remove the app with: rm -rf ~/Applications/AgentIsland.app")

@@ -479,6 +479,40 @@ Known and NOT fixed — read before promising anything:
 - Uninstall matches the bare word "agentisland", so a third-party hook whose path contains it
   would be removed.
 
+## External review pass (2026-09-22)
+
+An outside review of the whole tree. Every claim was checked against HEAD first — none were
+wrong, and one was understated. Fixed:
+
+- **Quiet was a black hole.** `ask`/`present` returned on `snoozing` without enqueueing, and
+  nothing replayed on wake, so an agent blocked on a tool timed out into a terminal nobody was
+  watching. Both now queue, and `resumeFromQuiet()` drains on wake — through `presentNext()`,
+  which already drops anything past its deadline, so a dead card is never revived.
+- **The pid oracle marked itself seeded before the call.** One timeout, one PATH miss or one bad
+  parse left every shared-cwd Claude session unbindable for the rest of the launch.
+- **`Approvals.decide` had none of the care `answer` got**: umask permissions and a discarded
+  `ensureDir()` ownership result, on the file that says a shell command may run.
+- **The question hook read its answer file with no ownership or symlink gate**, unlike
+  `agentisland-input.py`. Same for the status hook, which wrote session/model/cost at 0644.
+- **An auto-approve rule for `/proj` also governed `/proj-evil`** — `startswith` with no boundary.
+- **The capability table promised approvals for Codex and Cursor.** Only `agentisland-permission.sh`
+  writes `ap_request_id`, and it is registered for Claude alone — so the review was right about
+  Cursor and also right, unmentioned, about Codex. The auto-approve line claimed to govern every
+  agent for the same reason and is now honest about which one it reaches.
+- **`hooksInstalled()` asked only about Claude**, so a Codex-only user was told their hooks were
+  missing for ever.
+- **Install and uninstall matched the bare word "agentisland".** A third-party hook under a path
+  containing it was deleted — by the INSTALLER's stale-path sweep, not just by uninstall. Both now
+  match our six script names. Proved with a round trip against a throwaway HOME.
+- **Uninstall left the LaunchAgent behind**, so an uninstalled app relaunched at every login.
+- **Cursor hook entries were skipped rather than refreshed**, leaving a moved repo pointing at a
+  path that no longer existed.
+
+Still open from that review, deliberately: kitty/WezTerm/Warp jumps that report success without
+verifying focus moved; several Cursor chats in one repo sharing one pid; Codex busy-state from
+wall-clock mtime; and everything in its packaging/distribution list (notarization, DMG, bundle id,
+onboarding), which is release work rather than defects.
+
 ## Working rules that bit us (obey them)
 
 - **Never drive synthetic clicks/hover to verify.** It steals the pointer and raises apps on the

@@ -32,6 +32,13 @@ def _island_alive():
         return False
 
 
+def _ours(path):
+    try:
+        return os.lstat(path).st_uid == os.geteuid()
+    except OSError:
+        return False
+
+
 def bail():
     sys.exit(0)
 
@@ -140,6 +147,11 @@ def main():
         if now - last >= GRACE:
             break
         if os.path.exists(path):
+            # /tmp is world-writable and this file decides what the agent is told the user
+            # answered, so read it only if it is ours and not a symlink — the same gate
+            # agentisland-input.py uses for the text it hands to the model.
+            if os.path.islink(path) or not _ours(path):
+                bail()
             try:
                 choice = open(path).read().strip()
                 os.remove(path)

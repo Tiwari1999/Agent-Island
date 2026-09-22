@@ -111,11 +111,17 @@ enum Approvals {
         poll()
     }
 
+    /// This file is the one that says a shell command may run, so it gets exactly the care the
+    /// answer file gets: refuse a directory that is not ours, create the file owner-only, and
+    /// rename it into place so the hook never reads half of it.
     static func decide(_ approval: Approval, allow: Bool) {
-        guard validID(approval.id) else { return }
-        ensureDir()
+        guard validID(approval.id), ensureDir() else { return }
         let path = (decisionsDir as NSString).appendingPathComponent(approval.id)
-        try? (allow ? "allow" : "deny").write(toFile: path, atomically: true, encoding: .utf8)
+        let part = path + ".part"
+        guard FileManager.default.createFile(
+                atPath: part, contents: Data((allow ? "allow" : "deny").utf8),
+                attributes: [.posixPermissions: 0o600]) else { return }
+        if rename(part, path) != 0 { try? FileManager.default.removeItem(atPath: part) }
     }
 
     /// The hook treats a heartbeat older than 15s as "no island", so beat well inside that.

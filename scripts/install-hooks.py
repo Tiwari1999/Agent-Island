@@ -30,6 +30,16 @@ INPUT      = _cmd("agentisland-input.py")
 STATUSLINE = os.path.join(REPO, "hooks/agentisland-status.sh")   # quoted where it is used
 
 MARK = "agentisland"          # how we recognise our own entries
+# The bare word is too broad to delete on: a third-party hook living under a path that merely
+# contains it is not ours. Ours are these six files, wherever the repo sits — so a copy at an
+# old path is still recognised as a leftover, and somebody else's tool is left alone.
+SCRIPTS = ("agentisland-hook.sh", "agentisland-permission.sh", "agentisland-rules.py",
+           "agentisland-question.py", "agentisland-input.py", "agentisland-status.sh")
+
+
+def ours(obj):
+    blob = json.dumps(obj)
+    return any(name in blob for name in SCRIPTS)
 STATE = os.path.expanduser("~/.agentisland")
 
 
@@ -116,7 +126,7 @@ def install(name, path, plan, statusline=False):
     # live under REPO; anything else marked as ours is a leftover that would still fire.
     for event, entries in list(cfg.get("hooks", {}).items()):
         kept = [e for e in entries
-                if not (MARK in json.dumps(e) and REPO not in json.dumps(e))]
+                if not (ours(e) and REPO not in json.dumps(e))]
         if len(kept) != len(entries):
             changed += len(entries) - len(kept)
             entries[:] = kept
@@ -202,6 +212,12 @@ if os.path.isdir(os.path.expanduser("~/.cursor")):
         added = 0
         for event in CURSOR_EVENTS:
             entries = hooks.setdefault(event, [])
+            # Claude and Codex replace an entry whose path has moved; Cursor skipped the event
+            # entirely if ANY of ours was there, so a repo that moved left Cursor pointing at a
+            # path that no longer exists — silently, for ever.
+            stale = [e for e in entries if ours(e) and REPO not in json.dumps(e)]
+            for e in stale:
+                entries.remove(e)
             if any(MARK in json.dumps(e) for e in entries):
                 continue
             entries.append({"command": HOOK})

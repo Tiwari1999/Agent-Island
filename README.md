@@ -63,7 +63,7 @@ Agent Island puts the answer where your eyes already are.
 | 💬 **Answer questions** | `AskUserQuestion` prompts answered in the notch: multiple choice with `⌘⌥1`–`⌘⌥4`, a **free-text** field for your own answer, and multi-question asks sequenced with clickable pips (`⌘⌥⇧1`–`⌘⌥⇧4` to jump). Nothing sends until you press **submit** |
 | ⏳ **Sliding window** | A visible countdown before an unanswered question hands back to the terminal; every interaction pushes it forward, so answering never times out under you |
 | 💬 **Or answer in the chat** | One click releases the turn so Claude's own picker appears in the terminal, and the notch keeps a read-only copy — the question stays visible in both places |
-| 🤖 **Auto-approve rules** | A regex allowlist that governs every agent — one rule covers Claude's `Bash` and Cursor's `Shell` alike |
+| 🤖 **Auto-approve rules** | A regex allowlist for Claude Code permission requests. The rule vocabulary is vendor-neutral — one rule is written to cover Claude's `Bash` and Cursor's `Shell` alike — but only Claude Code publishes a permission hook today, so that is the only agent it governs |
 | 🔔 **Alerts that respect you** | Desktop notifications only when you're *not* already looking |
 
 ## 🧭 The precise jump
@@ -166,13 +166,18 @@ left blank, so an unsupported feature never reads as a broken one.
 |---|---|---|---|
 | Session list | ✅ | ✅ | ✅ |
 | Live tool activity | ✅ | ✅ | ✅ |
-| Approve from the notch | ✅ | ✅ | ✅ |
+| Approve from the notch | ✅ | — | — |
 | Answer questions from the notch | ✅ | — | — |
 | Context pressure | ✅ | ✅ | — |
 | Quota and burn rate | ✅ | — | — |
 | Task progress | ✅ | — | — |
 | Precise jump | ✅ | ✅ | ✅ |
 | Resume when stopped | ✅ | ✅ | ✅ |
+
+Approvals and questions need an agent that asks permission through a hook before it acts. Only
+Claude Code publishes one (`PermissionRequest`, `AskUserQuestion`); Codex and Cursor expose
+lifecycle and tool events but nothing to answer, so those rows are dashes rather than promises.
+Everything else — the list, live activity, jump, resume — works the same for all three.
 
 ## 🪝 Hooks
 

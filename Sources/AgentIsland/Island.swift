@@ -148,6 +148,14 @@ final class Island: NSObject, ObservableObject {
     }
 
     /// Show the bar and restart its clock. Called on hover, and whenever what it says changes.
+    /// Anything Quiet held back, now that Quiet is over. Whatever expired meanwhile is dropped
+    /// by presentNext, so this never resurrects a card its agent has already given up on.
+    func resumeFromQuiet() {
+        guard !Prefs.shared.snoozing, state == .collapsed else { return }
+        guard !queuedQuestions.isEmpty || !queuedApprovals.isEmpty else { return }
+        presentNext()
+    }
+
     func wake() {
         hideTimer?.invalidate()
         if autoHidden { withAnimation(Motion.content) { autoHidden = false } }
@@ -654,7 +662,14 @@ final class Island: NSObject, ObservableObject {
 
     /// An approval outranks a toast: a blocked tool is the most urgent thing on screen.
     func present(_ approval: Approval) {
-        guard !Prefs.shared.snoozing else { return }
+        guard !Prefs.shared.snoozing else {
+            if approval.deadline > Date(),
+               !queuedApprovals.contains(where: { $0.id == approval.id }) {
+                queuedApprovals.append(approval)
+            }
+            Diagnostics.log("approval \(approval.id): held for quiet")
+            return
+        }
         guard !showingCard else {
             if !queuedApprovals.contains(where: { $0.id == approval.id }) {
                 queuedApprovals.append(approval)
@@ -686,7 +701,11 @@ final class Island: NSObject, ObservableObject {
     /// A question outranks everything: an agent is blocked until it is answered.
     func ask(_ question: Question) {
         guard !Prefs.shared.snoozing else {
-            Diagnostics.log("question \(question.id): dropped, island is snoozing")
+            if question.deadline > Date(),
+               !queuedQuestions.contains(where: { $0.id == question.id }) {
+                queuedQuestions.append(question)
+            }
+            Diagnostics.log("question \(question.id): held for quiet")
             return
         }
         // A question may take over from an approval, which returns to the queue rather than
@@ -1242,7 +1261,7 @@ private struct RootView: View {
         // At the root: you ask for quiet from the open panel, where CollapsedView is not in
         // the tree, so this cannot live on the bar it acts upon.
         .onChange(of: prefs.snoozedUntil) { _, _ in
-            if prefs.snoozing { island.collapse() } else { island.wake() }
+            if prefs.snoozing { island.collapse() } else { island.wake(); island.resumeFromQuiet() }
         }
         // Theme's tokens read Surfaces statically, which SwiftUI cannot see as a dependency:
         // views whose stored properties are unchanged keep the old palette. Rebinding identity

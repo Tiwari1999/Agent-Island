@@ -4,10 +4,16 @@ import Foundation
 /// not need to know a script exists to fix that. Same machinery, one click.
 enum Setup {
     /// Whether our hooks are wired into Claude Code's settings.
+    /// True once our hooks are wired into any agent the user actually has. Asking only about
+    /// Claude told a Codex-only or Cursor-only user their hooks were missing for ever, with a
+    /// setup prompt that would never go away however many times they ran it.
     static func hooksInstalled() -> Bool {
-        guard let data = FileManager.default.contents(atPath: Home.path + "/.claude/settings.json"),
-              let text = String(data: data, encoding: .utf8) else { return false }
-        return text.contains("agentisland")
+        let settings = ["/.claude/settings.json", "/.codex/hooks.json", "/.cursor/hooks.json"]
+        return settings.contains { file in
+            guard let data = FileManager.default.contents(atPath: Home.path + file),
+                  let text = String(data: data, encoding: .utf8) else { return false }
+            return text.contains("agentisland")
+        }
     }
 
     /// The bundled installer — backup-first, append-only, idempotent — resolved the same way the

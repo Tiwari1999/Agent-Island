@@ -1066,7 +1066,9 @@ un=open(os.path.join(REPO,"scripts/uninstall-hooks.py")).read()
 check("installer backs up before writing", "def backup" in inst and "shutil.copy2" in inst)
 check("installer is idempotent", "already installed" in inst)
 check("uninstaller exists", os.path.exists(os.path.join(REPO,"scripts/uninstall-hooks.py")))
-check("uninstaller removes only our entries", "MARK not in json.dumps" in un)
+check("uninstaller removes only our entries",
+      "def ours(obj):" in un and "if not ours(h)]" in un
+      and "agentisland-question.py" in un)
 check("uninstaller restores a wrapped statusLine", "hand it back" in un)
 
 # Re-installing from a moved or re-cloned repo used to append a second copy of every hook, so
@@ -2667,7 +2669,76 @@ check("a question logs every step it takes, so a lost one says where it went",
       and 'question \\(question.id): on screen' in _qi
       and 'question \\(q.id): handed to the chat' in _qi)
 check("and both of ask()'s silent returns now say why",
-      'dropped, island is snoozing' in _qi and 'queued behind' in _qi)
+      'held for quiet' in _qi and 'queued behind' in _qi)
+
+print("\n=== 53. external review: P0s ===")
+_r2_is = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_r2_cs = open(os.path.join(REPO, "Sources/AgentIsland/CursorSource.swift")).read()
+_r2_ap = open(os.path.join(REPO, "Sources/AgentIsland/Approvals.swift")).read()
+_r2_qh = open(os.path.join(REPO, "hooks/agentisland-question.py")).read()
+_r2_sh = open(os.path.join(REPO, "hooks/agentisland-status.sh")).read()
+_r2_rl = open(os.path.join(REPO, "hooks/agentisland-rules.py")).read()
+_r2_ih = open(os.path.join(REPO, "scripts/install-hooks.py")).read()
+_r2_uh = open(os.path.join(REPO, "scripts/uninstall-hooks.py")).read()
+_r2_st = open(os.path.join(REPO, "Sources/AgentIsland/Setup.swift")).read()
+_r2_rm = open(os.path.join(REPO, "README.md")).read()
+
+# Quiet means "not now", not "never". Dropping the card let the agent's hook time out into a
+# terminal nobody was looking at, and nothing brought it back when Quiet ended.
+# Anchored INSIDE each snoozing guard, not merely on the log line beside it: an earlier version
+# of this check passed while the enqueue had been deleted, because the append it looked for also
+# exists in the "another card is up" branch a few lines below.
+check("Quiet holds a card instead of dropping it",
+      re.search(r'guard !Prefs\.shared\.snoozing else \{\s*\n\s*'
+                r'if question\.deadline > Date\(\),[\s\S]{0,160}?queuedQuestions\.append\(question\)',
+                _r2_is) is not None
+      and re.search(r'guard !Prefs\.shared\.snoozing else \{\s*\n\s*'
+                    r'if approval\.deadline > Date\(\),[\s\S]{0,160}?queuedApprovals\.append\(approval\)',
+                    _r2_is) is not None)
+check("and what it held is shown once Quiet is over",
+      "func resumeFromQuiet()" in _r2_is
+      and "island.wake(); island.resumeFromQuiet()" in _r2_is)
+# presentNext drops anything already past its deadline, so waking never revives a dead card.
+check("but never a card its agent has already given up on",
+      "guard !Prefs.shared.snoozing, state == .collapsed else { return }" in _r2_is
+      and "queuedQuestions.removeAll { $0.deadline <= now }" in _r2_is)
+
+# One timeout, one PATH miss or one bad parse left every shared-cwd session unbindable for the
+# whole launch, because the flag went up before the call.
+check("the pid oracle is only marked seeded once it has actually seeded",
+      _r2_cs.index('Shell.runSync(Shell.claude, ["agents", "--json"]')
+      < _r2_cs.index("        seeded = true"))
+
+# The approval file says a shell command may run. It had none of the care the answer file got.
+check("an approval decision is written owner-only and atomically",
+      "guard validID(approval.id), ensureDir() else { return }" in _r2_ap
+      and "attributes: [.posixPermissions: 0o600]) else { return }" in _r2_ap
+      and 'write(toFile: path, atomically: true, encoding: .utf8)' not in _r2_ap)
+check("the question hook refuses an answer file that is not ours",
+      "if os.path.islink(path) or not _ours(path):" in _r2_qh and "def _ours(path):" in _r2_qh)
+check("the status hook does not leave session and cost data world-readable",
+      "umask 077" in _r2_sh and '[ -O "$DIR" ] || exit 0' in _r2_sh)
+# A rule naming /proj governed /proj-evil too, which is a rule nobody wrote.
+check("an auto-approve rule stops at its own directory boundary",
+      'cwd != base and not cwd.startswith(base + "/")' in _r2_rl
+      and 'cwd.startswith(r["cwd"])' not in _r2_rl)
+
+# Only Claude Code publishes a permission or question hook; the table promised all three.
+check("the capability table does not promise approvals nobody can give",
+      "| Approve from the notch | ✅ | — | — |" in _r2_rm
+      and "only Claude Code publishes a permission hook today" in _r2_rm)
+check("and hooksInstalled asks about the agents the user actually has",
+      '["/.claude/settings.json", "/.codex/hooks.json", "/.cursor/hooks.json"]' in _r2_st)
+
+# The bare word would take a third-party hook living under a path that merely contains it.
+check("install and uninstall recognise our own scripts, not a bare word",
+      _r2_ih.count("def ours(obj):") == 1 and _r2_uh.count("def ours(obj):") == 1
+      and "if not (ours(e) and REPO not in json.dumps(e))" in _r2_ih
+      and "if not ours(h)]" in _r2_uh)
+check("a Cursor entry pointing at a moved repo is replaced, not skipped",
+      "stale = [e for e in entries if ours(e) and REPO not in json.dumps(e)]" in _r2_ih)
+check("uninstall takes the login item with it",
+      "launchctl bootout gui/" in _r2_uh and "os.remove(AGENT)" in _r2_uh)
 
 print("\n=== 52. pre-release review fixes ===")
 _rv_hs = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()

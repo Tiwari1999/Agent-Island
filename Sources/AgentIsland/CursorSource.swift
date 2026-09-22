@@ -390,11 +390,16 @@ enum ClaudeAgents {
     static func pids(needed: Bool) -> [String: Int] {
         lock.lock(); defer { lock.unlock() }
         guard !seeded, needed else { return cache }
-        seeded = true
         let out = Shell.runSync(Shell.claude, ["agents", "--json"], timeout: 8)
         guard let data = out.data(using: .utf8),
               let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
-        else { return cache }
+        else {
+            // Marking it seeded before the call meant one timeout, one PATH miss or one bad
+            // parse left every shared-cwd session unbindable for the rest of the launch. A
+            // failure earns a retry on the next refresh that still needs one.
+            return cache
+        }
+        seeded = true
         var fresh: [String: Int] = [:]
         for o in arr {
             if let sid = o["sessionId"] as? String, let pid = o["pid"] as? Int { fresh[sid] = pid }
