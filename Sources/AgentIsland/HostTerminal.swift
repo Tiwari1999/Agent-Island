@@ -159,9 +159,11 @@ enum HostTerminal: Equatable {
             return ok
 
         case .warp(let url):
+            // open() answers whether a handler took the URL. Returning true regardless claimed
+            // a landing even with Warp uninstalled, and the caller then skipped the fallback
+            // that would have handed the user something they could use.
             guard let u = URL(string: url) else { return false }
-            NSWorkspace.shared.open(u)
-            return true
+            return NSWorkspace.shared.open(u)
 
         case .iterm(let session):
             // ITERM_SESSION_ID is "wNtNpN:UUID"; the scripting dictionary's `id of session` is
@@ -214,15 +216,17 @@ enum HostTerminal: Equatable {
             // KITTY_WINDOW_ID and WEZTERM_PANE are numbers out of the environment, and the
             // environment is not ours. Raising the app on a bad id is still the right outcome;
             // running whatever it contained is not.
-            guard let id = Self.numericID(window) else { return activate(bundleID: "net.kovidgoyal.kitty") }
-            _ = Shell.runSync("/bin/sh", ["-c",
-                "kitty @ focus-window --match id:\(id) 2>/dev/null"])
+            guard let id = Self.numericID(window) else { return false }
+            // The focus result was discarded and the app raised regardless, so a window id that
+            // no longer exists — or remote control switched off — reported a successful jump
+            // while kitty came forward on whatever was already selected. runSync hands back
+            // stdout and not a status, so the command says so itself.
+            guard Self.succeeded("kitty @ focus-window --match id:\(id)") else { return false }
             return activate(bundleID: "net.kovidgoyal.kitty")
 
         case .wezterm(let pane):
-            guard let id = Self.numericID(pane) else { return activate(bundleID: "com.github.wez.wezterm") }
-            _ = Shell.runSync("/bin/sh", ["-c",
-                "wezterm cli activate-pane --pane-id \(id) 2>/dev/null"])
+            guard let id = Self.numericID(pane) else { return false }
+            guard Self.succeeded("wezterm cli activate-pane --pane-id \(id)") else { return false }
             return activate(bundleID: "com.github.wez.wezterm")
 
         case .app(let bundle, _):
@@ -237,6 +241,13 @@ enum HostTerminal: Equatable {
         case .unknown:
             return false
         }
+    }
+
+    /// Run a focus command and report whether it actually worked. `Shell.runSync` returns
+    /// stdout rather than an exit status, so the shell reports the status as output.
+    private static func succeeded(_ command: String) -> Bool {
+        Shell.runSync("/bin/sh", ["-c", "\(command) >/dev/null 2>&1 && echo ok"], timeout: 4)
+            .contains("ok")
     }
 
     private func activate(bundleID: String) -> Bool {

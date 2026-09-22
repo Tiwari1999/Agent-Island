@@ -63,8 +63,7 @@ struct CodexSource: AgentSource {
                 // A live process means the session is open, not that it is working. Codex
                 // appends to its rollout while it works, so recency is the evidence; without
                 // this every open Codex tab claimed to be busy forever.
-                state: live == nil ? nil
-                    : (Date().timeIntervalSince(mtime) < 90 ? "busy" : "idle"),
+                state: live == nil ? nil : (Self.working(since: mtime) ? "busy" : "idle"),
                 status: nil,
                 pid: live,
                 vendor: .codex,
@@ -106,6 +105,16 @@ struct CodexSource: AgentSource {
     private static var cache: [String: (mtime: Date, value: Rollout)] = [:]
 
     /// Rollout files outside the discovery window will never be read again.
+    /// Codex appends to its rollout while it works, so recency is the evidence — but only
+    /// recency we can trust. This is a wall clock compared against a file's own stamp: an NTP
+    /// correction or a wake from sleep can put mtime in the future, and a bare "< 90" is true
+    /// for every negative age, so every open tab read busy for as long as the skew lasted. A
+    /// stamp we cannot explain reads idle, which is the reading that costs nothing if wrong.
+    static func working(since mtime: Date, within: TimeInterval = 90, now: Date = Date()) -> Bool {
+        let age = now.timeIntervalSince(mtime)
+        return age >= 0 && age < within
+    }
+
     private static func trimCache(keeping paths: Set<String>) {
         cache = cache.filter { paths.contains($0.key) }
     }

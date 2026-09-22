@@ -2671,6 +2671,50 @@ check("a question logs every step it takes, so a lost one says where it went",
 check("and both of ask()'s silent returns now say why",
       'held for quiet' in _qi and 'queued behind' in _qi)
 
+print("\n=== 55. external review: P1 reliability ===")
+_p1_ht = open(os.path.join(REPO, "Sources/AgentIsland/HostTerminal.swift")).read()
+_p1_cs = open(os.path.join(REPO, "Sources/AgentIsland/CursorSource.swift")).read()
+_p1_cx = open(os.path.join(REPO, "Sources/AgentIsland/CodexSource.swift")).read()
+
+# The focus result was thrown away and the app raised regardless, so a stale window id — or
+# remote control switched off — reported a successful jump while the terminal came forward on
+# whatever was already selected. runSync hands back stdout, not a status, so the shell says so.
+check("a failed kitty or wezterm focus is a failure, not a silent success",
+      "private static func succeeded(_ command: String) -> Bool" in _p1_ht
+      and '">/dev/null 2>&1 && echo ok"' in _p1_ht.replace("\\(command) ", "")
+      and _p1_ht.count("guard Self.succeeded(") == 2)
+check("and neither raises the app after the focus missed",
+      _p1_ht.count('return activate(bundleID: "net.kovidgoyal.kitty")') == 1
+      and 'else { return activate(bundleID: "net.kovidgoyal.kitty") }' not in _p1_ht)
+# open() answers whether a handler took the URL; returning true regardless claimed a landing
+# even with Warp uninstalled, and the caller then skipped its fallback.
+check("a Warp jump reports what open() actually said",
+      "return NSWorkspace.shared.open(u)" in _p1_ht
+      and re.search(r'NSWorkspace\.shared\.open\(u\)\s*\n\s*return true', _p1_ht) is None)
+
+# Cwd.map resolves a directory to ONE pid, so every chat open in a repo was handed it and each
+# offered a precise jump — four rows, one real target, three wrong landings.
+check("one process is claimed by one row",
+      "static func claimPids(_ agents: [Agent]) -> [Agent]" in _p1_cs
+      and "return Self.claimPids(agents)" in _p1_cs)
+check("and the row that keeps it is the one that process is serving",
+      "if (a.lastActiveOverride ?? .distantPast) > heldAt { bestByPid[pid] = a.sessionId }" in _p1_cs)
+check("a stripped row still lists, it just stops claiming a jump",
+      "stripped.pid = nil" in _p1_cs)
+check("tests/claimpids.swift present (claiming edge cases)",
+      os.path.exists(os.path.join(REPO, "tests", "claimpids.swift")))
+
+# A wall clock against a file's own stamp: an NTP correction or a wake from sleep puts mtime in
+# the future, and a bare "< 90" is true for every negative age — busy for as long as the skew.
+check("busy needs an age the clock can account for",
+      "let age = now.timeIntervalSince(mtime)" in _p1_cx
+      and "return age >= 0 && age < within" in _p1_cx)
+check("no source compares a bare interval against a window any more",
+      "Date().timeIntervalSince(mtime) < 90" not in _p1_cx
+      and "Date().timeIntervalSince(t.mtime) < 120" not in _p1_cs)
+check("and the Claude path shares the same rule rather than repeating it",
+      "CodexSource.working(since: t.mtime, within: 120)" in _p1_cs)
+
 print("\n=== 54. an approval you can actually answer ===")
 _ap_is = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
 _ap_ph = open(os.path.join(REPO, "hooks/agentisland-permission.sh")).read()

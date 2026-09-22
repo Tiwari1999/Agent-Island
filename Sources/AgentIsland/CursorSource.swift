@@ -46,7 +46,7 @@ struct CursorSource: AgentSource {
                 let updated = (meta["updatedAtMs"] as? NSNumber).map {
                     Date(timeIntervalSince1970: $0.doubleValue / 1000)
                 } ?? mtime
-                let live = cwd.flatMap { running[$0] }
+                let live = cwd.flatMap { running[$0] }   // claimed below, once, per cwd
                 guard Self.isUserDriven(dir: dir) else { continue }
                 let activity = Self.activity(sessionId: session)
                 let prompt = Self.lastPrompt(dir: dir)
@@ -70,6 +70,7 @@ struct CursorSource: AgentSource {
                     state: activity.state ?? (live != nil ? "idle" : nil),
                     status: nil,
                     pid: live,
+                    // resolved below: only one chat per cwd may keep it
                     vendor: .cursor,
                     lastActiveOverride: updated,
                     titleOverride: title,
@@ -78,7 +79,7 @@ struct CursorSource: AgentSource {
             }
         }
         Self.retainText(Set(agents.map(\.sessionId)))
-        return agents
+        return Self.claimPids(agents)
             .sorted { ($0.lastActiveOverride ?? .distantPast) > ($1.lastActiveOverride ?? .distantPast) }
             .prefix(cap)
             .map { $0 }
@@ -243,6 +244,30 @@ struct CursorSource: AgentSource {
         FileManager.default.fileExists(atPath: dir + "/prompt_history.json")
     }
 
+    /// One process, one row. `Cwd.map` resolves a working directory to a single pid, so every
+    /// chat open in the same repo was handed that pid and every one of them then offered a
+    /// precise jump to it — four rows, one real target, three wrong landings.
+    ///
+    /// The most recently updated chat in a directory is the one that process is almost certainly
+    /// serving, so it keeps the pid; its siblings give theirs up rather than claim a jump that
+    /// would land somewhere else. A row without a pid still lists, still reads, and offers the
+    /// directory instead of a wrong tab.
+    static func claimPids(_ agents: [Agent]) -> [Agent] {
+        var bestByPid: [Int: String] = [:]      // pid -> the session that keeps it
+        for a in agents {
+            guard let pid = a.pid else { continue }
+            guard let held = bestByPid[pid] else { bestByPid[pid] = a.sessionId; continue }
+            let heldAt = agents.first { $0.sessionId == held }?.lastActiveOverride ?? .distantPast
+            if (a.lastActiveOverride ?? .distantPast) > heldAt { bestByPid[pid] = a.sessionId }
+        }
+        return agents.map { a in
+            guard let pid = a.pid, bestByPid[pid] != a.sessionId else { return a }
+            var stripped = a
+            stripped.pid = nil
+            return stripped
+        }
+    }
+
     private static func runningSessions() -> [String: Int] {
         // cursor-agent's comm is the launcher's basename ("agent") or the interpreter ("node"),
         // so candidates are confirmed by argv — still zero spawns, just one sysctl per candidate.
@@ -348,7 +373,7 @@ struct ClaudeSource: AgentSource {
             let state: String?
             if let js = job?.state, js == "blocked" || js == "failed" { state = js }
             else if pid != nil {
-                state = Date().timeIntervalSince(t.mtime) < 120 ? "busy" : "idle"
+                state = CodexSource.working(since: t.mtime, within: 120) ? "busy" : "idle"
             } else { state = nil }
             agents.append(Agent(sessionId: sid, name: job?.name, cwd: cwd,
                                 state: state, status: nil, pid: pid))

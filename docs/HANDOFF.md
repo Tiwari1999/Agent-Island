@@ -508,10 +508,27 @@ wrong, and one was understated. Fixed:
 - **Cursor hook entries were skipped rather than refreshed**, leaving a moved repo pointing at a
   path that no longer existed.
 
-Still open from that review, deliberately: kitty/WezTerm/Warp jumps that report success without
-verifying focus moved; several Cursor chats in one repo sharing one pid; Codex busy-state from
-wall-clock mtime; and everything in its packaging/distribution list (notarization, DMG, bundle id,
-onboarding), which is release work rather than defects.
+The three reliability items left open from that review are now done (2026-09-23):
+
+- **A failed focus was a silent success.** kitty and WezTerm discarded the CLI result and raised
+  the app anyway, and Warp ignored what `NSWorkspace.open` returned. A stale window id, remote
+  control switched off, or Warp uninstalled all reported a successful jump while the terminal
+  came forward on whatever was already selected — and because the caller believes `true`, it
+  skipped the fallback that hands over the resume command. `Shell.runSync` returns stdout rather
+  than an exit status, so `succeeded()` has the shell answer instead: `cmd && echo ok`. A missed
+  focus now returns false and does not raise the app, because raising it lands somewhere wrong.
+- **One process, several rows.** `Cwd.map` resolves a directory to a single pid, so every Cursor
+  chat open in a repo was handed it and every one offered a precise jump to it — four rows, one
+  real target, three wrong landings. `claimPids` gives it to the most recently updated chat and
+  strips it from the siblings, which still list and still read; they just stop claiming a jump.
+- **Busy from a clock that can move.** `Date().timeIntervalSince(mtime) < 90` is true for every
+  negative age, so an NTP correction or a wake from sleep put mtime in the future and every open
+  Codex tab read busy until the skew passed. `CodexSource.working(since:within:)` requires an age
+  the clock can account for, and the Claude path — which had the identical bug at 120s — now
+  shares it rather than repeating it.
+
+Still open, deliberately: everything in the review's packaging and distribution list
+(notarization, DMG, bundle id, onboarding, accessibility), which is release work, not defects.
 
 ## "I clicked allow and nothing happened" (2026-09-23)
 
