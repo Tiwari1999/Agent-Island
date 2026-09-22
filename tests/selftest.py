@@ -2671,6 +2671,39 @@ check("a question logs every step it takes, so a lost one says where it went",
 check("and both of ask()'s silent returns now say why",
       'held for quiet' in _qi and 'queued behind' in _qi)
 
+print("\n=== 54. an approval you can actually answer ===")
+_ap_is = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_ap_ph = open(os.path.join(REPO, "hooks/agentisland-permission.sh")).read()
+_ap_hs = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()
+
+# Reported as "I clicked allow and nothing happened". present() ENDED the hold, so an unexpanded
+# card kept only the hook's 19s base timeout — and the card's own drop matched it. Clicking
+# allow half a minute later wrote a decision no hook was still reading, and nothing said so.
+check("putting an approval on screen holds its hook open",
+      re.search(r'hold\.end\(\); approvalContext = nil[\s\S]{0,420}?hold\.begin\(id: approval\.id\)',
+                _ap_is) is not None)
+check("and the card lives as long as a question card does",
+      "let window = max(approval.deadline.timeIntervalSinceNow, Island.graceSeconds)" in _ap_is)
+# The hook's own base timeout is unchanged; the mark is what extends it, and dropping the card
+# removes the mark so a card nobody answered still falls through to the terminal.
+check("the drop releases the hold, so an unanswered card still reaches the terminal",
+      re.search(r'DispatchWorkItem \{[\s\S]{0,260}?self\.hold\.end\(\); self\.approvalContext = nil',
+                _ap_is) is not None)
+check("an unheld approval still gives up on its own",
+      'if [ "$i" -ge "$TIMEOUT_TENTHS" ] && [ ! -f "$DECISIONS/$id.touched" ]; then' in _ap_ph)
+
+# Nothing anywhere recorded which half lost an approval, which is why "I clicked allow" had no
+# evidence at all. Both outcomes leave a line now, and the user is told when it was too late.
+check("the hook records both outcomes",
+      "by the island" in _ap_ph and "Claude will ask in the terminal" in _ap_ph)
+check("and an allow that arrived too late tells the user, as an answer already does",
+      "Approvals.wasRead(approval.id)" in _ap_is
+      and "Too late — approve it in the terminal instead" in _ap_is)
+
+# The 19s is the hook's unheld base timeout, and the card used to inherit exactly that.
+check("the short deadline is the hook's own, not the card's",
+      "deadline: Date().addingTimeInterval(plan != nil ? 50 : 19)" in _ap_hs)
+
 print("\n=== 53. external review: P0s ===")
 _r2_is = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
 _r2_cs = open(os.path.join(REPO, "Sources/AgentIsland/CursorSource.swift")).read()

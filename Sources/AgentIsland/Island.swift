@@ -679,6 +679,11 @@ final class Island: NSObject, ObservableObject {
         followActiveScreen()
         peekWork?.cancel(); approvalWork?.cancel()
         hold.end(); approvalContext = nil
+        // Putting the card on screen IS engagement. Without this mark the hook keeps only its
+        // 19s base timeout, so a card you looked at for half a minute was answering a hook that
+        // had already gone — the allow went nowhere and nothing said so. Holding it open costs
+        // nothing: the hook has its own 5 minute ceiling, and the drop below releases the mark.
+        hold.begin(id: approval.id)
         Hotkeys.shared.bind([
             (kVK_ANSI_A, Hotkeys.cmdOpt, { [weak self] in self?.answer(approval, allow: true) }),
             (kVK_ANSI_D, Hotkeys.cmdOpt, { [weak self] in self?.answer(approval, allow: false) }),
@@ -694,8 +699,10 @@ final class Island: NSObject, ObservableObject {
             self.presentNext()
         }
         approvalWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + approval.deadline.timeIntervalSinceNow,
-                                      execute: work)
+        // The same window a question gets. The hook's own deadline is the 19s it would have
+        // waited unheld; now that the card holds it open, the card is what decides.
+        let window = max(approval.deadline.timeIntervalSinceNow, Island.graceSeconds)
+        DispatchQueue.main.asyncAfter(deadline: .now() + window, execute: work)
     }
 
     /// A question outranks everything: an agent is blocked until it is answered.
@@ -1053,6 +1060,19 @@ final class Island: NSObject, ObservableObject {
         hold.end(); approvalContext = nil
         Hotkeys.shared.unbind()
         Approvals.decide(approval, allow: allow)
+        // The question card has always confirmed its answer was collected; the approval card
+        // never did, so an allow that arrived after its hook had gone closed the card and left
+        // the user believing the tool was running. The hook deletes the file the instant it
+        // reads it, so a file still sitting there means nobody was listening.
+        Approvals.wasRead(approval.id) { [weak self] read in
+            guard let self, !read else { return }
+            let name = self.store.name(for: approval.session) ?? "the agent"
+            Diagnostics.log("approval \(approval.id): \(allow ? "allow" : "deny") arrived too "
+                            + "late, the hook had gone")
+            Notifier.notify(title: name,
+                            body: "Too late — approve it in the terminal instead",
+                            key: approval.session)
+        }
         presentNext()
     }
 

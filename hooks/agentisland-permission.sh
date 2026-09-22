@@ -57,6 +57,10 @@ while [ "$i" -lt "$HARD_TENTHS" ]; do
         rm -f "$DECISIONS/$id" 2>/dev/null
         case "$decision" in
             allow|deny)
+                # Nothing recorded which half lost an approval, so "I clicked allow and nothing
+                # happened" had no evidence anywhere. Both outcomes leave a line now.
+                printf '%s permission %s: %s by the island\n' "$(date -u +%FT%TZ)" "$id" "$decision" \
+                    >> "${AGENTISLAND_LOG:-/tmp/agentisland.log}" 2>/dev/null
                 printf '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","permissionDecision":"%s","permissionDecisionReason":"AgentIsland: %s by user"}}\n' "$decision" "$decision"
                 exit 0 ;;
             *) exit 0 ;;
@@ -67,6 +71,9 @@ while [ "$i" -lt "$HARD_TENTHS" ]; do
 done
 
 # Timed out: withdraw silently so Claude prompts normally.
+printf '%s permission %s: timed out after %ss, Claude will ask in the terminal\n' \
+    "$(date -u +%FT%TZ)" "$id" "$((i / 10))" \
+    >> "${AGENTISLAND_LOG:-/tmp/agentisland.log}" 2>/dev/null
 rm -f "$DECISIONS/$id.touched" 2>/dev/null
 printf '' >> "$SPOOL" 2>/dev/null
 exit 0

@@ -513,6 +513,38 @@ verifying focus moved; several Cursor chats in one repo sharing one pid; Codex b
 wall-clock mtime; and everything in its packaging/distribution list (notarization, DMG, bundle id,
 onboarding), which is release work rather than defects.
 
+## "I clicked allow and nothing happened" (2026-09-23)
+
+Reported against a live approval. The decision never reached the hook, and nothing anywhere
+recorded why — the log had no line for approvals at all.
+
+The cause was a 19-second fuse nobody could see. `HookStream` gives a plain approval
+`deadline: now + 19`, matching the permission hook's 20s base timeout, and the hook only waits
+longer while `<id>.touched` exists. `present()` called `hold.end()` — it *removed* that mark —
+and `hold.begin()` lived only in `expandApproval()`. So unless you happened to press ⌘⌥E, a card
+sitting on screen was answering a hook that had already gone twenty seconds in. `Approvals.decide`
+wrote the file correctly; nobody was reading it.
+
+Putting the card on screen is engagement now: `present()` begins the hold, and the card's drop
+window is `max(deadline, graceSeconds)` — the same 60s a question gets. The drop still calls
+`hold.end()`, so an unanswered card releases the hook and Claude prompts in the terminal as
+before. Verified against the real hook: held, it answered at 27s; unheld, it gave up at 20s.
+
+Two things made this invisible and are fixed with it:
+
+- The permission hook logged nothing. It now writes one line either way — `allow by the island`
+  or `timed out after Ns, Claude will ask in the terminal`.
+- `answer(_:allow:)` never checked whether anyone collected the decision, though the question
+  card has always done exactly that. It now uses the same `Approvals.wasRead` path and tells the
+  user to approve in the terminal instead.
+
+Unproven and worth knowing: this was an auto-mode *classifier* confirmation
+("Auto mode classifier requires confirmation for this command"). The `PermissionRequest` hook did
+fire for it, so the island was right to show a card — but whether a hook `allow` also satisfies
+the classifier gate was never established, because the hook had timed out long before. If an
+approval is answered inside the window and Claude still asks in the terminal, that is the
+remaining question, not this one.
+
 ## Working rules that bit us (obey them)
 
 - **Never drive synthetic clicks/hover to verify.** It steals the pointer and raises apps on the
