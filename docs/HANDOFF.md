@@ -1,8 +1,8 @@
 # AgentIsland — session handoff (2026-09-14)
 
 Repo: `~/PersonalProjects/agentisland` · GitHub `Tiwari1999/Agent-Island` (MIT) · branch `main`
-Install: `./install.sh` (builds + relaunches). App bundle id: `sh.emergent.agentisland`
-(prefs: `defaults … sh.emergent.agentisland`; **pkill first, then write, then launch** — a
+Install: `./install.sh` (builds + relaunches). App bundle id: `io.github.tiwari1999.agentisland`
+(prefs: `defaults … io.github.tiwari1999.agentisland`; **pkill first, then write, then launch** — a
 running app clobbers prefs on quit). Diagnostics log: `/tmp/agentisland.log`.
 
 ## THE ROUTING BUG — FIXED 2026-09-14 (ClaudeAgents pid seed)
@@ -187,7 +187,7 @@ branch per session row; (6) project grouping (flat 19-row list today); (7) Warp 
 
 The island was simply **not running after a reboot** — and nothing had ever been set up to start
 it: no LaunchAgent, not in Login Items. `install.sh` now writes
-`~/Library/LaunchAgents/sh.emergent.agentisland.plist` (RunAtLoad, Aqua-only, **no KeepAlive** —
+`~/Library/LaunchAgents/io.github.tiwari1999.agentisland.plist` (RunAtLoad, Aqua-only, **no KeepAlive** —
 Settings has a Quit and launchd must not undo it) and re-bootstraps it, so a fresh install or an
 upgrade fixes the path too.
 
@@ -200,7 +200,7 @@ process dies, so there is nothing to clean up.
 
 Verified end to end: killed everything, `launchctl bootstrap` (what login does) → exactly one
 instance, manifest refreshing, bar drawing. Second manual launch exits immediately. §48 pins all
-of it. To undo: `launchctl bootout gui/$UID/sh.emergent.agentisland && rm ~/Library/LaunchAgents/sh.emergent.agentisland.plist`.
+of it. To undo: `launchctl bootout gui/$UID/io.github.tiwari1999.agentisland && rm ~/Library/LaunchAgents/io.github.tiwari1999.agentisland.plist`.
 
 ## The island was stealing clicks (2026-09-15)
 

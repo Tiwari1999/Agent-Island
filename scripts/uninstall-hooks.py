@@ -131,11 +131,11 @@ else:
 # install.sh registers a login item so a reboot brings the island back. Leaving it behind
 # means an uninstalled app is relaunched at every login — the exact orphan this repo has
 # already had to chase out of System Events once.
-AGENT = os.path.expanduser("~/Library/LaunchAgents/sh.emergent.agentisland.plist")
+AGENT = os.path.expanduser("~/Library/LaunchAgents/io.github.tiwari1999.agentisland.plist")
 if os.environ.get("AGENTISLAND_KEEP_RUNTIME"):
     print("  kept the login item (AGENTISLAND_KEEP_RUNTIME)")
 elif os.path.exists(AGENT):
-    os.system(f"launchctl bootout gui/{os.getuid()}/sh.emergent.agentisland 2>/dev/null")
+    os.system(f"launchctl bootout gui/{os.getuid()}/io.github.tiwari1999.agentisland 2>/dev/null")
     os.remove(AGENT)
     print("  removed the login item, so a reboot no longer relaunches it")
 

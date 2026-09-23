@@ -8,6 +8,14 @@ final class Prefs: ObservableObject {
     private static let snoozeKey = "snoozedUntil"
     private static let autoHideKey = "autoHideSeconds"
     private static let reopenKey = "reopenIn"
+    private static let welcomeKey = "seenWelcome"
+
+    /// Shown once. A returning user opening the panel to check on an agent does not want a
+    /// greeting, and Settings has a way back to it for anyone who does.
+    var seenWelcome: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.welcomeKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.welcomeKey) }
+    }
 
     /// Which terminal a closed chat reopens in when its row is clicked. A live chat is always
     /// focused where it runs; this is only for one whose tab is gone.
@@ -29,7 +37,24 @@ final class Prefs: ObservableObject {
 
     private var expiry: Timer?
 
+    /// The app shipped for a while under sh.emergent.agentisland, and preferences live in a
+    /// plist named after the bundle id — so renaming it silently reset everyone's settings.
+    /// Carried once, and only into keys that are still unset, so it can never overwrite a
+    /// choice made since.
+    private static func carryLegacySettings() {
+        let d = UserDefaults.standard
+        guard !d.bool(forKey: "migratedFromEmergent"),
+              let old = UserDefaults(suiteName: "sh.emergent.agentisland") else { return }
+        for key in [snoozeKey, autoHideKey, reopenKey, welcomeKey, "surface", "typeface"] {
+            if d.object(forKey: key) == nil, let v = old.object(forKey: key) {
+                d.set(v, forKey: key)
+            }
+        }
+        d.set(true, forKey: "migratedFromEmergent")
+    }
+
     private init() {
+        Self.carryLegacySettings()
         let d = UserDefaults.standard
         // A fresh install has no value at all, which is different from a stored zero.
         autoHideSeconds = d.object(forKey: Self.autoHideKey) as? Double ?? 4
@@ -71,6 +96,7 @@ struct SettingsView: View {
     @ObservedObject private var surfaces = Surfaces.shared
     @ObservedObject private var typefaces = Typefaces.shared
     var onBack: () -> Void
+    @State private var exported = false
 
     private var version: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
@@ -126,6 +152,20 @@ struct SettingsView: View {
                 }
 
                 group("app") {
+                    // A bug report that is a screenshot of "it broke" costs a round trip. This
+                    // is the log, the manifest and what the app believes about each agent, in a
+                    // folder on the Desktop — revealed, not uploaded, so it can be read first.
+                    row("Diagnostics", note: "Log and session dump on your Desktop \u{2014} nothing is sent") {
+                        choice(exported ? "on your Desktop" : "Export", on: exported) {
+                            exported = Diagnostics.export() != nil
+                        }
+                    }
+                    row("What each agent can do", note: "Approvals need a permission hook") {
+                        choice("Show", on: false, tint: Theme.amber) {
+                            Prefs.shared.seenWelcome = false
+                            onBack()
+                        }
+                    }
                     row("AgentIsland \(version)", note: nil) {
                         choice("Quit", on: false, tint: Theme.failed) { NSApp.terminate(nil) }
                     }

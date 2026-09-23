@@ -3,7 +3,7 @@ import SwiftUI
 /// What the panel's list area is showing: the sessions, the money, one session's plan, or
 /// everything the user can change.
 enum PanelMode: Equatable {
-    case sessions, costs, settings, plan(session: String, title: String)
+    case sessions, costs, settings, welcome, plan(session: String, title: String)
 }
 
 /// Markdown rendered line-by-line — SwiftUI's AttributedString parser flattens block structure,

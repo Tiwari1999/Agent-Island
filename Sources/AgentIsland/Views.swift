@@ -390,7 +390,8 @@ struct PanelView: View {
     static var height: CGFloat { headerHeight + 1 + listHeight + 1 + footerHeight }
     @ObservedObject var store: AgentStore
     @ObservedObject var status: StatusStore
-    @State private var mode: PanelMode = .sessions
+    // A stranger's first open is the one that decides whether they keep it.
+    @State private var mode: PanelMode = Prefs.shared.seenWelcome ? .sessions : .welcome
     @State private var hooksReady = Setup.hooksInstalled()
     @State private var installing = false
     @ObservedObject private var surfaces = Surfaces.shared
@@ -444,7 +445,11 @@ struct PanelView: View {
 
             Rectangle().fill(Theme.hairline).frame(height: 0.7)
 
-            if case .settings = mode {
+            if case .welcome = mode {
+                WelcomeView { Prefs.shared.seenWelcome = true; withAnimation(Motion.content) { mode = .sessions } }
+                    .frame(height: PanelView.listHeight)
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+            } else if case .settings = mode {
                 SettingsView { back() }
                     .frame(height: PanelView.listHeight)
                     .transition(.opacity.combined(with: .move(edge: .trailing)))
@@ -599,7 +604,9 @@ struct PanelView: View {
     }
 
     private func back() {
-        withAnimation(Motion.shell) { mode = .sessions }
+        // Settings' "What each agent can do" clears the flag rather than knowing about panel
+        // modes, so this is where asking again turns into showing it again.
+        withAnimation(Motion.shell) { mode = Prefs.shared.seenWelcome ? .sessions : .welcome }
     }
 
     private var costChip: some View {

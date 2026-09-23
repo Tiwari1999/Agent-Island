@@ -732,12 +732,15 @@ check("and still reserves the free-text row it used to end at",
 # CLT 27's default SDK makes SwiftUI's @State a macro whose plugin ships only in Xcode, so a
 # clean build dies on every @State. install.sh must PROBE and fall back, never hard-code an SDK.
 _ins = open(os.path.join(REPO, "install.sh")).read()
-check("install.sh probes whether SwiftUI @State compiles before building",
-      "@State var n = 0" in _ins and "swiftc -typecheck" in _ins)
+# The probe lives with the build now, in the one script that assembles a bundle — so a DMG
+# built on a machine with only CLT gets the same treatment as a developer's own install.
+_mka = open(os.path.join(REPO, "scripts/make-app.sh")).read()
+check("the build probes whether SwiftUI @State compiles first",
+      "@State var n = 0" in _mka and "swiftc -typecheck" in _mka)
 check("and falls back to the newest SDK that works, rather than pinning one",
-      'SDKs/MacOSX*.sdk' in _ins and "sort -rV" in _ins and 'export SDKROOT="$sdk"' in _ins)
+      'SDKs/MacOSX*.sdk' in _mka and "sort -rV" in _mka and 'export SDKROOT="$sdk"' in _mka)
 check("and fails loudly when no installed SDK can build SwiftUI",
-      "no installed SDK compiles SwiftUI @State" in _ins)
+      "no installed SDK compiles SwiftUI @State" in _mka)
 
 print("\n=== 9m. pick the agent the header reports on ===")
 vw5=open(os.path.join(REPO,"Sources/AgentIsland/Views.swift")).read()
@@ -2422,7 +2425,7 @@ _pm = open(os.path.join(REPO, "Sources/AgentIsland/PanelModes.swift")).read()
 _iv10 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
 _vw10 = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
 check("settings is a panel mode, reached and left like the others",
-      "case sessions, costs, settings, plan" in _pm
+      "case sessions, costs, settings, welcome, plan" in _pm
       and "SettingsView { back() }" in _vw10 and "var onBack: () -> Void" in _st)
 # The app is .accessory with LSUIElement, so before this there was no way out but pkill.
 check("there is finally a way to quit",
@@ -2670,6 +2673,72 @@ check("a question logs every step it takes, so a lost one says where it went",
       and 'question \\(q.id): handed to the chat' in _qi)
 check("and both of ask()'s silent returns now say why",
       'held for quiet' in _qi and 'queued behind' in _qi)
+
+print("\n=== 56. launch readiness ===")
+_lr_ia = open(os.path.join(REPO, "install.sh")).read()
+_lr_ma = open(os.path.join(REPO, "scripts/make-app.sh")).read()
+_lr_st = open(os.path.join(REPO, "Sources/AgentIsland/Settings.swift")).read()
+_lr_rm = open(os.path.join(REPO, "README.md")).read()
+_lr_cap = open(os.path.join(REPO, "Sources/AgentIsland/Capabilities.swift")).read()
+_lr_dg = open(os.path.join(REPO, "Sources/AgentIsland/Diagnostics.swift")).read()
+
+# sh.emergent was never a namespace anyone here owns. Bundle ids key the login item, the prefs
+# file and every TCC grant, so this is the last comfortable moment to change it.
+check("the app ships under an identity we own",
+      "io.github.tiwari1999.agentisland" in _lr_ma
+      and not any("sh.emergent" in open(os.path.join(REPO, f)).read()
+                  for f in ["install.sh", "scripts/uninstall-hooks.py"]))
+# Preferences live in a plist named after the bundle id, so the rename silently reset everyone.
+check("settings survive the rename, once, without overwriting newer choices",
+      'UserDefaults(suiteName: "sh.emergent.agentisland")' in _lr_st
+      and 'if d.object(forKey: key) == nil' in _lr_st
+      and '"migratedFromEmergent"' in _lr_st)
+
+# A disk image built differently from the developer's own install is how release-only bugs are
+# born, so there is one script that assembles a bundle and both callers use it.
+check("one script assembles the bundle, for the DMG and for install.sh alike",
+      '"$REPO/scripts/make-app.sh" "$APP"' in _lr_ia
+      and os.access(os.path.join(REPO, "scripts/make-app.sh"), os.X_OK))
+check("version comes from one file, not from a literal in a script",
+      os.path.exists(os.path.join(REPO, "VERSION"))
+      and 'VERSION="$(cat "$REPO/VERSION"' in _lr_ma
+      # Both keys, because an earlier version of this check passed while
+      # CFBundleShortVersionString had been pinned back to a literal and only
+      # CFBundleVersion still read the file.
+      and _lr_ma.count("<string>$VERSION</string>") == 2)
+check("a Developer ID is used when present and its absence is not a build failure",
+      'grep "Developer ID Application"' in _lr_ma and "|| true)" in _lr_ma
+      and "--options runtime --timestamp" in _lr_ma)
+for _s in ["make-dmg.sh", "notarize.sh"]:
+    check(f"scripts/{_s} present and executable",
+          os.access(os.path.join(REPO, "scripts", _s), os.X_OK))
+# A half-notarized DMG fails on the user's machine instead of on yours.
+check("notarize refuses rather than half-doing it",
+      "No Developer ID Application certificate in this keychain" in
+      open(os.path.join(REPO, "scripts/notarize.sh")).read())
+# Telling strangers to strip quarantine off downloaded binaries is a bad habit to hand out.
+check("the README asks for right-click Open, never an xattr command",
+      "right-click it and choose open" in _lr_rm.lower().replace("**", "")
+      and "xattr -d" not in _lr_rm)
+
+# The README once promised approvals for all three vendors while one publishes the hook.
+check("what each agent can do is stated in one place",
+      "static func approvals(_ v: Vendor) -> Bool { v == .claude }" in _lr_cap
+      and "static var present: [Vendor]" in _lr_cap)
+check("and the first run says it for the agents actually on the machine",
+      "Capability.summary(v)" in open(os.path.join(REPO, "Sources/AgentIsland/Welcome.swift")).read())
+check("the welcome is shown once, and Settings can bring it back",
+      'var seenWelcome: Bool' in _lr_st
+      and "Prefs.shared.seenWelcome ? .sessions : .welcome" in
+          open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read())
+
+# A bug report that is a screenshot of "it broke" costs a round trip.
+check("diagnostics can be exported, and are revealed rather than sent",
+      "static func export() -> URL?" in _lr_dg
+      and "activateFileViewerSelecting" in _lr_dg
+      and "URLSession" not in _lr_dg)
+check("and the log tail is bounded, so days of session titles do not reach an issue",
+      ".suffix(2000)" in _lr_dg)
 
 print("\n=== 55. external review: P1 reliability ===")
 _p1_ht = open(os.path.join(REPO, "Sources/AgentIsland/HostTerminal.swift")).read()
@@ -3156,7 +3225,7 @@ print("\n=== 48. the island survives a restart ===")
 # not in Login Items. A notch app nobody relaunches by hand is a notch app you stop having.
 _ish = open(os.path.join(REPO, "install.sh")).read()
 check("install registers a login item, so a reboot brings the island back",
-      "LaunchAgents/sh.emergent.agentisland.plist" in _ish
+      "LaunchAgents/io.github.tiwari1999.agentisland.plist" in _ish
       and "<key>RunAtLoad</key><true/>" in _ish
       and "launchctl bootstrap" in _ish)
 # KeepAlive would fight the Quit in Settings: quit, and launchd hands it straight back.

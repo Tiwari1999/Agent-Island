@@ -115,6 +115,17 @@ accident.
 
 ## 📦 Install
 
+**From a release** — download `AgentIsland-<version>.dmg`, drag it to Applications, then
+**right-click it and choose Open**, and Open again.
+
+That second step is not optional and not a mistake: these builds are not notarized by Apple yet,
+so a double-click gives *"cannot be opened because the developer cannot be verified"*.
+Right-click → Open is macOS's own way of saying you trust it, and it is only needed the first
+time. There is no `xattr` command to run and you should be suspicious of any project that gives
+you one.
+
+**From source:**
+
 ```bash
 git clone https://github.com/Tiwari1999/Agent-Island.git
 cd Agent-Island
@@ -122,6 +133,11 @@ cd Agent-Island
 ```
 
 `install.sh` builds a release binary, assembles `~/Applications/AgentIsland.app`, registers the hooks, and launches it.
+`scripts/make-dmg.sh` builds the disk image from the same bundle script, so what you download is
+what a build here produces. Release steps and the notarization path: [`docs/RELEASE.md`](docs/RELEASE.md).
+
+On first launch the panel opens on a short welcome: where it reads from, what it can do for the
+agents you actually have, and one click each for hooks and notifications. Settings brings it back.
 
 macOS asks once for **notification permission** on first launch. That is all monitoring needs —
 no Accessibility, no Screen Recording, no Full Disk Access. The one extra prompt is on your first

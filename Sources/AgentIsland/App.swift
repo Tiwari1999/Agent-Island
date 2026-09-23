@@ -34,6 +34,11 @@ struct AgentIslandApp {
         if CommandLine.arguments.contains("--check-prompts") { exit(PromptCheck.run()) }
         if CommandLine.arguments.contains("--costs-json") { print(Costs.json()); exit(0) }
         if CommandLine.arguments.contains("--check-proc") { exit(ProcCheck.run()) }
+        // Same path the Settings button takes, so what ships in an issue can be checked here.
+        if CommandLine.arguments.contains("--diagnostics") {
+            guard let dir = Diagnostics.export() else { print("export failed"); exit(1) }
+            print(dir.path); exit(0)
+        }
         // Dump one session's recent tool calls, so the parser can be asserted on real data.
         if let i = CommandLine.arguments.firstIndex(of: "--console"),
            let session = CommandLine.arguments.dropFirst(i + 1).first {
