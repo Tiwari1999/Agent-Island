@@ -2674,6 +2674,38 @@ check("a question logs every step it takes, so a lost one says where it went",
 check("and both of ask()'s silent returns now say why",
       'held for quiet' in _qi and 'queued behind' in _qi)
 
+print("\n=== 57. answering from the alert, and not melting the machine ===")
+_al_nt = open(os.path.join(REPO, "Sources/AgentIsland/Notifier.swift")).read()
+_al_is = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_al_cs = open(os.path.join(REPO, "Sources/AgentIsland/CursorSource.swift")).read()
+
+# "X needs permission" with nothing to press is not a question. People clicked it, which just
+# dismisses a plain alert, and believed they had approved.
+check("an approval alert carries Allow and Deny",
+      "UNNotificationAction(identifier: allowAction, title: \"Allow\"" in _al_nt
+      and "UNNotificationAction(identifier: denyAction, title: \"Deny\"" in _al_nt
+      and "content.categoryIdentifier = approvalCategory" in _al_nt)
+check("and the category is registered before any alert is posted",
+      re.search(r'static func requestAuthorization\(\) \{\s*\n\s*registerActions\(\)', _al_nt)
+      is not None)
+check("the buttons answer through the same path the card uses",
+      "Notifier.onDecision = { [weak self] id, allow in" in _al_is
+      and "self.answer(a, allow: allow); return" in _al_is)
+check("and an alert for a queued approval answers that one, not the visible one",
+      "self.queuedApprovals.first(where: { $0.id == id })" in _al_is)
+# Tapping the body of an alert is not an answer; only the buttons are.
+check("opening the app is never read as approval",
+      "default: break" in _al_nt)
+
+# Retrying a failed seed was right; retrying it every refresh was not. It spawns a 373 MB node
+# process with an 8s timeout, and a refresh runs every couple of seconds.
+check("the pid oracle cannot spawn on every refresh",
+      "guard attempts < 3, Date().timeIntervalSince(lastAttempt) > 60 else { return cache }"
+      in _al_cs)
+check("and it still retries, so one failure does not end the launch",
+      "attempts += 1" in _al_cs and "seeded = true" in _al_cs
+      and _al_cs.index("attempts += 1") < _al_cs.index("        seeded = true"))
+
 print("\n=== 56. launch readiness ===")
 _lr_ia = open(os.path.join(REPO, "install.sh")).read()
 _lr_ma = open(os.path.join(REPO, "scripts/make-app.sh")).read()

@@ -229,12 +229,27 @@ final class Island: NSObject, ObservableObject {
                                    needsInput: false))
         }
 
+        Notifier.onDecision = { [weak self] id, allow in
+            guard let self else { return }
+            // Whatever is on screen, the alert is answering THIS approval — the visible one if
+            // it is the same, otherwise one still sitting in the queue behind it.
+            if case .approval(let a) = self.state, a.id == id { self.answer(a, allow: allow); return }
+            if let queued = self.queuedApprovals.first(where: { $0.id == id }) {
+                self.queuedApprovals.removeAll { $0.id == id }
+                self.answer(queued, allow: allow)
+                return
+            }
+            Diagnostics.log("approval \(id): answered from a notification, "
+                            + "but it is no longer pending")
+        }
+
         store.hooks.onApproval = { [weak self] approval in
             guard let self else { return }
             self.present(approval)
             let name = self.store.name(for: approval.session) ?? "agent"
             Notifier.notify(title: "\(name) needs permission",
-                            body: "\(approval.tool): \(approval.detail)", key: approval.session)
+                            body: "\(approval.tool): \(approval.detail)", key: approval.session,
+                            approval: approval.id)
         }
 
         // A row that is blocked on a question answers it; jumping to the terminal would be

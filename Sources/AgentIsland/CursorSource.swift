@@ -406,6 +406,8 @@ enum ClaudeAgents {
     private static let lock = NSLock()
     private static var cache: [String: Int] = [:]
     private static var seeded = false
+    private static var attempts = 0
+    private static var lastAttempt = Date.distantPast
 
     /// One authoritative read of session→pid, taken the first refresh that finds a session still
     /// unbound. It recovers the bare shared-directory sessions a relaunch orphans: their only
@@ -415,6 +417,13 @@ enum ClaudeAgents {
     static func pids(needed: Bool) -> [String: Int] {
         lock.lock(); defer { lock.unlock() }
         guard !seeded, needed else { return cache }
+        // Retrying a failure was right; retrying it on EVERY refresh was not. This spawns a
+        // 373 MB node process with an 8s timeout, and a refresh runs every couple of seconds —
+        // so a persistently failing command would have piled those up until the machine
+        // stopped. Three tries a launch, a minute apart, then it stays quiet.
+        guard attempts < 3, Date().timeIntervalSince(lastAttempt) > 60 else { return cache }
+        attempts += 1
+        lastAttempt = Date()
         let out = Shell.runSync(Shell.claude, ["agents", "--json"], timeout: 8)
         guard let data = out.data(using: .utf8),
               let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
