@@ -15,11 +15,47 @@ import re, os, shlex, shutil, sys, time
 
 REPO = sys.argv[1] if len(sys.argv) > 1 else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Every agent CLI runs a hook command through a shell, so a repo cloned to a path with a
-# space in it registered a command that split into two words and never ran. shlex.quote is a
-# no-op for ordinary paths, so existing installs are unchanged.
+SCRIPTS = ("agentisland-hook.sh", "agentisland-permission.sh", "agentisland-rules.py",
+           "agentisland-question.py", "agentisland-input.py", "agentisland-status.sh")
+
+# Where the hooks to install are read FROM: a git checkout when run from one, the app bundle
+# when the app runs its own copy. Run from inside the bundle with no argument, REPO resolved to
+# `AgentIsland.app/Contents`, whose `hooks/` does not exist — so a download-only user registered
+# fourteen entries pointing at nothing, was told hooks were installed, and had none.
+def _source():
+    here = os.path.dirname(os.path.abspath(__file__))
+    for base in (REPO, here, os.path.dirname(here)):
+        d = os.path.join(base, "hooks")
+        if all(os.path.exists(os.path.join(d, n)) for n in SCRIPTS):
+            return d
+    return None
+
+
+SOURCE = _source()
+
+# ...and where they are installed TO. Registering the checkout meant deleting the clone, or
+# moving the app, silently disarmed every hook while the settings still looked correct. This
+# path belongs to the user and outlives both.
+STAGE = os.path.expanduser("~/Library/Application Support/AgentIsland/hooks")
+
+
+def stage_hooks():
+    """Copy the hooks somewhere stable and return True once they are all runnable."""
+    if not SOURCE:
+        print("  !! cannot find the hook scripts to install — nothing was changed")
+        return False
+    os.makedirs(STAGE, exist_ok=True)
+    for name in SCRIPTS:
+        dst = os.path.join(STAGE, name)
+        shutil.copy2(os.path.join(SOURCE, name), dst)
+        os.chmod(dst, 0o755)
+    return True
+
+
+# Every agent CLI runs a hook command through a shell, so a path with a space in it registered a
+# command that split into two words and never ran. shlex.quote is a no-op for ordinary paths.
 def _cmd(name):
-    return shlex.quote(os.path.join(REPO, "hooks/" + name))
+    return shlex.quote(os.path.join(STAGE, name))
 
 
 HOOK       = _cmd("agentisland-hook.sh")
@@ -27,7 +63,7 @@ PERM       = _cmd("agentisland-permission.sh")
 RULES      = _cmd("agentisland-rules.py")
 QUESTION   = _cmd("agentisland-question.py")
 INPUT      = _cmd("agentisland-input.py")
-STATUSLINE = os.path.join(REPO, "hooks/agentisland-status.sh")   # quoted where it is used
+STATUSLINE = os.path.join(STAGE, "agentisland-status.sh")   # quoted where it is used
 
 MARK = "agentisland"          # how we recognise our own entries
 # The bare word is too broad to delete on: a third-party hook living under a path that merely
@@ -126,7 +162,7 @@ def install(name, path, plan, statusline=False):
     # live under REPO; anything else marked as ours is a leftover that would still fire.
     for event, entries in list(cfg.get("hooks", {}).items()):
         kept = [e for e in entries
-                if not (ours(e) and REPO not in json.dumps(e))]
+                if not (ours(e) and STAGE not in json.dumps(e))]
         if len(kept) != len(entries):
             changed += len(entries) - len(kept)
             entries[:] = kept
@@ -164,6 +200,12 @@ def install(name, path, plan, statusline=False):
     if b:
         print(f"    backup: {b}")
 
+
+# Nothing may be registered before the scripts are in place, or the settings would again
+# describe hooks that are not there.
+if not stage_hooks():
+    sys.exit(1)
+print(f"  hooks staged in {STAGE}")
 
 # --- Claude Code -------------------------------------------------------------
 claude_events = ["PreToolUse", "PostToolUse", "Notification", "Stop", "SessionStart",
@@ -215,7 +257,7 @@ if os.path.isdir(os.path.expanduser("~/.cursor")):
             # Claude and Codex replace an entry whose path has moved; Cursor skipped the event
             # entirely if ANY of ours was there, so a repo that moved left Cursor pointing at a
             # path that no longer exists — silently, for ever.
-            stale = [e for e in entries if ours(e) and REPO not in json.dumps(e)]
+            stale = [e for e in entries if ours(e) and STAGE not in json.dumps(e)]
             for e in stale:
                 entries.remove(e)
             if any(MARK in json.dumps(e) for e in entries):

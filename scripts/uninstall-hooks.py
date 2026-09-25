@@ -131,6 +131,15 @@ else:
 # install.sh registers a login item so a reboot brings the island back. Leaving it behind
 # means an uninstalled app is relaunched at every login — the exact orphan this repo has
 # already had to chase out of System Events once.
+# The hooks themselves live outside the checkout now, so removing the entries is only half of
+# leaving no trace.
+STAGE = os.path.expanduser("~/Library/Application Support/AgentIsland")
+if os.environ.get("AGENTISLAND_KEEP_RUNTIME"):
+    print("  kept the staged hooks (AGENTISLAND_KEEP_RUNTIME)")
+elif os.path.isdir(STAGE):
+    shutil.rmtree(STAGE, ignore_errors=True)
+    print("  removed the staged hook scripts")
+
 AGENT = os.path.expanduser("~/Library/LaunchAgents/io.github.tiwari1999.agentisland.plist")
 if os.environ.get("AGENTISLAND_KEEP_RUNTIME"):
     print("  kept the login item (AGENTISLAND_KEEP_RUNTIME)")

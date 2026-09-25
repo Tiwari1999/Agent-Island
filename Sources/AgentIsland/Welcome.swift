@@ -30,6 +30,7 @@ struct WelcomeView: View {
                 }
 
                 agents
+                gatekeeper
                 actions
 
                 Text("Hover the notch to bring the island back. \u{2318}\u{2325}G opens settings.")
@@ -64,6 +65,30 @@ struct WelcomeView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+        }
+    }
+
+    /// Only on an unsigned build, and only once. Someone who got past Gatekeeper already knows
+    /// they did something unusual; leaving it unexplained is what makes a downloaded app feel
+    /// like something they should not have opened.
+    @ViewBuilder
+    private var gatekeeper: some View {
+        if !Setup.signedForDistribution {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "lock.open")
+                    .font(.system(size: 10)).foregroundColor(Theme.amber)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("This build is not notarized by Apple yet")
+                        .font(Theme.label(Type.body)).foregroundColor(Theme.text)
+                    Text("That is why opening it needed right-click \u{203A} Open. It is signed "
+                         + "only by the machine that built it, so macOS cannot vouch for it — "
+                         + "read the source or build it yourself if that matters to you.")
+                        .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.horizontal, 9).padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.amber.opacity(0.08)))
         }
     }
 

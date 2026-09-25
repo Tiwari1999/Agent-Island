@@ -998,7 +998,10 @@ if sd:
           f"{(o.get('context_window') or {}).get('used_percentage')}%")
     check("cost/lines present per session", "cost" in o)
 tdirs=[d for d in _g2.glob(os.path.expanduser("~/.claude/tasks/*")) if _g2.glob(d+"/*.json")]
-check("task lists are readable on disk", len(tdirs)>0, f"{len(tdirs)} sessions with tasks")
+if tdirs:
+    check("task lists are readable on disk", len(tdirs)>0, f"{len(tdirs)} sessions with tasks")
+else:
+    print("  SKIP  no task list on disk, so there is nothing to read")
 if tdirs:
     files=_g2.glob(tdirs[0]+"/*.json")
     t=json.load(open(files[0]))
@@ -2674,6 +2677,48 @@ check("a question logs every step it takes, so a lost one says where it went",
 check("and both of ask()'s silent returns now say why",
       'held for quiet' in _qi and 'queued behind' in _qi)
 
+print("\n=== 58. hooks a downloaded copy can actually run ===")
+_hk_ih = open(os.path.join(REPO, "scripts/install-hooks.py")).read()
+_hk_ma = open(os.path.join(REPO, "scripts/make-app.sh")).read()
+_hk_su = open(os.path.join(REPO, "Sources/AgentIsland/Setup.swift")).read()
+_hk_uh = open(os.path.join(REPO, "scripts/uninstall-hooks.py")).read()
+
+# Run from inside the bundle with no argument, REPO resolved to AgentIsland.app/Contents, whose
+# hooks/ does not exist — so a download-only user registered fourteen entries pointing at
+# nothing, was told hooks were installed, and had none. Proved by running it against a
+# throwaway HOME before this was written.
+check("the app bundle carries the hook scripts",
+      'cp "$REPO"/hooks/agentisland-* "$APP/Contents/Resources/hooks/"' in _hk_ma)
+check("the installer finds them whether it runs from a checkout or a bundle",
+      "def _source():" in _hk_ih
+      and "for base in (REPO, here, os.path.dirname(here)):" in _hk_ih
+      and "all(os.path.exists(os.path.join(d, n)) for n in SCRIPTS)" in _hk_ih)
+# Registering the checkout meant deleting the clone, or moving the app, silently disarmed every
+# hook while the settings still looked right.
+check("hooks are staged somewhere that outlives the app and the checkout",
+      'STAGE = os.path.expanduser("~/Library/Application Support/AgentIsland/hooks")' in _hk_ih
+      and "os.path.join(STAGE, name)" in _hk_ih)
+check("and nothing is registered until they are in place",
+      re.search(r'if not stage_hooks\(\):\s*\n\s*sys\.exit\(1\)', _hk_ih) is not None)
+check("the stale sweep compares against what is registered, not where it came from",
+      "STAGE not in json.dumps(e)" in _hk_ih and "REPO not in json.dumps(e)" not in _hk_ih)
+# "The word appears in settings" is what reported success while nothing was on disk.
+check("installed means the hook is executable, not that the word appears",
+      "isExecutableFile(atPath: path)" in _hk_su)
+check("uninstall takes the staged scripts too",
+      'STAGE = os.path.expanduser("~/Library/Application Support/AgentIsland")' in _hk_uh
+      and "shutil.rmtree(STAGE" in _hk_uh)
+
+# Gatekeeper is the stranger's first experience of this app, and an unexplained "cannot be
+# opened" followed by a right-click dance is what makes a download feel like a mistake.
+_gk_wl = open(os.path.join(REPO, "Sources/AgentIsland/Welcome.swift")).read()
+check("an unsigned build explains itself on first run",
+      "if !Setup.signedForDistribution {" in _gk_wl
+      and "not notarized by Apple yet" in _gk_wl)
+check("and says so only while it is true",
+      "static var signedForDistribution: Bool" in _hk_su
+      and '(dict["certificates"] as? [Any])?.isEmpty' in _hk_su)
+
 print("\n=== 57. answering from the alert, and not melting the machine ===")
 _al_nt = open(os.path.join(REPO, "Sources/AgentIsland/Notifier.swift")).read()
 _al_is = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
@@ -2911,10 +2956,10 @@ check("and hooksInstalled asks about the agents the user actually has",
 # The bare word would take a third-party hook living under a path that merely contains it.
 check("install and uninstall recognise our own scripts, not a bare word",
       _r2_ih.count("def ours(obj):") == 1 and _r2_uh.count("def ours(obj):") == 1
-      and "if not (ours(e) and REPO not in json.dumps(e))" in _r2_ih
+      and "if not (ours(e) and STAGE not in json.dumps(e))" in _r2_ih
       and "if not ours(h)]" in _r2_uh)
 check("a Cursor entry pointing at a moved repo is replaced, not skipped",
-      "stale = [e for e in entries if ours(e) and REPO not in json.dumps(e)]" in _r2_ih)
+      "stale = [e for e in entries if ours(e) and STAGE not in json.dumps(e)]" in _r2_ih)
 check("uninstall takes the login item with it",
       "launchctl bootout gui/" in _r2_uh and "os.remove(AGENT)" in _r2_uh)
 

@@ -34,6 +34,11 @@ cp "$REPO/.build/release/AgentIsland" "$APP/Contents/MacOS/AgentIsland"
 mkdir -p "$APP/Contents/Resources"
 cp "$REPO/hooks/remote-probe.py" "$APP/Contents/Resources/remote-probe.py"
 cp "$REPO/scripts/install-hooks.py" "$APP/Contents/Resources/install-hooks.py"
+# The hooks themselves, or the app's own "install hooks" registers paths that do not exist —
+# which is exactly what a download-only user got: fourteen entries pointing at nothing.
+mkdir -p "$APP/Contents/Resources/hooks"
+cp "$REPO"/hooks/agentisland-* "$APP/Contents/Resources/hooks/"
+chmod +x "$APP/Contents/Resources/hooks/"*
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
