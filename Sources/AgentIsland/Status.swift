@@ -35,9 +35,18 @@ struct Quota {
         return h > 0 ? "\(h)h\(m)m" : "\(m)m"
     }
 
+    /// A reset whose time passed a while ago means the agent has not written a fresh figure.
+    /// Rendering "now" for ever beside a percentage implies both are current when only the
+    /// clock has moved — the used figure is as old as the timestamp next to it.
+    static func isStale(_ at: Date?) -> Bool {
+        guard let at else { return false }
+        return at.timeIntervalSinceNow < -300
+    }
+
     static func remaining(_ at: Date?) -> String {
         guard let at else { return "" }
         let s = at.timeIntervalSinceNow
+        if s < -300 { return "stale" }
         guard s > 0 else { return "now" }
         let h = Int(s) / 3600, m = (Int(s) % 3600) / 60
         if h >= 24 { return "\(h / 24)d\(h % 24)h" }

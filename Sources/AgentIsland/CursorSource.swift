@@ -264,6 +264,7 @@ struct CursorSource: AgentSource {
             guard let pid = a.pid, bestByPid[pid] != a.sessionId else { return a }
             var stripped = a
             stripped.pid = nil
+            stripped.pidTakenBySibling = true
             return stripped
         }
     }

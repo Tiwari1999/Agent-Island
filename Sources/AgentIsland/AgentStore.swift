@@ -9,6 +9,10 @@ struct Agent: Identifiable {
     let state: String?
     let status: String?
     var pid: Int?
+    /// Set when this row gave its process up to a sibling sharing the same directory. The row
+    /// still lists and still reads; it just cannot offer a jump, and saying nothing made that
+    /// look like a bug rather than a fact about two chats in one repo.
+    var pidTakenBySibling = false
 
     /// Which tool is running this session. Absent when decoded from Claude's JSON, which
     /// predates multi-vendor support and does not report one.

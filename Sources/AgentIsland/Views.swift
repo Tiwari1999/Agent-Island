@@ -358,7 +358,10 @@ struct AgentRowView: View {
         .contentShape(Rectangle())
         .onHover { h in withAnimation(Motion.hover) { hover = h } }
         .onTapGesture { if row.canJump { onJump() } }
-        .help(row.isBackground ? "Background session — opens a tab, attach command copied"
+        .help(row.agent.pidTakenBySibling
+              ? "Another chat in this folder owns the running process, so this row cannot jump "
+                + "to a tab of its own — open the newest one instead"
+              : row.isBackground ? "Background session — opens a tab, attach command copied"
               : row.precise ? "Jump to this session in \(row.terminal)"
               : "Raise \(row.terminal) — it exposes no per-tab focus API")
     }
@@ -394,7 +397,22 @@ struct PanelView: View {
     @State private var mode: PanelMode = Prefs.shared.seenWelcome ? .sessions : .welcome
     @State private var hooksReady = Setup.hooksInstalled()
     @State private var installing = false
+    @State private var showAllIdle = false
     @ObservedObject private var surfaces = Surfaces.shared
+
+    /// A week of finished sessions buried the handful that are live: 44 rows on first open, 23
+    /// of them with no process left. Everything that is running, blocked or wants an answer is
+    /// always here; only the stopped tail is folded, and one tap unfolds it.
+    static let idleTail = 6
+    private var visibleRows: [AgentRow] {
+        if showAllIdle { return store.rows }
+        var idle = 0
+        return store.rows.filter { r in
+            guard r.agent.pid == nil, AgentStore.tier(r) == 3 else { return true }
+            idle += 1
+            return idle <= Self.idleTail
+        }
+    }
 
     /// Settings are a panel mode like the others, so there is one way in and one way back.
     private var gearChip: some View {
@@ -483,7 +501,7 @@ struct PanelView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: PanelView.rowGap) {
-                        ForEach(store.rows) { row in
+                        ForEach(visibleRows) { row in
                             AgentRowView(row: row, model: status.quota.model,
                                          onPlan: store.hooks.plans[row.agent.sessionId].map { _ in
                                              { withAnimation(Motion.shell) {
@@ -500,6 +518,14 @@ struct PanelView: View {
                                          onConsole: row.agent.vendor == .claude
                                              ? { store.onOpenConsole?(row.agent.sessionId) } : nil)
                                         { store.jump(row) }
+                        }
+                        if !showAllIdle, store.rows.count > visibleRows.count {
+                            Text("\(store.rows.count - visibleRows.count) more stopped sessions")
+                                .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.leading, 6).padding(.vertical, 4)
+                                .contentShape(Rectangle())
+                                .onTapGesture { withAnimation(Motion.shell) { showAllIdle = true } }
                         }
                     }
                     .padding(.horizontal, 8).padding(.vertical, PanelView.listPadding)
@@ -561,8 +587,11 @@ struct PanelView: View {
             // What is LEFT, and it says so. A bare "11%" next to a clock reads as readily as
             // "11% used" as "11% left", and those mean opposite things. The tint still keys on
             // the consumed figure, so red still means nearly gone.
+            // Dimmed when the window it belongs to is stale: the number is only as fresh as
+            // the reset time beside it, and a bright figure claims otherwise.
             Text(pct.map { "\(max(0, 100 - $0))% left" } ?? "—")
-                .font(Theme.label(Type.body)).foregroundColor(Quota.tint(pct))
+                .font(Theme.label(Type.body))
+                .foregroundColor(Quota.isStale(resets) ? Theme.faint : Quota.tint(pct))
             Text(Quota.remaining(resets)).font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
         }
     }

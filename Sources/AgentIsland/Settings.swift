@@ -143,7 +143,7 @@ struct SettingsView: View {
                             choice("Resume now", on: false) { prefs.resume() }
                         }
                     } else {
-                        row("Hide the island for", note: "Nothing pops over your screen") {
+                        row("Hide the island for", note: "The island stays hidden \u{2014} notifications still arrive") {
                             choice("30 min", on: false) { prefs.snooze(minutes: 30) }
                             choice("1 hour", on: false) { prefs.snooze(minutes: 60) }
                             choice("4 hours", on: false) { prefs.snooze(minutes: 240) }

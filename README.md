@@ -44,18 +44,18 @@ Agent Island puts the answer where your eyes already are.
 | 📋 **Live sessions** | Title, project, model, terminal and the tool call happening right now |
 | 🎯 **Task progress** | `4/9` with the current step, from Claude's own task list |
 | 🧠 **Context pressure** | A per-session ring — compact *before* the cliff, not after |
-| ⚡ **Quota** | 5h and 7d windows, a measured burn rate, and projected exhaustion |
+| ⚡ **Quota** | Limit windows for Claude (5h/7d) and Codex (5h/weekly); the measured burn rate and projected exhaustion need Claude's status line |
 | 💀 **Died vs finished** | A rate-limited session shows as dead, not complete |
 | 🧊 **Blocked, not shouting** | Agents stuck on an old question stay visible without crying wolf |
 
 ### 🚀 Act
 | | |
 |---|---|
-| 🎬 **Precise jump** | Click a row → land on that agent's **exact tab** — Warp, iTerm2 or Terminal.app — not just the app |
+| 🎬 **Precise jump** | Click a row → land on that agent's **exact tab** — Warp, iTerm2, Terminal.app, kitty or WezTerm — not just the app |
 | 💠 **Cost breakdown** | API-equivalent spend per model, today and this month — from the vendors' own token accounting |
 | 📋 **Plan review** | Read the full Markdown plan and approve it from the notch, with a 55s window instead of 20 |
 | 📊 **Pick your agent** | One control in the header switches which agent it reports on — that agent's own limit windows and its own spend, defaulting to whichever you use most |
-| 📊 **Per-vendor limits** | Claude's 5h/7d windows and Codex's own rate limits side by side; at rest the bar shows whichever limit is closest to biting instead of just "idle" |
+| 📊 **Per-vendor limits** | Claude's 5h/7d windows and Codex's own rate limits, one vendor at a time; at rest the bar shows whichever limit is closest to biting instead of just "idle" |
 | 💚 **Proof of life** | The resting bar shows *what* the agent is doing, not just that it is running — the motion differs for thinking, reading, editing, running and waiting. CoreAnimation-backed, 0.15% CPU |
 | 🕊 **Zero spawns at idle** | A refresh creates no processes at all — the process table, environments and working directories are read with syscalls; warm discovery of 27 sessions takes 0.08s |
 | 🛰 **SSH remote monitoring** | Sessions on machines you ssh into, in the same panel — `echo my-vm >> ~/.config/agentisland/remotes`; the probe travels on stdin, nothing is installed remotely |
@@ -68,7 +68,7 @@ Agent Island puts the answer where your eyes already are.
 
 ## 🧭 The precise jump
 
-The interesting part. 👇 (Warp is the neat case; iTerm2 and Terminal.app work too — the table below.)
+The interesting part. 👇 (Warp is the neat case; iTerm2, Terminal.app, kitty and WezTerm work too — the table below.)
 
 Other notch apps resolve Warp tabs by reading `warp.sqlite` and driving a **keystroke loop**, because the `warp://action/*` scheme is a closed whitelist that rejects focus intents. That approach can't tell apart tabs that share a working directory — so if all your agents live in one monorepo, it lands on the wrong one. Agent Island reads nothing from Warp's database: the session handle comes from the agent process's own environment, so there is no permission to grant and nothing to break when the schema changes.
 
@@ -94,8 +94,12 @@ The same idea generalises: the handle for *every* terminal comes from the agent 
 | Warp | `WARP_FOCUS_URL` | open the `warp://session/…` URL | none |
 | iTerm2 | `ITERM_SESSION_ID` (`wNtNpN:UUID`) | AppleScript `select` the session whose id is that UUID | Automation, asked once |
 | Terminal.app | the process's controlling **tty** (read by syscall) | AppleScript select the tab whose `tty` matches | Automation, asked once |
+| kitty | `KITTY_WINDOW_ID` | `kitty @ focus-window --match id:N` | none — but kitty needs `allow_remote_control yes` in `kitty.conf` |
+| WezTerm | `WEZTERM_PANE` | `wezterm cli activate-pane --pane-id N` | none, if the `wezterm` CLI is on `PATH` |
 
 The two subtle bugs worth calling out, because they read as "the jump is broken": iTerm2's env handle carries a `wNtNpN:` pane prefix its scripting id does **not**, so a whole-string match never hit — the fix matches on the UUID. And Terminal.app's `TERM_SESSION_ID` is a UUID it never surfaces in AppleScript, so the only usable handle is the controlling tty, read from the process by syscall. Both are covered by `tests/terminals-e2e.py`, which opens two real sessions per terminal and proves the jump lands on the intended one, not its neighbour.
+
+kitty and WezTerm resolve by the same rule, and their handles are checked in the suite — but unlike the three above they have not been round-tripped against real windows here. If one of them only raises the app, its control CLI is the first thing to check: `kitty @ ls` and `wezterm cli list` have to work from your shell.
 
 ## 💬 Answering from the notch
 
@@ -140,9 +144,15 @@ On first launch the panel opens on a short welcome: where it reads from, what it
 agents you actually have, and one click each for hooks and notifications. Settings brings it back.
 
 macOS asks once for **notification permission** on first launch. That is all monitoring needs —
-no Accessibility, no Screen Recording, no Full Disk Access. The one extra prompt is on your first
-**jump into iTerm2 or Terminal**: macOS asks to let Agent Island *control* that app, because their
-focus APIs are AppleScript. Jumping into **Warp needs no permission at all** — it is a URL open.
+no Screen Recording, no Full Disk Access, and **no Accessibility for any jump**. The one extra
+prompt is on your first **jump into iTerm2 or Terminal**: macOS asks to let Agent Island *control*
+that app, because their focus APIs are AppleScript. Warp, kitty and WezTerm need no permission at
+all — a URL open and a control CLI.
+
+Accessibility is asked for in exactly one place, once, and only if you use it: **replying from the
+notch to a session that is sitting idle**, with no hook waiting to take the answer. There the text
+has to be typed into the terminal, which is a synthetic ⌘V. Decline it and nothing breaks — the
+reply is copied to the clipboard and the island says `copied — ⌘V there`.
 
 <details>
 <summary>🧹 What it touches, and how to undo it</summary>
@@ -171,7 +181,7 @@ Xcode is **not** required — Command Line Tools are enough.
 
 - 🍎 macOS 14+
 - 🤖 At least one of Claude Code, Codex or Cursor — whichever are installed are picked up automatically
-- 🖥️ A supported terminal for the **precise jump** — Warp, iTerm2, or Terminal.app (everything else works without one). Other terminals raise the app; the row says when a jump can't be precise
+- 🖥️ A supported terminal for the **precise jump** — Warp, iTerm2, Terminal.app, kitty or WezTerm (everything else works without one). Other terminals raise the app; the row says when a jump can't be precise
 
 ### What each agent supports
 
@@ -185,7 +195,8 @@ left blank, so an unsupported feature never reads as a broken one.
 | Approve from the notch | ✅ | — | — |
 | Answer questions from the notch | ✅ | — | — |
 | Context pressure | ✅ | ✅ | — |
-| Quota and burn rate | ✅ | — | — |
+| Limit windows | ✅ | ✅ | — |
+| Burn rate and projection | ✅ | — | — |
 | Task progress | ✅ | — | — |
 | Precise jump | ✅ | ✅ | ✅ |
 | Resume when stopped | ✅ | ✅ | ✅ |
@@ -257,7 +268,7 @@ Two design rules earned the hard way:
 python3 tests/selftest.py
 ```
 
-411 checks: jump resolution against live Warp tabs, the per-terminal jump handles (iTerm2's UUID-after-prefix and Terminal.app's tty, with a full round-trip in `tests/terminals-e2e.py`), every hook contract (including that each failure path exits without blocking), the full question flow (free-text answers crossing the same validation as labels, state surviving a close/reopen, the sliding grace, no answer sent until submit), auto-approve decisions, panel geometry, the staleness window, and that the panel holds only real sessions — every vendor present on disk reaches it, no row is labelled with a bare session id, and no test data survives.
+750+ checks: jump resolution against live Warp tabs, the per-terminal jump handles (iTerm2's UUID-after-prefix and Terminal.app's tty, with a full round-trip in `tests/terminals-e2e.py`), every hook contract (including that each failure path exits without blocking), the full question flow (free-text answers crossing the same validation as labels, state surviving a close/reopen, the sliding grace, no answer sent until submit), auto-approve decisions, panel geometry, the staleness window, and that the panel holds only real sessions — every vendor present on disk reaches it, no row is labelled with a bare session id, and no test data survives.
 
 ## 📄 Licence
 

@@ -18,8 +18,10 @@ CLAUDE = os.environ.get("CLAUDE_BIN", "/opt/homebrew/bin/claude")
 SPOOL="/tmp/agentisland-selftest.jsonl"
 LIVE_SPOOL="/tmp/agentisland-events.jsonl"
 fails=[]
+ran = []
 def check(name, ok, detail=""):
     print(f"  {'PASS' if ok else 'FAIL'}  {name}{('  — '+detail) if detail else ''}")
+    ran.append(name)
     if not ok: fails.append(name)
 
 print("=== AGENTISLAND SELF-TEST ===\n\n=== 1. agent enumeration ===")
@@ -2135,6 +2137,30 @@ check("the reset countdown is the panel's job, not the bar's",
 check("width is measured from the strings the bar will actually print",
       "left: bar.leftText, right: bar.rightText" in _iv)
 
+# A reset time that had already passed rendered "now" for ever, next to a used% that was just
+# as old — two live-looking figures where neither was. The rule is RUN, not grepped: the real
+# bodies are lifted out of Status.swift and compiled, so breaking either fails here.
+_m_stale = re.search(r"    (static func isStale\(.*?\n    \})", _stq, re.S)
+_m_rem = re.search(r"    (static func remaining\(.*?\n    \})", _stq, re.S)
+check("the freshness helpers are where the harness lifts them from",
+      _m_stale is not None and _m_rem is not None)
+if _m_stale and _m_rem:
+    _f = os.path.join(tempfile.gettempdir(), "agentisland-stalequota.swift")
+    with open(_f, "w") as _h:
+        _h.write("import Foundation\nenum Q {\n" + _m_stale.group(1) + "\n"
+                 + _m_rem.group(1) + "\n}\n"
+                 + open(os.path.join(REPO, "tests/stalequota.swift")).read())
+    _r = subprocess.run(["swift", _f], capture_output=True, text=True, timeout=300)
+    # Empty stdout means the compile died, not that a case failed — that is a loaded machine,
+    # not a bug, and retrying once keeps it from turning a green suite red at random.
+    if not _r.stdout.strip():
+        _r = subprocess.run(["swift", _f], capture_output=True, text=True, timeout=300)
+    check("a passed reset reads as stale, and a fresh one still counts down",
+          _r.stdout.strip() == "ok", (_r.stdout + _r.stderr).strip()[:400])
+# The percentage beside it has to dim as well, or the footer still shows a confident figure.
+check("a stale window dims its own percentage",
+      "Quota.isStale(resets) ? Theme.faint : Quota.tint(pct)" in _vw)
+
 print("\n=== 31. code-review fixes ===")
 _ag = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
 _cv = open(os.path.join(REPO, "Sources/AgentIsland/ConsoleView.swift")).read()
@@ -2150,6 +2176,30 @@ check("Transcript's caches are locked, not raced",
 check("every session cache is still bounded, including the new one",
       "Console.retain(ids)" in _ag and "ToolCalls.retain(ids)" in _ag)
 check("Console.retain is no longer dead code", "static func retain" in _cs)
+
+# claimPids strips the pid off every sibling chat sharing one process, so those rows silently
+# lost their jump and looked broken. The flag travels with the strip so the row can say why.
+_cur = open(os.path.join(REPO, "Sources/AgentIsland/CursorSource.swift")).read()
+_strip = _cur.split("func claimPids")[1]
+check("stripping a sibling's pid records that it was taken",
+      "stripped.pid = nil\n            stripped.pidTakenBySibling = true" in _strip)
+check("and the row explains the jump it cannot offer",
+      "row.agent.pidTakenBySibling" in _vw and "owns the running process" in _vw)
+
+# A week of finished sessions buried the live ones — 44 rows on first open, 23 with no process.
+# The fold is only ever allowed to take the stopped tail, so this pins the guard, not the idea.
+check("only stopped, processless rows can be folded away",
+      "guard r.agent.pid == nil, AgentStore.tier(r) == 3 else { return true }" in _vw)
+check("and the list actually renders the folded set",
+      "ForEach(visibleRows) { row in" in _vw and "ForEach(store.rows) { row in" not in _vw)
+check("nothing folded is unreachable",
+      "more stopped sessions" in _vw and "showAllIdle = true" in _vw)
+# "Nothing pops over your screen" read as "and no notifications either", which is the opposite
+# of what hiding the island does — the active state said so, the state you choose from did not.
+_set = open(os.path.join(REPO, "Sources/AgentIsland/Settings.swift")).read()
+check("hiding the island does not claim to silence notifications",
+      "Nothing pops over your screen" not in _set
+      and _set.count("notifications still arrive") == 2)
 
 check("a card that needs you outranks a glance",
       "case .approval, .question: return" in _iv)
@@ -3323,5 +3373,16 @@ b=os.path.join(REPO,".build/debug/AgentIsland")
 check("binary exists", os.path.exists(b))
 
 print()
+# The README advertises a number of checks; it had drifted to 411 against a real 760. A floor
+# rather than an equality: opt-in sections add checks, and bulk deletion is the failure that
+# matters — deleted checks do not run, so the suite still says green while covering less.
+_rm = open(os.path.join(REPO, "README.md")).read()
+_claim = re.search(r"\n(\d+)\+ checks: jump resolution", _rm)
+check("the README states how many checks there are", _claim is not None)
+if _claim:
+    _ok = len(ran) + 1 >= int(_claim.group(1))
+    check(f"and at least that many ran ({len(ran) + 1})", _ok,
+          "" if _ok else f"README claims {_claim.group(1)}+")
+
 print(f"RESULT: {len(fails)} failure(s)" + (": "+", ".join(fails) if fails else " — all green"))
 sys.exit(1 if fails else 0)
