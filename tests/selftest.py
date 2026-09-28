@@ -351,8 +351,38 @@ for jp in glob.glob(f"{home}/.claude/jobs/*/state.json"):
 shown_blocked=sum(1 for r in rows if r.get("blocked"))
 # Pure text logic, checked directly in the binary: every case here once produced a row titled
 # with machinery, a bare id, or nothing.
+# Three transcripts the binary's interrupt cases read: cut after the last hook event, cut
+# before it (the user came back), and never cut at all. Esc is the one turn ending that fires
+# no hook, so nothing but the transcript records it.
+import tempfile as _tf
+_ifx=_tf.mkdtemp(prefix="ai-intfx-")
+os.makedirs(f"{_ifx}/.claude/projects/-t", exist_ok=True)
+_CUT="2026-01-01T12:00:00.000Z"
+def _line(ts, text, stamp_last=True):
+    # Compact, and with the stamp AFTER the message — exactly how Claude writes it. A pretty
+    # -printed `json.dumps` puts a space after every colon, which the tail reader does not
+    # match, so a fixture written the obvious way passes while proving nothing.
+    body = json.dumps({"type":"user",
+                       "message":{"role":"user","content":[{"type":"text","text":text}]}},
+                      separators=(",", ":"))[:-1]
+    ts_f = json.dumps({"timestamp":ts}, separators=(",", ":"))[1:-1]
+    return ("{" + ts_f + "," + body[1:] + "}") if not stamp_last else (body + "," + ts_f + "}")
+def _fx(name, lines):
+    open(f"{_ifx}/.claude/projects/-t/{name}.jsonl","w").write("\n".join(lines)+"\n")
+_fx("11111111-1111-1111-1111-111111111111",
+    [_line("2026-01-01T11:59:00.000Z","run the thing"),
+     _line(_CUT,"[Request interrupted by user for tool use]")])
+_fx("22222222-2222-2222-2222-222222222222",
+    [_line(_CUT,"[Request interrupted by user]", stamp_last=False),
+     _line("2026-01-01T12:20:00.000Z","ok now do this instead")])
+_fx("33333333-3333-3333-3333-333333333333",
+    [_line("2026-01-01T11:59:00.000Z","run the thing")])
+_fx("44444444-4444-4444-4444-444444444444",
+    [_line("2026-01-01T11:59:00.000Z","run the thing"),
+     _line(_CUT,"[Request interrupted by user]", stamp_last=False)])
 pc=subprocess.run([os.path.join(REPO,".build/release/AgentIsland"),"--check-prompts"],
-                  capture_output=True,text=True)
+                  capture_output=True,text=True,env=dict(os.environ,AGENTISLAND_HOME=_ifx))
+_shutil.rmtree(_ifx,ignore_errors=True)
 check("pure logic handles every shape that has broken a row",
       pc.returncode==0, (pc.stdout+pc.stderr).strip().splitlines()[-1] if (pc.stdout or pc.stderr) else "")
 

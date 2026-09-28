@@ -451,7 +451,36 @@ enum PromptCheck {
                         .data(using: .utf8)!)
             }
         }
-        let total = cases.count + hooks.count + kinds.count + working.count + 12
+        // Esc ends a turn with no hook at all — no PostToolUse, no Stop — so a row whose
+        // process outlives the interrupt claimed work for hours. Only the transcript says it
+        // happened, so these run against real fixture files the suite lays down.
+        var interruptCases = 0
+        if ProcessInfo.processInfo.environment["AGENTISLAND_HOME"] != nil {
+            let mine = Int(getpid())
+            func row(_ id: String, _ at: Date) -> AgentRow {
+                AgentRow(agent: Agent(sessionId: id, name: nil, cwd: "/t", state: "busy",
+                                      status: nil, pid: mine),
+                         live: LiveState(tool: "Bash", at: at, active: true, inTool: true))
+            }
+            // Fixture stamps: the marker sits at 12:00:00Z in every interrupted transcript.
+            let cut = ISO8601DateFormatter().date(from: "2026-01-01T12:00:00Z")!
+            let interrupt: [(AgentRow, Bool, String)] = [
+                (row("11111111-1111-1111-1111-111111111111", cut.addingTimeInterval(-10)), false,
+                 "an Esc after the last hook event ends the turn"),
+                (row("22222222-2222-2222-2222-222222222222", cut.addingTimeInterval(600)), true,
+                 "an older interrupt cannot end the turn the user came back and started"),
+                (row("33333333-3333-3333-3333-333333333333", cut.addingTimeInterval(-10)), true,
+                 "a transcript with no interrupt is a long generation, which is work"),
+                (row("44444444-4444-4444-4444-444444444444", cut.addingTimeInterval(-10)), false,
+                 "the stamp is found wherever in the entry it sits, before the message or after"),
+            ]
+            interruptCases = interrupt.count
+            for (r, want, why) in interrupt where r.isWorking != want {
+                failed += 1
+                FileHandle.standardError.write("FAIL interrupt \(why)\n".data(using: .utf8)!)
+            }
+        }
+        let total = cases.count + hooks.count + kinds.count + working.count + interruptCases + 12
         let passed = total - failed
         print("pure-logic checks: \(passed)/\(total) cases")
         return failed == 0 ? 0 : 1

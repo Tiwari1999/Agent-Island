@@ -122,6 +122,11 @@ struct AgentRow: Identifiable {
             // process still existing is the only bound it needs, since kill -9 sends no Stop.
             if let open = l.active {
                 guard open else { return false }
+                // Esc is the one way a turn ends with no hook at all: the tool never returns,
+                // so no PostToolUse and no Stop ever arrive, and "the process is alive" kept
+                // the row working for hours. Claude writes the interruption into the
+                // transcript, and a marker newer than the last event is that turn ending.
+                if let cut = Transcript.interrupted(agent), cut > l.at { return false }
                 return agent.pid.map(Proc.alive) ?? true
             }
             // Hooks know this session but have not shown a turn boundary yet — a resumed
@@ -615,7 +620,16 @@ enum Transcript {
     /// mtime is the wrong signal: a long-dead session whose `claude` process is still alive gets
     /// its transcript touched without any new content, so a 25-day-old conversation reported
     /// minutes. The last entry's own timestamp cannot be faked that way.
-    private static var activeCache: [String: (mtime: Date, value: Date?)] = [:]
+    private static var activeCache: [String: (mtime: Date, value: Scan)] = [:]
+
+    /// What one read of the tail can answer. Both facts come off the same bytes, so the second
+    /// question costs nothing once the first has been asked.
+    struct Scan {
+        var last: Date?
+        /// When the turn was last cut short with Esc. Claude writes the interruption into the
+        /// transcript and fires no further hook, so this is the only record that it ended.
+        var interrupted: Date?
+    }
     /// The refresh walks these on .utility while the console reads them on .userInitiated.
     private static let lock = NSLock()
 
@@ -627,7 +641,12 @@ enum Transcript {
         lock.unlock()
     }
 
-    static func lastActive(_ a: Agent) -> Date? {
+    static func lastActive(_ a: Agent) -> Date? { scan(a)?.last }
+
+    /// When the user last pressed Esc. Nil if they have not, or if this is not a Claude session.
+    static func interrupted(_ a: Agent) -> Date? { scan(a)?.interrupted }
+
+    private static func scan(_ a: Agent) -> Scan? {
         guard let path = path(for: a) else { return nil }
         // The expensive part is tail+grep. If the file has not changed since we last looked,
         // neither has the answer — this was three process spawns per agent per refresh.
@@ -635,20 +654,34 @@ enum Transcript {
                      as? Date) ?? .distantPast
         lock.lock(); let cached = activeCache[a.sessionId]; lock.unlock()
         if let hit = cached, hit.mtime == mtime { return hit.value }
-        let stamp = Tail.lastValue(of: "timestamp", in: Tail.read(path: path, bytes: 32768)) ?? ""
-        if !stamp.isEmpty {
-            let iso = ISO8601DateFormatter()
-            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let d = iso.date(from: stamp) { store(a.sessionId, mtime, d); return d }
-            iso.formatOptions = [.withInternetDateTime]
-            if let d = iso.date(from: stamp) { store(a.sessionId, mtime, d); return d }
+        let text = Tail.read(path: path, bytes: 32768)
+        var out = Scan(last: stamp(Tail.lastValue(of: "timestamp", in: text)) ?? mtime)
+        // Both wordings Claude writes: bare, and "for tool use" when a tool was in flight. The
+        // stamp is later on the SAME line, so the search is bounded to it — the rest of the
+        // tail is full of newer timestamps belonging to entries that are not this one.
+        if let cut = text.range(of: "[Request interrupted by user", options: .backwards) {
+            // The whole entry, not just the half after the marker: the stamp sits after the
+            // message in a real transcript and before it in a hand-written one, and a search
+            // bounded to one side silently found nothing on the other.
+            let head = text[..<cut.lowerBound].lastIndex(where: \.isNewline)
+                .map(text.index(after:)) ?? text.startIndex
+            let tail = text[cut.upperBound...].firstIndex(where: \.isNewline) ?? text.endIndex
+            out.interrupted = stamp(Tail.lastValue(of: "timestamp", in: String(text[head..<tail])))
         }
-        // Only fall back to mtime when the transcript carries no timestamps at all.
-        store(a.sessionId, mtime, mtime)
-        return mtime
+        store(a.sessionId, mtime, out)
+        return out
     }
 
-    private static func store(_ id: String, _ mtime: Date, _ value: Date?) {
+    private static func stamp(_ s: String?) -> Date? {
+        guard let s, !s.isEmpty else { return nil }
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = iso.date(from: s) { return d }
+        iso.formatOptions = [.withInternetDateTime]
+        return iso.date(from: s)
+    }
+
+    private static func store(_ id: String, _ mtime: Date, _ value: Scan) {
         lock.lock(); activeCache[id] = (mtime, value); lock.unlock()
     }
 
