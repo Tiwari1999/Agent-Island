@@ -182,7 +182,11 @@ struct ConsoleView: View {
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 14) {
+                    // NOT lazy. Jumping to the bottom of a lazy stack scrolls to an offset
+                    // whose rows have not been realised yet, so the console opened blank and
+                    // only painted once a scroll forced the realisation pass. The feed is
+                    // capped at 40 entries, so laying all of them out costs nothing.
+                    VStack(alignment: .leading, spacing: 14) {
                         ForEach(Console.group(feed)) { chunk(for: $0) }
                         Color.clear.frame(height: 1).id("end")
                     }
@@ -190,12 +194,10 @@ struct ConsoleView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 // A console reads from the bottom: the newest line is the one you came for.
-                // onAppear fires before the LazyVStack lays out, so the anchor is not yet
-                // realised and the request is silently dropped.
+                // The anchor is part of the first layout, unlike an onAppear scroll request,
+                // which is issued before there is anything to scroll to and silently dropped.
+                .defaultScrollAnchor(.bottom)
                 .onChange(of: feed.count) { _, _ in
-                    DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) }
-                }
-                .onAppear {
                     DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) }
                 }
             }

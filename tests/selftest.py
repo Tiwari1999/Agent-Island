@@ -1663,7 +1663,14 @@ check("parsing never runs on the main actor",
 check("tool output is deliberately not shown",
       "output is not shown" in _cs and "case ran(tool: String, why: String" in _cs)
 check("the newest line is the one you land on", 'proxy.scrollTo("end", anchor: .bottom)' in _cv)
-check("the console scrolls", "ScrollView {" in _cv and "LazyVStack" in _cv)
+# The console opened blank and only painted after a scroll: jumping to the bottom of a LAZY
+# stack lands on an offset whose rows have not been realised, so there was nothing to draw.
+# The feed is capped at 40 entries — laying all of them out is what makes the jump land.
+check("the console scrolls", "ScrollView {" in _cv)
+check("and its stack is not lazy, so the bottom it jumps to is really there",
+      "LazyVStack" not in _cv and "VStack(alignment: .leading, spacing: 14)" in _cv)
+check("the bottom is the first layout, not a request made before there is one",
+      ".defaultScrollAnchor(.bottom)" in _cv and ".onAppear {" not in _cv.split("ScrollViewReader")[1])
 check("prose renders as markdown, reusing the plan reader",
       "MarkdownLite(text: text, style: .reading)" in _cv)
 # Monospaced grey prose at 10.5 reads as a wall; plans stay dense, the console reads.
