@@ -11,7 +11,11 @@ enum Approvals {
             && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }
     }
 
-    static let decisionsDir = "/tmp/agentisland-decisions"
+    /// The hooks have always honoured AGENTISLAND_DECISIONS; the app did not, so the two sides
+    /// disagreed the moment anyone set it — and the island's own write could never be pointed at
+    /// a scratch directory, which is why the suite could only ever fake this file in Python.
+    static let decisionsDir = ProcessInfo.processInfo.environment["AGENTISLAND_DECISIONS"]
+        ?? "/tmp/agentisland-decisions"
     static let aliveFile = "/tmp/agentisland.alive"
 
     /// The directory lives in world-writable /tmp, and a file in it approves a shell command, so

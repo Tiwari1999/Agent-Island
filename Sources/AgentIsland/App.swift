@@ -34,6 +34,16 @@ struct AgentIslandApp {
         if CommandLine.arguments.contains("--check-prompts") { exit(PromptCheck.run()) }
         if CommandLine.arguments.contains("--costs-json") { print(Costs.json()); exit(0) }
         if CommandLine.arguments.contains("--check-proc") { exit(ProcCheck.run()) }
+        // The island's own half of the round trip, headlessly. Everything the suite proved
+        // before this wrote the decision file from Python — so "clicking allow produces
+        // something the hook accepts" was the one step never actually tested.
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--decide"), args.count > i + 2 {
+            Approvals.decide(Approval(id: args[i + 1], session: "s", tool: "Bash",
+                                      detail: "", deadline: Date().addingTimeInterval(60)),
+                             allow: args[i + 2] == "allow")
+            exit(0)
+        }
         // Same path the Settings button takes, so what ships in an issue can be checked here.
         if CommandLine.arguments.contains("--diagnostics") {
             guard let dir = Diagnostics.export() else { print("export failed"); exit(1) }

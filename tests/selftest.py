@@ -520,7 +520,11 @@ perm=open(os.path.join(REPO,"hooks/agentisland-permission.sh")).read()
 check("hook holds a plan approval open longer", "ExitPlanMode" in perm and "550" in perm)
 check("a test's timeout override still wins", 'AGENTISLAND_TIMEOUT_TENTHS" ] && TIMEOUT_TENTHS=550' in perm)
 isl2=open(os.path.join(REPO,"Sources/AgentIsland/Island.swift")).read()
-check("plan card gets plan-sized geometry", isl2.count("a.plan != nil") >= 2)
+# Was: two copies of `a.plan != nil` deciding the geometry. They are one accessor now, which
+# is the point — the copies were how the window and the card came to disagree.
+check("plan card gets plan-sized geometry",
+      'let big = a.plan != nil || approvalContext != nil' in isl2
+      and "big ? 640 : 560" in isl2 and "big ? 300 : 46" in isl2)
 vw=open(os.path.join(REPO,"Sources/AgentIsland/Views.swift")).read()
 check("cost chip and plan chip exist", "costChip" in vw and 'Text("plan")' in vw)
 check("costs scan never runs on the refresh path",
@@ -1545,8 +1549,10 @@ check("an incomplete sequence is never submitted", "body.count == question.items
 
 # A fixed height truncated the question; the window and the view must agree on the new one.
 check("the card is sized by its content", "func cardHeight(width:" in _hs3)
+# Three readers now, not two: the window, the hit region, and — new — the card itself, which
+# was never told the height it had been given and could grow its own buttons off the top.
 check("window and view size from one accessor",
-      _is3.count("island.questionSize(q)") == 2 and "func questionSize" in _is3)
+      _is3.count("island.questionSize(q)") == 3 and "func questionSize" in _is3)
 # It was capped against the SCREEN, but it is drawn inside the panel — which is maxSize tall
 # and never resized. So the cap described a card twice the size of the one on screen, and since
 # this size is also the click region, the island swallowed presses far below the visible card.
@@ -2313,6 +2319,57 @@ check("and the list actually renders the folded set",
       "ForEach(visibleRows) { row in" in _vw and "ForEach(store.rows) { row in" not in _vw)
 check("nothing folded is unreachable",
       "more stopped sessions" in _vw and "showAllIdle = true" in _vw)
+
+# The island's OWN half of the round trip. Everything else here writes the decision file from
+# Python, so "clicking allow produces something the hook accepts" was the one step never
+# actually tested — and the day it broke, the evidence was a screenshot.
+_rt = os.path.join(tempfile.gettempdir(), "ai-roundtrip-" + str(os.getpid()))
+def _roundtrip(want):
+    dec = f"{_rt}/dec"; os.makedirs(dec, exist_ok=True)
+    open(f"{_rt}/alive", "w").close()
+    spool = f"{_rt}/spool.jsonl"
+    if os.path.exists(spool): os.remove(spool)
+    env = dict(os.environ, AGENTISLAND_SPOOL=spool, AGENTISLAND_DECISIONS=dec,
+               AGENTISLAND_ALIVE=f"{_rt}/alive", AGENTISLAND_LOG=f"{_rt}/log")
+    pay = json.dumps({"session_id": "e2e", "tool_name": "Bash",
+                      "tool_input": {"command": "echo hi"}, "cwd": "/tmp"})
+    out = {}
+    def go():
+        out["r"] = subprocess.run([os.path.join(REPO, "hooks/agentisland-permission.sh")],
+                                  input=pay, capture_output=True, text=True, timeout=40, env=env)
+    t = threading.Thread(target=go); t.start()
+    for _ in range(80):
+        if os.path.exists(spool) and open(spool).read().strip(): break
+        time.sleep(0.1)
+    rid = json.loads(open(spool).readline())["ap_request_id"]
+    # The real Approvals.decide, not a file this test wrote.
+    subprocess.run([os.path.join(REPO, ".build/release/AgentIsland"), "--decide", rid, want],
+                   capture_output=True, text=True, timeout=30,
+                   env=dict(os.environ, AGENTISLAND_DECISIONS=dec))
+    t.join()
+    try: got = json.loads(out["r"].stdout)["hookSpecificOutput"]["permissionDecision"]
+    except Exception: got = ""
+    return got, os.path.exists(os.path.join(dec, rid))
+os.makedirs(_rt, exist_ok=True)
+for _want in ("allow", "deny"):
+    _got, _left = _roundtrip(_want)
+    check(f"the island's own write reaches the agent as {_want}", _got == _want, _got or "no output")
+    check(f"and the hook consumes the {_want} file", not _left)
+_shutil.rmtree(_rt, ignore_errors=True)
+
+# The approval card was never told the height its window reserved, so a long plan grew the
+# card past the shell — and a bottom-aligned overflow throws away the TOP, which is where
+# Allow and Deny live. The buttons went off-screen and the terminal was the only way left.
+check("one approvalSize is what the window, the hit region and the card all read",
+      "func approvalSize(_ a: Approval) -> CGSize" in _is5
+      and _is5.count("island.approvalSize(a)") == 3
+      and "? 640 : 560" not in _is5.split("func approvalSize")[1].split("\n    }")[1])
+check("and both cards are bounded by it, so neither can clip its own buttons away",
+      ".frame(maxHeight: island.approvalSize(a).height, alignment: .bottom)" in _is5
+      and ".frame(maxHeight: island.questionSize(q).height, alignment: .bottom)" in _is5)
+_ap5 = open(os.path.join(REPO, "Sources/AgentIsland/Approvals.swift")).read()
+check("the app honours AGENTISLAND_DECISIONS, which the hooks always did",
+      'environment["AGENTISLAND_DECISIONS"]' in _ap5)
 # "Nothing pops over your screen" read as "and no notifications either", which is the opposite
 # of what hiding the island does — the active state said so, the state you choose from did not.
 _set = open(os.path.join(REPO, "Sources/AgentIsland/Settings.swift")).read()

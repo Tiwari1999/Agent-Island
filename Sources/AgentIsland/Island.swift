@@ -394,15 +394,24 @@ final class Island: NSObject, ObservableObject {
         return NSRect(x: screen.frame.midX - w / 2, y: screen.frame.maxY - h, width: w, height: h)
     }
 
+    /// Both the window and the card read this, so the card can never be drawn at a size the
+    /// window did not reserve — the rule the question card already followed and this one did
+    /// not. Unbounded, a long plan made the card's own stack out-grow the shell, and a
+    /// bottom-aligned overflow clips the TOP, which is exactly where Allow and Deny live. The
+    /// buttons went off-screen and the only way left to answer was the terminal.
+    func approvalSize(_ a: Approval) -> CGSize {
+        let big = a.plan != nil || approvalContext != nil
+        return CGSize(width: big ? 640 : 560, height: big ? 300 : 46)
+    }
+
     /// The approval card is wider than a toast and must be fully clickable.
     private var approvalRect: NSRect {
         guard let screen else { return .zero }
-        var w: CGFloat = 560, extra: CGFloat = 46
-        if case .approval(let a) = state, a.plan != nil || approvalContext != nil {
-            w = 640; extra = 300
-        }
-        let h = notchHeight + Self.notchClearance + extra
-        return NSRect(x: screen.frame.midX - w / 2, y: screen.frame.maxY - h, width: w, height: h)
+        guard case .approval(let a) = state else { return .zero }
+        let size = approvalSize(a)
+        let h = notchHeight + Self.notchClearance + size.height
+        return NSRect(x: screen.frame.midX - size.width / 2, y: screen.frame.maxY - h,
+                      width: size.width, height: h)
     }
 
     /// Questions need room for the prompt plus a row of options.
@@ -1160,7 +1169,7 @@ private struct RootView: View {
                                         left: bar.leftText, right: bar.rightText)
             return island.notchWidth + w.left + w.right + 2 * CollapsedView.notchMargin
         case .peek:      return 380
-        case .approval(let a):  return (a.plan != nil || island.approvalContext != nil) ? 640 : 560
+        case .approval(let a):  return island.approvalSize(a).width
         case .question(let q): return island.questionSize(q).width
         case .console:   return Island.consoleSize.width
         case .expanded:  return PanelView.width
@@ -1187,8 +1196,7 @@ private struct RootView: View {
         case .collapsed: return island.notchHeight
         case .peek:      return island.notchHeight + Island.notchClearance + 38
         case .approval(let a):
-            return island.notchHeight + Island.notchClearance
-                + ((a.plan != nil || island.approvalContext != nil) ? 300 : 46)
+            return island.notchHeight + Island.notchClearance + island.approvalSize(a).height
         case .question(let q):
             return island.notchHeight + Island.notchClearance + island.questionSize(q).height
         case .console:
@@ -1249,7 +1257,7 @@ private struct RootView: View {
                         onExpand: { island.expandApproval() },
                         onAllow: { island.answer(a, allow: true) },
                         onDeny:  { island.answer(a, allow: false) })
-                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .frame(maxHeight: island.approvalSize(a).height, alignment: .bottom)
                         .padding(.bottom, 6)
                 case .question(let q):
                     QuestionCard(
@@ -1283,7 +1291,7 @@ private struct RootView: View {
                         explaining: island.questionItem(q).map {
                             island.explaining.contains($0.id) } ?? false,
                         onExplain: { island.explain(q, step: island.questionStep) })
-                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .frame(maxHeight: island.questionSize(q).height, alignment: .bottom)
                         .padding(.bottom, 6)
                 case .console(let sid):
                     ConsoleView(store: store, session: sid,
