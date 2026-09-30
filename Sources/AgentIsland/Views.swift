@@ -352,7 +352,7 @@ struct AgentRowView: View {
         // slack of a two-line row instead of pooling it all under the text as a gap.
         .frame(height: AgentRowView.height, alignment: .center)
         .background(
-            RoundedRectangle(cornerRadius: 9)
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(hover && row.canJump ? Theme.raised : Color.clear)
         )
         .contentShape(Rectangle())
@@ -370,7 +370,7 @@ struct AgentRowView: View {
         Text(text)
             .font(Theme.mono(Type.micro)).foregroundColor(color)
             .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(RoundedRectangle(cornerRadius: 4).fill(color.opacity(0.13)))
+            .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(color.opacity(0.13)))
             .lineLimit(1)
     }
 }
@@ -500,7 +500,9 @@ struct PanelView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    LazyVStack(spacing: PanelView.rowGap) {
+                    // Not lazy: measuring rows for the first time while the shell is mid-spring
+                    // is a stutter, and the stopped-session fold already caps what is here.
+                    VStack(spacing: PanelView.rowGap) {
                         ForEach(visibleRows) { row in
                             AgentRowView(row: row, model: status.quota.model,
                                          onPlan: store.hooks.plans[row.agent.sessionId].map { _ in
@@ -714,7 +716,7 @@ struct ApprovalCard: View {
                                     .textSelection(.enabled)
                                     .padding(8)
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(RoundedRectangle(cornerRadius: 6).fill(Theme.raised))
+                                    .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Theme.raised))
                             }
                         }
                         if !ctx.trail.isEmpty {
@@ -768,7 +770,7 @@ struct ApprovalCard: View {
                 Text("context ⌘⌥E")
                     .font(Theme.label(Type.body)).foregroundColor(Theme.muted)
                     .padding(.horizontal, 10).padding(.vertical, 6)
-                    .background(RoundedRectangle(cornerRadius: 7).fill(Theme.raised))
+                    .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Theme.raised))
                     .contentShape(Rectangle())
                     .onTapGesture(perform: onExpand)
             }
@@ -786,7 +788,7 @@ struct ApprovalCard: View {
             .font(Theme.label(Type.body))
             .foregroundColor(hot ? Theme.bg : tint)
             .padding(.horizontal, 12).padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 7)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .fill(hot ? tint : tint.opacity(0.14)))
             .contentShape(Rectangle())
             .onHover { h in withAnimation(Motion.hover) { hover(h) } }
@@ -1003,7 +1005,7 @@ struct QuestionCard: View {
                             .font(Theme.mono(Type.small))
                             .foregroundColor(on ? Theme.waiting : Theme.faint)
                             .frame(width: 15, height: 15)
-                            .overlay(RoundedRectangle(cornerRadius: 4)
+                            .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous)
                                 .stroke(on ? Theme.waiting.opacity(0.4) : Theme.hairline))
                         VStack(alignment: .leading, spacing: 2) {
                             Text(opt.label)
@@ -1032,10 +1034,10 @@ struct QuestionCard: View {
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 9).padding(.vertical, 7)
-                    .background(RoundedRectangle(cornerRadius: 8)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(on ? Theme.waiting.opacity(0.10)
                               : hot == opt.label ? Theme.raised : Color.clear))
-                    .overlay(RoundedRectangle(cornerRadius: 8)
+                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(on ? Theme.waiting.opacity(0.28) : Color.clear))
                     .contentShape(Rectangle())
                     .onHover { h in withAnimation(Motion.hover) { hot = h ? opt.label : nil } }
@@ -1060,7 +1062,7 @@ struct QuestionCard: View {
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundColor(on || typing ? Theme.waiting : Theme.faint)
                 .frame(width: 15, height: 15)
-                .overlay(RoundedRectangle(cornerRadius: 4)
+                .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous)
                     .stroke(on ? Theme.waiting.opacity(0.4) : Theme.hairline))
             if typing {
                 TextField("", text: Binding(get: { text }, set: onType), axis: .vertical)
@@ -1079,9 +1081,9 @@ struct QuestionCard: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 9).padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 8)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
             .fill(on ? Theme.waiting.opacity(0.10) : typing ? Theme.raised : Color.clear))
-        .overlay(RoundedRectangle(cornerRadius: 8)
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
             .stroke(on || typing ? Theme.waiting.opacity(0.28) : Theme.hairline.opacity(0.6)))
         .contentShape(Rectangle())
         .onTapGesture { onBeginType() }

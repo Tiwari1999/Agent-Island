@@ -71,7 +71,12 @@ enum Theme {
 /// switch on .snappy(0.2) beside a shell on .spring(0.30/0.85) — so things that move together
 /// ran on different clocks, which is what reads as rough.
 enum Motion {
-    static let shell   = Animation.spring(response: 0.32, dampingFraction: 0.84)
+    static let shell   = Animation.spring(response: 0.38, dampingFraction: 0.82)
+    /// Contents used to hard-cut while the shell sprang around them — the silhouette moved and
+    /// everything inside it snapped. One transition for every island surface, scaled from the
+    /// top so it reads as growing out of the notch rather than fading in place.
+    static let morph: AnyTransition =
+        .opacity.combined(with: .scale(scale: 0.97, anchor: .top))
     static let content = Animation.spring(response: 0.26, dampingFraction: 0.90)
     static let quick   = Animation.easeOut(duration: 0.15)
     static let hover   = Animation.easeOut(duration: 0.11)
