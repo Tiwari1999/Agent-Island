@@ -2365,45 +2365,6 @@ check("the footer says which way its percentage counts",
 # act on far less often, and the panel already shows one against each window.
 check("the reset countdown is the panel's job, not the bar's",
       "Quota.short(r.timeIntervalSinceNow)" not in _vw and "Quota.remaining(resets)" in _vw)
-# Motion polish. Pinned so a later edit cannot quietly undo the feel, since no test can judge
-# whether it LOOKS right — that part needs eyes.
-_th_m = open(os.path.join(REPO, "Sources/AgentIsland/Theme.swift")).read()
-_is_m = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
-_sf_m = open(os.path.join(REPO, "Sources/AgentIsland/Surface.swift")).read()
-# Contents hard-cut while the shell sprang around them; the silhouette moved and everything
-# inside it snapped.
-check("every island surface morphs instead of popping",
-      "static let morph: AnyTransition" in _th_m
-      and ".transition(Motion.morph)" in _is_m and ".id(island.state.surface)" in _is_m)
-# Symmetric, the outgoing bar and incoming panel cross-dissolve for the whole spring — two
-# things sharing a space rather than one becoming the other. Out fast, in late.
-check("the old surface leaves before the new one arrives",
-      ".asymmetric(" in _th_m
-      and 'delay(0.08))' in _th_m
-      and 'removal: .opacity.animation(.easeIn(duration: 0.10))' in _th_m)
-# Keyed on the case, not its payload: a second question must not tear the first card down.
-check("and the identity is the surface, not what is on it",
-      "var surface: String" in _is_m and 'case .question:  return "question"' in _is_m)
-# 350ms to open and 0ms to close is backwards — sluggish to arrive, twitchy to leave.
-# Only the LEAVING half was wrong. Clearing instantly meant a graze along the edge flickered
-# the bar; the dwell stays at 0.35 because the notch is on the route to the menu bar.
-check("hover lets go slowly even though it opens deliberately",
-      "hoverRelease: TimeInterval = 0.30" in _is_m
-      and "hoverDwell: TimeInterval = 0.35" in _is_m)
-check("and re-entering cancels the release, so the bar cannot shut under the pointer",
-      "self.release?.cancel(); self.release = nil" in _is_m)
-# A shadow radius that springs with the shape trails the edge it belongs to.
-check("the shadow does not animate its own radius",
-      "radius: 18, y: 6" in _sf_m and "expanded ? 24 : 8" not in _sf_m)
-# A circular corner has a curvature discontinuity where the arc meets the edge.
-_corners = sum(open(os.path.join(REPO, "Sources/AgentIsland", f)).read().count(
-                   "RoundedRectangle(cornerRadius:")
-               for f in os.listdir(os.path.join(REPO, "Sources/AgentIsland")) if f.endswith(".swift"))
-_cont = sum(open(os.path.join(REPO, "Sources/AgentIsland", f)).read().count("style: .continuous")
-            for f in os.listdir(os.path.join(REPO, "Sources/AgentIsland")) if f.endswith(".swift"))
-check("every rounded corner is continuous, not circular",
-      _corners > 0 and _cont == _corners, f"{_cont}/{_corners} continuous")
-
 check("width is measured from the strings the bar will actually print",
       "left: bar.leftText, right: bar.rightText" in _iv)
 

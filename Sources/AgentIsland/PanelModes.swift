@@ -125,7 +125,7 @@ struct MarkdownLite: View {
                 .font(Theme.mono(Type.small)).foregroundColor(Theme.muted)
                 .padding(8)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Theme.raised))
+                .background(RoundedRectangle(cornerRadius: 6).fill(Theme.raised))
         case .table(let rows):
             grid(rows)
         case .rule:

@@ -64,9 +64,7 @@ struct IslandBackground: View {
                 shape.stroke(Theme.hairline, lineWidth: 0.7)
             }
         }
-        // A radius that springs with the shape trails the edge it belongs to. Constant, so the
-        // shadow stays welded to the silhouette through the morph.
-        .shadow(color: .black.opacity(0.55), radius: 18, y: 6)
+        .shadow(color: .black.opacity(0.55), radius: expanded ? 24 : 8, y: 6)
     }
 
     /// Scaled to the panel, so a 32pt collapsed bar is softened rather than erased.
