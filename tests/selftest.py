@@ -2412,6 +2412,18 @@ _ap5 = open(os.path.join(REPO, "Sources/AgentIsland/Approvals.swift")).read()
 check("the app honours AGENTISLAND_DECISIONS, which the hooks always did",
       'environment["AGENTISLAND_DECISIONS"]' in _ap5)
 
+# The welcome button set a flag on tap and greyed itself out whatever the answer, so a denied
+# grant read as "notifications asked" while notify() silently dropped every alert.
+_wel = open(os.path.join(REPO, "Sources/AgentIsland/Welcome.swift")).read()
+_nt5 = open(os.path.join(REPO, "Sources/AgentIsland/Notifier.swift")).read()
+check("the notification button reports the live grant, not that it once asked",
+      "askedNotifications" not in _wel and "Notifier.grant { notifications = $0 }" in _wel
+      and "getNotificationSettings" in _nt5.split("static func grant")[1][:400])
+check("and a denied grant says so, with the one way out of it",
+      '"notifications blocked \u2014 open Settings"' in _wel
+      and "case .blocked: Notifier.openSettings()" in _wel
+      and "x-apple.systempreferences:com.apple.Notifications-Settings.extension" in _nt5)
+
 # Found by falling into it: `uninstall-hooks.py --help` removed all 26 hooks and then
 # reported what it had done. The script runs at module level and took no arguments at all,
 # so every flag was silently a "yes, uninstall everything".
@@ -3015,8 +3027,8 @@ check("an approval alert carries Allow and Deny",
       and "UNNotificationAction(identifier: denyAction, title: \"Deny\"" in _al_nt
       and "content.categoryIdentifier = approvalCategory" in _al_nt)
 check("and the category is registered before any alert is posted",
-      re.search(r'static func requestAuthorization\(\) \{\s*\n\s*registerActions\(\)', _al_nt)
-      is not None)
+      re.search(r'static func requestAuthorization\(.*\) \{\s*\n\s*registerActions\(\)',
+                _al_nt) is not None)
 check("the buttons answer through the same path the card uses",
       "Notifier.onDecision = { [weak self] id, allow in" in _al_is
       and "self.answer(a, allow: allow); return" in _al_is)

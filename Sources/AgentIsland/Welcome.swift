@@ -10,10 +10,20 @@ struct WelcomeView: View {
     var onDone: () -> Void
     @State private var hooksReady = Setup.hooksInstalled()
     @State private var installing = false
-    @State private var askedNotifications = false
+    /// The live grant, not "we asked once" — the old flag greyed the button out on tap
+    /// whatever the answer, so a denial read as success and every alert vanished silently.
+    @State private var notifications: Notifier.Grant = .unasked
 
     private var version: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+    }
+
+    private var notifyLabel: String {
+        switch notifications {
+        case .on:      return "notifications on"
+        case .blocked: return "notifications blocked — open Settings"
+        case .unasked: return "allow notifications"
+        }
     }
 
     var body: some View {
@@ -39,6 +49,8 @@ struct WelcomeView: View {
             .padding(.horizontal, 16).padding(.vertical, 13)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        // Read on open and again on return, so revoking it in Settings shows up here.
+        .onAppear { Notifier.grant { notifications = $0 } }
     }
 
     /// What it can do for the agents on THIS machine, rather than a table of everything it could
@@ -103,10 +115,14 @@ struct WelcomeView: View {
                     installing = true
                     Setup.install { ok in installing = false; hooksReady = ok }
                 }
-                button(askedNotifications ? "notifications asked" : "allow notifications",
-                       done: askedNotifications, tint: Theme.working) {
-                    askedNotifications = true
-                    Notifier.requestAuthorization()
+                button(notifyLabel, done: notifications == .on,
+                       tint: notifications == .blocked ? Theme.failed : Theme.working) {
+                    switch notifications {
+                    // macOS prompts once and never again; after a denial only Settings helps.
+                    case .blocked: Notifier.openSettings()
+                    case .on:      break
+                    case .unasked: Notifier.requestAuthorization { notifications = $0 }
+                    }
                 }
                 Spacer(minLength: 0)
                 button("done", done: false, tint: Theme.text, action: onDone)
