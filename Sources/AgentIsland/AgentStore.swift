@@ -313,6 +313,9 @@ final class AgentStore: ObservableObject {
     /// The month's cost table. The first scan reads every transcript touched this month (~4s of
     /// CPU), so it runs off-main, at most once a minute, and only while someone is looking.
     @Published var costTable: Costs.Table = [:]
+    /// An empty table and one nobody has built yet are the same value. The first scan takes
+    /// ~60s on a large ~/.claude/projects, and for that minute the panel read "$0.00".
+    @Published private(set) var costsScanned = false
 
     /// Which agent the header is reporting on. nil means "follow whoever I use most", which is
     /// the right default and the answer most people would never change.
@@ -356,7 +359,7 @@ final class AgentStore: ObservableObject {
                                    today.values.reduce(0) { $0 + $1.input + $1.output
                                                               + $1.cacheRead + $1.cacheWrite },
                                    today.count))
-            Task { @MainActor in self?.costTable = t }
+            Task { @MainActor in self?.costTable = t; self?.costsScanned = true }
         }
     }
 

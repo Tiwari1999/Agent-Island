@@ -185,6 +185,9 @@ struct PlanReader: View {
 /// The month's spend at API list prices, by model.
 struct CostsView: View {
     let table: Costs.Table
+    /// False until the first scan lands, so "nothing spent" cannot be read off a table that
+    /// has not been built — the same distinction the session list draws with hasRefreshed.
+    var scanned = true
     let onBack: () -> Void
 
     var body: some View {
@@ -219,11 +222,13 @@ struct CostsView: View {
             HStack {
                 Text(name).font(Theme.mono(Type.small)).foregroundColor(Theme.faint).kerning(0.8)
                 Spacer()
-                Text(Costs.dollars(models.values.reduce(0) { $0 + $1.cost }))
+                Text(scanned || !models.isEmpty
+                     ? Costs.dollars(models.values.reduce(0) { $0 + $1.cost }) : "\u{2014}")
                     .font(Theme.label(Type.title)).foregroundColor(Theme.text)
             }
             if models.isEmpty {
-                Text("no usage recorded").font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
+                Text(scanned ? "no usage recorded" : "reading usage\u{2026}")
+                    .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
             }
             ForEach(models.sorted { $0.value.cost > $1.value.cost }, id: \.key) { model, l in
                 HStack(spacing: 10) {

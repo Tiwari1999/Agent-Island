@@ -2287,6 +2287,22 @@ check("and no unguarded Double->Int conversion is left in the quota parse",
 # A month of cache reads printed "11874.8M" — eleven characters in an 86pt cell, so the unit
 # wrapped onto a line of its own. The ladder just stopped at M.
 _ct = open(os.path.join(REPO, "Sources/AgentIsland/Costs.swift")).read()
+# Ad-hoc builds are never asked for this, so it costs nothing until the day the app is signed
+# with a Developer ID and hardened — then Apple Events are denied with no error and the
+# iTerm/Terminal jump silently stops working. It has to be in the bundle before that day.
+_mkapp = open(os.path.join(REPO, "scripts/make-app.sh")).read()
+check("the bundle declares why it sends Apple Events, before a real signature needs it",
+      "<key>NSAppleEventsUsageDescription</key>" in _mkapp
+      and "bring the tab an agent is running in to the front" in _mkapp)
+# An empty cost table and one nobody has built yet were the same value, and the first scan
+# takes ~60s on a large ~/.claude/projects — so the panel read "$0.00 no usage recorded".
+_pm5 = open(os.path.join(REPO, "Sources/AgentIsland/PanelModes.swift")).read()
+_ag6 = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
+check("an unscanned cost table does not read as zero spend",
+      'Text(scanned ? "no usage recorded" : "reading usage' in _pm5
+      and "costsScanned = true" in _ag6
+      and "CostsView(table: store.costTable, scanned: store.costsScanned)" in _vw)
+
 check("the token ladder goes past millions",
       'case 1_000_000_000...: return String(format: "%.1fB"' in _ct)
 check("and the cell it sits in cannot wrap the unit off the number",

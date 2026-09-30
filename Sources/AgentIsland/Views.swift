@@ -472,7 +472,7 @@ struct PanelView: View {
                     .frame(height: PanelView.listHeight)
                     .transition(.opacity.combined(with: .move(edge: .trailing)))
             } else if case .costs = mode {
-                CostsView(table: store.costTable) { back() }
+                CostsView(table: store.costTable, scanned: store.costsScanned) { back() }
                     .frame(height: PanelView.listHeight)
                     .transition(.opacity.combined(with: .move(edge: .trailing)))
             } else if case .plan(let session, let title) = mode {

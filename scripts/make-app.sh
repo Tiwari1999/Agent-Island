@@ -51,6 +51,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
+  <!-- Ad-hoc builds are not asked for this, so its absence costs nothing until the day this is
+       signed with a Developer ID and hardened — then Apple Events are denied with no error and
+       the iTerm/Terminal jump silently stops working. -->
+  <key>NSAppleEventsUsageDescription</key><string>AgentIsland asks your terminal to bring the tab an agent is running in to the front.</string>
 </dict></plist>
 PLIST
 
