@@ -969,6 +969,12 @@ final class Island: NSObject, ObservableObject {
     /// nobody was left to collect. Hand over when the hook does, so the card says "answer in
     /// chat" instead of quietly taking an answer to a file no one reads.
     private func armGrace(_ id: String) {
+        // Stamp the mark the hook polls, not just our own timer. Without this the file does not
+        // exist until the reader's FIRST interaction, so the hook falls back to `last = started`
+        // and both clocks run out together at graceSeconds — the terminal reclaimed the picker
+        // while someone was still typing their answer into the notch, and the answer went to a
+        // file nobody was reading. Re-stamping here starts the hook's window with the card.
+        Approvals.touch(id)
         graceWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.heldQuestion == id, !self.handedOver.contains(id),
