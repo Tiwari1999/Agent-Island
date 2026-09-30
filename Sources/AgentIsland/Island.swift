@@ -29,6 +29,20 @@ struct PeekPayload: Equatable {
 enum IslandState: Equatable {
     case collapsed, peek(PeekPayload), approval(Approval), question(Question), expanded
     case console(String)
+
+    /// Which surface this is, ignoring what is on it. Used as the view identity so crossing
+    /// between surfaces runs a transition, while a second question replacing a first does not
+    /// tear the card down mid-answer.
+    var surface: String {
+        switch self {
+        case .collapsed: return "collapsed"
+        case .peek:      return "peek"
+        case .approval:  return "approval"
+        case .question:  return "question"
+        case .expanded:  return "expanded"
+        case .console:   return "console"
+        }
+    }
 }
 
 /// The window is created once at its maximum footprint and never resized — the window server
@@ -107,6 +121,11 @@ final class Island: NSObject, ObservableObject {
     /// to the menu bar, which is the top complaint across every shipping notch app. 180ms was
     /// still under that band and opened on the way past to something else, so it sits in it now.
     private static let hoverDwell: TimeInterval = 0.35
+    /// Leaving is not a decision the way arriving is. Holding the reveal briefly means a
+    /// graze along the edge, or a pointer clipping the corner on its way somewhere else,
+    /// does not flicker the bar open and shut.
+    private static let hoverRelease: TimeInterval = 0.30
+    private var release: DispatchWorkItem?
     private var outsideTicks = 0
     /// Opened by a click (menu bar, console back) rather than by hover. Pointer distance
     /// dismisses a panel you hovered open and walked away from; a clicked-open one is deliberate
@@ -327,17 +346,24 @@ final class Island: NSObject, ObservableObject {
                 guard let self, self.state == .collapsed else { return }
                 self.expand()
             }
+            self.release?.cancel(); self.release = nil
             self.dwell = work
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.hoverDwell, execute: work)
         }
         sensor.onExit = { [weak self] in
             guard let self else { return }
             self.dwell?.cancel()
+            self.release?.cancel()
             // Always clear the reveal, even if a card took over the notch while the pointer was
             // on it. Gating this on `.collapsed` stranded `revealed = true` whenever a question
             // or peek arrived mid-hover, so the bar drew at its wide hover width once the card
             // dismissed — an oversized resting bar that only a fresh hover cycle fixed.
-            withAnimation(Motion.content) { self.revealed = false }
+            let go = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                withAnimation(Motion.content) { self.revealed = false }
+            }
+            self.release = go
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.hoverRelease, execute: go)
         }
 
         repoll()
@@ -1328,6 +1354,8 @@ private struct RootView: View {
                         .padding(.top, island.notchHeight + Island.notchClearance)
                 }
                 }
+                .transition(Motion.morph)
+                .id(island.state.surface)
             }
             .frame(width: shellWidth, height: shellHeight)
             .offset(x: shellOffsetX)
