@@ -1904,6 +1904,20 @@ check("either a pick or typed text counts as answered",
       "!(picks[item.text] ?? []).isEmpty" in _is5 and '!(typed[item.text] ?? "")' in _is5)
 check("the submit button is always drawn", 'button("submit", filled: true, on: true' in _vw5)
 
+# "answer in chat" releases the hook and cannot be undone, and it was an outlined capsule
+# sitting beside the hint while submit sat at 0.55 on an unanswered card — so the brightest
+# control on a fresh card was the one that gives the question away. It was clicked that way.
+_esc = _vw5.split('Text("answer in chat \u2192")')[1].split("onTapGesture")[0]
+check("the way out of a question is a link, not the brightest button on the card",
+      "Capsule()" not in _esc and "Theme.faint" in _esc)
+# The opposite mistake: once the chat DOES own it, going there is the only thing left to do,
+# so that one stays a button. Demoting both would have made the card a dead end.
+_go = _vw5.split('Text("go to the chat")')[1].split("onTapGesture")[0]
+check("but once the chat owns it, going there is still the action",
+      "Capsule().stroke" in _go)
+check("and submit is still the strongest thing in the footer",
+      'button("submit", filled: true' in _vw5 and "Capsule().fill(on && filled ? Theme.waiting" in _vw5)
+
 # Typing needs key focus, which this panel refuses so that clicking an option cannot pull
 # focus out of the editor behind it. It is taken for the field and handed straight back.
 check("the panel takes focus only for the field",

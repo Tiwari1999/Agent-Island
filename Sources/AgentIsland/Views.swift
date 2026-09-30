@@ -1127,12 +1127,15 @@ struct QuestionCard: View {
                         : item.multi ? "\(chosen.count) selected · ⌘⌥1–4 toggles"
                                      : "⌘⌥1–4 to choose")
                 .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
-            // Answering in the notch is one way; taking it to the chat is the other.
+            // The way OUT, not a way to answer — and it is one-way: the hook is released and
+            // the card cannot take the answer back. As an outlined capsule it was the
+            // brightest control on a card nobody had answered yet, because submit sits at
+            // 0.55 until something is picked. So the button that gives the question away
+            // looked like the button that answers it, and it was clicked that way. A quiet
+            // link now, with the hit area on the words rather than a capsule around them.
             Text("answer in chat →")
-                .font(Theme.mono(Type.small)).foregroundColor(Theme.muted)
-                .padding(.horizontal, 7).padding(.vertical, 3)
-                .background(Capsule().stroke(Theme.hairline))
-                .contentShape(Capsule())
+                .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
+                .contentShape(Rectangle())
                 .onTapGesture(perform: onJump)
             Spacer(minLength: 0)
             if question.items.count > 1 {
