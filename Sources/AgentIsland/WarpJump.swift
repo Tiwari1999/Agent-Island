@@ -1,4 +1,3 @@
-import AppKit
 
 /// Precise Warp tab focus.
 ///

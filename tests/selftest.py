@@ -2267,6 +2267,16 @@ check("and no unguarded Double->Int conversion is left in the quota parse",
       and _stq.count("Self.pct($0.doubleValue)") == 2)
 # The footer printed the CONSUMED figure bare — "5h 11%" beside a clock, which reads as easily
 # as "11% left" as "11% used", and those are opposite readings of the same glance.
+# A month of cache reads printed "11874.8M" — eleven characters in an 86pt cell, so the unit
+# wrapped onto a line of its own. The ladder just stopped at M.
+_ct = open(os.path.join(REPO, "Sources/AgentIsland/Costs.swift")).read()
+check("the token ladder goes past millions",
+      'case 1_000_000_000...: return String(format: "%.1fB"' in _ct)
+check("and the cell it sits in cannot wrap the unit off the number",
+      ".lineLimit(1).fixedSize()" in
+      open(os.path.join(REPO, "Sources/AgentIsland/PanelModes.swift")).read()
+          .split("private func cell(")[1][:400])
+
 check("the footer says which way its percentage counts",
       '"\\(max(0, 100 - $0))% left"' in _vw)
 # The reset countdowns moved to the panel: on the bar they doubled the width for a number you

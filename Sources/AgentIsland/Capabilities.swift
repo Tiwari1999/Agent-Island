@@ -19,9 +19,6 @@ enum Capability {
     /// Reading the session's recent output. The console parses Claude's transcript format.
     static func console(_ v: Vendor) -> Bool { v == .claude }
 
-    /// Everything every vendor gets: the roster, live tool activity, a precise jump, resume.
-    static func listing(_ v: Vendor) -> Bool { true }
-
     /// One line a stranger can act on, rather than a table they have to interpret.
     static func summary(_ v: Vendor) -> String {
         approvals(v)

@@ -9,7 +9,6 @@ enum ProcEnv {
     struct Info {
         var focusURL: String?          // Warp
         var itermSession: String?      // iTerm2
-        var appleSession: String?      // Terminal.app
         var tty: String?               // controlling terminal, for Terminal.app focus
         var kittyWindow: String?       // kitty
         var weztermPane: String?       // WezTerm
@@ -45,7 +44,6 @@ enum ProcEnv {
             }
             i.focusURL = ae.env["WARP_FOCUS_URL"]
             i.itermSession = ae.env["ITERM_SESSION_ID"]
-            i.appleSession = ae.env["TERM_SESSION_ID"]
             i.kittyWindow = ae.env["KITTY_WINDOW_ID"]
             i.weztermPane = ae.env["WEZTERM_PANE"]
             i.tmuxPane = ae.env["TMUX_PANE"]

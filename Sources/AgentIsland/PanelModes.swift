@@ -238,6 +238,7 @@ struct CostsView: View {
         HStack(spacing: 3) {
             Text(label).font(Theme.mono(Type.micro)).foregroundColor(Theme.faint)
             Text(Costs.tokens(n)).font(Theme.mono(Type.small)).foregroundColor(Theme.muted)
+                .lineLimit(1).fixedSize()
         }
         .frame(width: 86, alignment: .leading)
     }

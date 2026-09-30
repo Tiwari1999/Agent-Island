@@ -238,9 +238,10 @@ enum Costs {
 
     static func tokens(_ n: Int) -> String {
         switch n {
-        case 1_000_000...: return String(format: "%.1fM", Double(n) / 1_000_000)
-        case 1_000...:     return String(format: "%.0fk", Double(n) / 1_000)
-        default:           return "\(n)"
+        case 1_000_000_000...: return String(format: "%.1fB", Double(n) / 1_000_000_000)
+        case 1_000_000...:     return String(format: "%.1fM", Double(n) / 1_000_000)
+        case 1_000...:         return String(format: "%.0fk", Double(n) / 1_000)
+        default:               return "\(n)"
         }
     }
 

@@ -59,7 +59,6 @@ struct Agent: Identifiable {
 struct AgentRow: Identifiable {
     let agent: Agent
     var live: LiveState?
-    var warpURL: String?
     var host: HostTerminal = .unknown
     var lastActive: Date?
     var aiTitle: String?
@@ -479,7 +478,7 @@ final class AgentStore: ObservableObject {
                                     live: self.hooks.live[$0.0.sessionId].flatMap {
                                         $0.inTool || Date().timeIntervalSince($0.at) < Self.liveWindow
                                             ? $0 : nil },
-                                    warpURL: $0.1, host: $0.3, lastActive: $0.2,
+                                    host: $0.3, lastActive: $0.2,
                                     aiTitle: $0.0.titleOverride
                                         ?? Titles.title(for: $0.0.sessionId, cwd: $0.0.cwd),
                                     lastPrompt: $0.0.promptOverride

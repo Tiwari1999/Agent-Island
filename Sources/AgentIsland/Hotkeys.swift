@@ -1,4 +1,3 @@
-import AppKit
 import Carbon.HIToolbox
 
 /// Global hotkeys for answering a blocked agent without reaching for the mouse.

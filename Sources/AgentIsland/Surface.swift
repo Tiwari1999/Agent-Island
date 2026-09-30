@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 /// What the panel is made of. Solid is the original look and stays the default; sleek sits

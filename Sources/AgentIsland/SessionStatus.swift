@@ -6,10 +6,6 @@ import Foundation
 /// knowing session 7 of 10 is at 93% is the difference between landing it and losing it.
 struct SessionStatus {
     var contextPct: Int?
-    var model: String?
-    var costUSD: Double?
-    var linesAdded: Int?
-    var linesRemoved: Int?
     /// Everything this session has spent, input + output — what "how big is this chat" means.
     var totalTokens: Int?
 }
@@ -33,12 +29,6 @@ enum SessionStatuses {
                 let i = (cw["total_input_tokens"] as? NSNumber)?.intValue ?? 0
                 let o = (cw["total_output_tokens"] as? NSNumber)?.intValue ?? 0
                 if i + o > 0 { s.totalTokens = i + o }
-            }
-            s.model = (o["model"] as? [String: Any])?["display_name"] as? String
-            if let c = o["cost"] as? [String: Any] {
-                s.costUSD = (c["total_cost_usd"] as? NSNumber)?.doubleValue
-                s.linesAdded = (c["total_lines_added"] as? NSNumber)?.intValue
-                s.linesRemoved = (c["total_lines_removed"] as? NSNumber)?.intValue
             }
             out[String(f.dropLast(5))] = s
         }
