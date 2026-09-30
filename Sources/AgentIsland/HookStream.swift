@@ -216,7 +216,14 @@ final class HookStream: ObservableObject {
         }
         // A spool that is never newline-terminated must not grow without bound.
         if pending.count > 1 << 20 { pending = Data() }
-        guard let text = String(data: chunk, encoding: .utf8) else { return }
+        // Decode per line, not per chunk. Hooks append payloads larger than PIPE_BUF, so two
+        // concurrent appends can tear one multi-byte character — and a whole-chunk decode then
+        // discarded every complete event beside it, permanently. Observed: 3 torn lines in 2708,
+        // taking their whole batch with them. A torn line is dropped alone; the rest are parsed.
+        let text = chunk.split(separator: 0x0A, omittingEmptySubsequences: true)
+            .compactMap { String(data: $0, encoding: .utf8) }
+            .joined(separator: "\n")
+        if text.isEmpty { return }
 
         var updates: [String: LiveState] = [:]
         var planUpdates: [String: Plan] = [:]

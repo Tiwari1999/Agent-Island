@@ -24,20 +24,48 @@ LOG = os.environ.get("AGENTISLAND_LOG", "/tmp/agentisland.log")
 # defences below: a rule may never be broad, and it may never allow a command that the island
 # itself would flag as dangerous. A compromised rules file then buys an attacker nothing that
 # the user would not have been asked about anyway.
+#
+# Substrings alone let the same command through under another spelling: the list held "rm -rf"
+# but not "rm -fr", so one flag order was auto-approved and the other was not. Each entry is a
+# regex matched against the command with its whitespace collapsed and its argv0 path stripped,
+# so "/bin/rm  -fr" and "rm -rf" reach the same rule.
 NEVER_AUTO = [
-    "rm -rf", "rm -r ", "sudo ", "--force", "-f ", "git push", "git reset --hard",
-    "drop table", "drop database", "truncate ", "delete from", "kubectl delete",
-    "terraform destroy", "> /dev/", "chmod 777", ":(){ :|:& };:", "mkfs",
-    "curl ", "wget ", "shutdown", "diskutil", "launchctl", "csrutil",
+    r"\brm\s+(-\w*[rf]\w*\s+)+",          # any rm carrying -r/-f in any order or grouping
+    r"\bsudo\b", r"\bdoas\b",
+    r"--force\b", r"\s-f\b",
+    r"\bgit\s+push\b", r"\bgit\s+reset\s+--hard\b", r"\bgit\s+clean\b",
+    r"\bdrop\s+(table|database)\b", r"\btruncate\b", r"\bdelete\s+from\b",
+    r"\bkubectl\s+delete\b", r"\bterraform\s+destroy\b",
+    r">\s*/dev/", r"\bchmod\s+[0-7]*777\b", r":\(\)\{",
+    r"\bmkfs\b", r"\bdd\b", r"\bfind\b.*-delete\b",
+    r"\bcurl\b", r"\bwget\b", r"\bnc\b", r"\bshutdown\b", r"\breboot\b",
+    r"\bdiskutil\b", r"\blaunchctl\b", r"\bcsrutil\b", r"\btccutil\b",
+    r"\bosascript\b", r"\bsystemsetup\b", r"\bspctl\b",
 ]
 # Any string a real command would never contain; a pattern that matches this matches anything.
 SENTINEL = "zqx-agentisland-breadth-probe-8f3a1c-\u2603-/dev/null"
+# Ordinary text a rule is allowed to match, but never ALL of it: a pattern that matches every
+# one of these names nothing in particular, however specific it looks. `^(?!zqx-...)` and `^[^z]`
+# both passed the single-sentinel probe while auto-approving every real command.
+BREADTH_CORPUS = [
+    "npm test", "git status", "ls -la", "rm -rf /", "echo hello",
+    "python3 script.py", "/Users/me/notes.txt", "cat README.md",
+]
+
+
+def normalise(text):
+    """Collapse whitespace and strip argv0 directories, so one rule covers every spelling."""
+    flat = " ".join(text.split())
+    return re.sub(r"(^|[|;&]\s*)(/\S+/)(?=\w)", r"\1", flat)
 
 
 def too_broad(pattern):
-    """A rule must name what it allows. '.*' and friends match the probe; real patterns do not."""
+    """A rule must name what it allows, not merely fail to match one probe string."""
     try:
-        return re.search(pattern, SENTINEL) is not None
+        if re.search(pattern, SENTINEL) is not None:
+            return True
+        # A pattern matching every sample in the corpus is a catch-all wearing a disguise.
+        return all(re.search(pattern, s) is not None for s in BREADTH_CORPUS)
     except re.error:
         return True
 
@@ -68,7 +96,12 @@ def subject(tool, inp):
 
     Vendors name the same tool differently — Claude's Bash is Cursor's Shell — so one rule set
     can govern every agent only if the names are folded together here.
+
+    `inp` is whatever the agent sent. A non-object tool_input raised AttributeError here and the
+    hook exited 1, which breaks the fail-open contract every other hook in this repo keeps.
     """
+    if not isinstance(inp, dict):
+        return ""
     if tool in ("Bash", "Shell", "run_terminal_cmd"):
         return inp.get("command") or inp.get("cmd") or ""
     if tool in ("Read", "Edit", "Write", "NotebookEdit", "read_file", "edit_file"):
@@ -78,9 +111,14 @@ def subject(tool, inp):
     return json.dumps(inp)
 
 
+# Only names for the SAME operation belong in a group. Edit and Write were folded together, so a
+# rule allowing edits to one path also auto-approved creating or overwriting a file there — a
+# wider grant than the user wrote. Editing an existing file and writing a whole one are different
+# operations, so they are different groups.
 ALIASES = [{"Bash", "Shell", "run_terminal_cmd"},
            {"Read", "read_file"},
-           {"Edit", "Write", "edit_file"}]
+           {"Edit", "edit_file"},
+           {"Write"}]
 
 
 def _same_tool(a, b):
@@ -141,7 +179,8 @@ def main():
             if too_broad(pat):
                 note(f"agentisland rules: refused a catch-all allow rule ({pat!r})")
                 continue
-            hit = next((n for n in NEVER_AUTO if n in text.lower()), None)
+            probe = normalise(text.lower())
+            hit = next((n for n in NEVER_AUTO if re.search(n, probe)), None)
             if hit:
                 note(f"agentisland rules: {hit!r} is never auto-approved; asking instead")
                 continue

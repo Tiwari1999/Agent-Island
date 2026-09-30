@@ -2774,14 +2774,18 @@ _iv11 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
 check("no synthetic typing survives",
       "CGEvent(" not in _tw and "keyboardSetUnicodeString" not in _tw
       and "CGEventPost" not in _tw)
-check("iTerm and Terminal are addressed by the same handle the jump uses",
-      "tell s to write text" in _tw and "do script \\(quoted(text)) in t" in _tw
-      and "HostTerminal.appleSafe" in _tw)
+check("iTerm is addressed by the same handle the jump uses",
+      "tell s to write text" in _tw and "HostTerminal.appleSafe" in _tw)
+# `do script` RUNS its argument rather than typing it, so a reply the user wrote as a message was
+# executed in their shell. Terminal publishes no non-executing write, so it declines instead.
+check("Terminal is never written to with do script",
+      not any("do script" in l for l in _tw.splitlines()
+              if not l.lstrip().startswith(("//", "///"))))
 # Spawning osascript blames the Automation prompt on osascript, which already holds one.
 check("the script runs in-process so the permission lands on us",
       "NSAppleScript(source: source)" in _tw and "/usr/bin/osascript" not in _tw)
 check("a host with no scripting interface declines rather than pretending",
-      "case .warp, .app, .degraded, .unknown: return false" in _tw)
+      "case .appleTerminal, .warp, .app, .degraded, .unknown: return false" in _tw)
 # This used to assert the console hid the field when it could not write. It no longer hides it:
 # an unwritable host now gets the Stop-hook queue or the clipboard instead (section 51). What
 # still must hold is that declining is never silent — every route reports what it did.
@@ -2842,7 +2846,7 @@ check("a pane id keeps its sigil",
 check("text is sent literally, and the Return is separate",
       "-l \\(shellQuoted(text))" in _tw2 and "Enter\")" in _tw2)
 check("and tmux counts as writable, which is what reaches Warp",
-      "case .tmux, .iterm, .appleTerminal, .kitty, .wezterm: return true" in _tw2)
+      "case .tmux, .iterm, .kitty, .wezterm: return true" in _tw2)
 
 print("\n=== 47. the bar shows what it exists to show ===")
 _iv12 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
@@ -3421,7 +3425,12 @@ check("an engine that is merely installed is not assumed to work",
 # Measured: claude ~15s, codex ~17s, cursor ~19s — all three answer headlessly.
 check("each engine is invoked the way it actually runs headless",
       '"exec", "--skip-git-repo-check", "--sandbox", "read-only", "--json"' in _ex
-      and '"-p", "--trust", "--output-format", "text"' in _ex)
+      and '"-p", "--output-format", "text"' in _ex)
+# The prompt carries an agent's own question and transcript, which is untrusted text. --trust
+# waives the confirmation on every tool the engine then runs, so no engine may be given it.
+check("and no engine is trusted with the untrusted prompt",
+      not any("--trust" in l for l in _ex.splitlines()
+              if not l.lstrip().startswith(("//", "///"))))
 check("and codex's narration is parsed down to its answer",
       'o["type"] as? String == "item.completed"' in _ex
       and 'item["type"] as? String == "agent_message"' in _ex)

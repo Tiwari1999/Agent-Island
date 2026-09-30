@@ -35,11 +35,12 @@ enum TerminalWrite {
                              attributes: [.posixPermissions: 0o600])
     }
 
-    /// Whether this host can be written to at all — Warp publishes no scripting interface.
+    /// Whether this host can be written to at all — Warp publishes no scripting interface, and
+    /// Terminal publishes only `do script`, which executes its argument rather than typing it.
     static func canWrite(_ host: HostTerminal) -> Bool {
         switch host {
-        case .tmux, .iterm, .appleTerminal, .kitty, .wezterm: return true
-        case .warp, .app, .degraded, .unknown: return false
+        case .tmux, .iterm, .kitty, .wezterm: return true
+        case .appleTerminal, .warp, .app, .degraded, .unknown: return false
         }
     }
 
@@ -81,22 +82,13 @@ enum TerminalWrite {
             end tell
             """)
 
-        case .appleTerminal(let session):
-            let tty = HostTerminal.appleSafe(session)
-            guard !tty.isEmpty else { return false }
-            // `in t` is what keeps this in the session's own tab rather than opening a window.
-            return script("""
-            tell application "Terminal"
-              repeat with w in windows
-                repeat with t in tabs of w
-                  if tty of t contains "\(tty)" then
-                    do script \(quoted(text)) in t
-                    return
-                  end if
-                end repeat
-              end repeat
-            end tell
-            """)
+        case .appleTerminal:
+            // Terminal publishes only `do script`, which RUNS its argument as a shell command
+            // instead of typing it: a reply the user wrote as a message to an agent was being
+            // executed in their shell. Terminal has no non-executing write, so this host cannot
+            // be delivered to safely — `canWrite` reports false and the caller offers the jump
+            // instead. Executing the user's words is worse than not delivering them.
+            return false
 
         case .kitty(let window):
             let id = HostTerminal.appleSafe(window)

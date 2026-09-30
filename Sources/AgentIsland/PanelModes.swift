@@ -142,8 +142,15 @@ struct MarkdownLite: View {
 
     private func inline(_ s: String) -> Text {
         // Bold and code spans come through AttributedString; anything invalid stays literal.
-        if let a = try? AttributedString(markdown: s) { return Text(a) }
-        return Text(s)
+        // This text is agent output, so it is untrusted: `AttributedString(markdown:)` also
+        // parses links, and a rendered link is tappable and opens with the system handler — any
+        // scheme, chosen by whatever wrote the transcript. Strip every link attribute and keep
+        // only the inline formatting this was added for.
+        guard var a = try? AttributedString(markdown: s) else { return Text(s) }
+        for run in a.runs where run.link != nil {
+            a[run.range].link = nil
+        }
+        return Text(a)
     }
 }
 
