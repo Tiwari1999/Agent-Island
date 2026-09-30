@@ -2403,6 +2403,17 @@ _cont = sum(open(os.path.join(REPO, "Sources/AgentIsland", f)).read().count("sty
             for f in os.listdir(os.path.join(REPO, "Sources/AgentIsland")) if f.endswith(".swift"))
 check("every rounded corner is continuous, not circular",
       _corners > 0 and _cont == _corners, f"{_cont}/{_corners} continuous")
+# Those 13 are 4-9pt chips where continuous vs circular is about a pixel. The corners anyone
+# actually looks at are the island's own silhouette at 18-22pt, and they were still quadratic:
+# a quadratic corner starts turning AT the radius and its curvature jumps from nothing to
+# maximum in one step, which is the shoulder the eye reads as a hard edge.
+check("the island's own silhouette turns gradually, not at a shoulder",
+      "addQuadCurve" not in _th_m.split("p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - s))")[1]
+          .split("p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + t))")[0]
+      and "private static let span: CGFloat = 1.28" in _th_m
+      and "private static let pull: CGFloat = 0.62" in _th_m)
+check("and the wider turn is clamped so two corners cannot meet in the middle",
+      "let s = min(r * Self.span, rect.height, rect.width / 2)" in _th_m)
 
 check("width is measured from the strings the bar will actually print",
       "left: bar.leftText, right: bar.rightText" in _iv)

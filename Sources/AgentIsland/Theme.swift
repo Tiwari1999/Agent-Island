@@ -81,7 +81,7 @@ enum Motion {
     /// so it looks masked. The old surface leaves quickly, the new one waits for the shape to be
     /// most of the way there and then rises the last 3%.
     static let morph: AnyTransition = .asymmetric(
-        insertion: .opacity.combined(with: .scale(scale: 0.97, anchor: .top))
+        insertion: .opacity.combined(with: .scale(scale: 0.94, anchor: .top))
             .animation(.easeOut(duration: 0.20).delay(0.08)),
         removal: .opacity.animation(.easeIn(duration: 0.10)))
     static let content = Animation.spring(response: 0.26, dampingFraction: 0.90)
@@ -103,19 +103,41 @@ struct NotchShape: Shape {
         set { radius = newValue.first; topRadius = newValue.second }
     }
 
+    /// How far from the corner the turn begins, as a multiple of the radius, and how hard the
+    /// control points pull toward it. A quadratic corner starts turning AT the radius and its
+    /// curvature jumps from zero to maximum in one step — that discontinuity is the shoulder
+    /// the eye reads as a hard edge. Starting wider and easing in is what a continuous corner
+    /// is. These two numbers are the dial: raise `span` for softer, raise `pull` for tighter.
+    private static let span: CGFloat = 1.28
+    private static let pull: CGFloat = 0.62
+
     func path(in rect: CGRect) -> Path {
         let r = min(radius, rect.height, rect.width / 2)
         let t = max(0, min(topRadius, rect.height / 3))
+        // The wider span has to stay inside the box, or two corners meet in the middle.
+        let s = min(r * Self.span, rect.height, rect.width / 2)
+        let k = Self.pull
+
+        func bend(_ p: inout Path, to b: CGPoint, around c: CGPoint, from a: CGPoint) {
+            p.addCurve(to: b,
+                       control1: CGPoint(x: a.x + k * (c.x - a.x), y: a.y + k * (c.y - a.y)),
+                       control2: CGPoint(x: b.x + k * (c.x - b.x), y: b.y + k * (c.y - b.y)))
+        }
+
         var p = Path()
+        // The concave flare into the menu bar stays quadratic: at 6pt the curvature ramp is
+        // invisible, and this is the edge that has to meet the hardware exactly.
         p.move(to: CGPoint(x: rect.minX - t, y: rect.minY))
         p.addQuadCurve(to: CGPoint(x: rect.minX, y: rect.minY + t),
                        control: CGPoint(x: rect.minX, y: rect.minY))
-        p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - r))
-        p.addQuadCurve(to: CGPoint(x: rect.minX + r, y: rect.maxY),
-                       control: CGPoint(x: rect.minX, y: rect.maxY))
-        p.addLine(to: CGPoint(x: rect.maxX - r, y: rect.maxY))
-        p.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.maxY - r),
-                       control: CGPoint(x: rect.maxX, y: rect.maxY))
+        p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - s))
+        bend(&p, to: CGPoint(x: rect.minX + s, y: rect.maxY),
+             around: CGPoint(x: rect.minX, y: rect.maxY),
+             from: CGPoint(x: rect.minX, y: rect.maxY - s))
+        p.addLine(to: CGPoint(x: rect.maxX - s, y: rect.maxY))
+        bend(&p, to: CGPoint(x: rect.maxX, y: rect.maxY - s),
+             around: CGPoint(x: rect.maxX, y: rect.maxY),
+             from: CGPoint(x: rect.maxX - s, y: rect.maxY))
         p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + t))
         p.addQuadCurve(to: CGPoint(x: rect.maxX + t, y: rect.minY),
                        control: CGPoint(x: rect.maxX, y: rect.minY))
