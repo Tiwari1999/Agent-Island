@@ -5,7 +5,16 @@
 tracker. This is the answer: it removes only entries this app added, restores a wrapped
 statusLine to whatever it wrapped, and reports what it did.
 """
-import json, os, shutil, time
+import json, os, shutil, sys, time
+
+# This script is destructive and takes no arguments, so anything on the command line is a
+# misunderstanding. `--help` used to uninstall everything and then report what it had done.
+if len(sys.argv) > 1:
+    print(__doc__)
+    print("Usage: python3 scripts/uninstall-hooks.py      (takes no arguments)")
+    print("       AGENTISLAND_KEEP_RUNTIME=1 python3 scripts/uninstall-hooks.py")
+    print("            keeps the login item and the staged hooks")
+    sys.exit(0 if sys.argv[1] in ("-h", "--help") else 2)
 
 MARK = "agentisland"
 # Matching the bare word would take a third-party hook whose path merely contains it. Our hooks

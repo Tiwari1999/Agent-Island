@@ -2394,6 +2394,19 @@ check("and both cards are bounded by it, so neither can clip its own buttons awa
 _ap5 = open(os.path.join(REPO, "Sources/AgentIsland/Approvals.swift")).read()
 check("the app honours AGENTISLAND_DECISIONS, which the hooks always did",
       'environment["AGENTISLAND_DECISIONS"]' in _ap5)
+
+# Found by falling into it: `uninstall-hooks.py --help` removed all 26 hooks and then
+# reported what it had done. The script runs at module level and took no arguments at all,
+# so every flag was silently a "yes, uninstall everything".
+_un = subprocess.run(["python3", os.path.join(REPO, "scripts/uninstall-hooks.py"), "--help"],
+                     capture_output=True, text=True, timeout=60)
+check("--help on the destructive script prints usage instead of running",
+      _un.returncode == 0 and "Usage:" in _un.stdout and "removed" not in _un.stdout,
+      (_un.stdout + _un.stderr).strip()[:90])
+_un2 = subprocess.run(["python3", os.path.join(REPO, "scripts/uninstall-hooks.py"), "/stray/arg"],
+                      capture_output=True, text=True, timeout=60)
+check("and an argument it does not understand refuses rather than guessing",
+      _un2.returncode == 2 and "removed" not in _un2.stdout, f"exit {_un2.returncode}")
 # "Nothing pops over your screen" read as "and no notifications either", which is the opposite
 # of what hiding the island does — the active state said so, the state you choose from did not.
 _set = open(os.path.join(REPO, "Sources/AgentIsland/Settings.swift")).read()
