@@ -42,7 +42,19 @@ if checked == 0 {
     print("SKIP: no agent process running to check")
     exit(0)
 }
-let ok = missReal == 0 && missVersioned == 0
+// Binding a process by name is one call site; discovery scanning for them is another, and it
+// has its own name match. A versioned install defeats an exact comm scan the same way, so the
+// sweep must find every process we just confirmed by argv[0].
+let swept = Set(Proc.pids(named: Proc.agentNames))
+let byArgv = Set(comm.keys.compactMap { pid -> Int? in
+    guard let a = Proc.argsEnv(pid: Int(pid))?.argv.first,
+          Proc.agentNames.contains((a as NSString).lastPathComponent) else { return nil }
+    return Int(pid)
+})
+let missedBySweep = byArgv.subtracting(swept)
+print("missed by discovery sweep:   \(missedBySweep.count)   (must be 0)")
+
+let ok = missReal == 0 && missVersioned == 0 && missedBySweep.isEmpty
 print(ok ? "RESULT: ok \(checked)" : "RESULT: FAIL")
 exit(ok ? 0 : 1)
   }

@@ -777,6 +777,20 @@ check("and falls back to the newest SDK that works, rather than pinning one",
       'SDKs/MacOSX*.sdk' in _mka and "sort -rV" in _mka and 'export SDKROOT="$sdk"' in _mka)
 check("and fails loudly when no installed SDK can build SwiftUI",
       "no installed SDK compiles SwiftUI @State" in _mka)
+# The same layout breaks the exact comm scan discovery uses, which is a separate call site from
+# the match above: with sessions live it returned none, so only the hook fallback bound a pid.
+check("discovery asks for a process by name, not by an exact p_comm",
+      "static func pids(named names: Set<String>)" in _pc
+      and "func pids(comm" not in _pc)
+_cs = open(os.path.join(REPO, "Sources/AgentIsland/CursorSource.swift")).read()
+_cd = open(os.path.join(REPO, "Sources/AgentIsland/CodexSource.swift")).read()
+check("claude and codex discovery both use it",
+      'Proc.pids(named: ["claude"])' in _cs and 'Proc.pids(named: ["codex"])' in _cd)
+# A whole-table sweep is only affordable because argv[0] is fixed at exec: read once per pid,
+# and dropped when the pid dies so the cache cannot grow without bound.
+check("invoked names are cached for the process's life, and bounded to live pids",
+      "static func invokedName" in _pc and "invoked[pid] = name" in _pc
+      and "invoked.filter { comm[$0.key] != nil }" in _pc)
 
 print("\n=== 9m. pick the agent the header reports on ===")
 vw5=open(os.path.join(REPO,"Sources/AgentIsland/Views.swift")).read()
@@ -1631,7 +1645,10 @@ check("cwd comes from a syscall, not an lsof spawn", "Proc.cwd(pid:" in _cwd)
 check("cwd misses are recorded so they are not retried",
       'Proc.cwd(pid: pid) ?? ""' in open(os.path.join(REPO,"Sources/AgentIsland/Cwd.swift")).read())
 _cx=open(f"{src}/CodexSource.swift").read()
-check("codex liveness is an exact comm match in-process", 'Proc.pids(comm: "codex")' in _cx)
+# Was an exact comm match; a versioned install reports a version string there, so it now asks
+# by name. Still one sysctl, still no spawn.
+check("codex liveness is resolved in-process, with no spawn",
+      'Proc.pids(named: ["codex"])' in _cx)
 
 print("\n=== 20. honest degradation ===")
 host=open(f"{src}/HostTerminal.swift").read()
@@ -2395,6 +2412,18 @@ _ap5 = open(os.path.join(REPO, "Sources/AgentIsland/Approvals.swift")).read()
 check("the app honours AGENTISLAND_DECISIONS, which the hooks always did",
       'environment["AGENTISLAND_DECISIONS"]' in _ap5)
 
+# The welcome button set a flag on tap and greyed itself out whatever the answer, so a denied
+# grant read as "notifications asked" while notify() silently dropped every alert.
+_wel = open(os.path.join(REPO, "Sources/AgentIsland/Welcome.swift")).read()
+_nt5 = open(os.path.join(REPO, "Sources/AgentIsland/Notifier.swift")).read()
+check("the notification button reports the live grant, not that it once asked",
+      "askedNotifications" not in _wel and "Notifier.grant { notifications = $0 }" in _wel
+      and "getNotificationSettings" in _nt5.split("static func grant")[1][:400])
+check("and a denied grant says so, with the one way out of it",
+      '"notifications blocked \u2014 open Settings"' in _wel
+      and "case .blocked: Notifier.openSettings()" in _wel
+      and "x-apple.systempreferences:com.apple.Notifications-Settings.extension" in _nt5)
+
 # Found by falling into it: `uninstall-hooks.py --help` removed all 26 hooks and then
 # reported what it had done. The script runs at module level and took no arguments at all,
 # so every flag was silently a "yes, uninstall everything".
@@ -2774,14 +2803,18 @@ _iv11 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
 check("no synthetic typing survives",
       "CGEvent(" not in _tw and "keyboardSetUnicodeString" not in _tw
       and "CGEventPost" not in _tw)
-check("iTerm and Terminal are addressed by the same handle the jump uses",
-      "tell s to write text" in _tw and "do script \\(quoted(text)) in t" in _tw
-      and "HostTerminal.appleSafe" in _tw)
+check("iTerm is addressed by the same handle the jump uses",
+      "tell s to write text" in _tw and "HostTerminal.appleSafe" in _tw)
+# `do script` RUNS its argument rather than typing it, so a reply the user wrote as a message was
+# executed in their shell. Terminal publishes no non-executing write, so it declines instead.
+check("Terminal is never written to with do script",
+      not any("do script" in l for l in _tw.splitlines()
+              if not l.lstrip().startswith(("//", "///"))))
 # Spawning osascript blames the Automation prompt on osascript, which already holds one.
 check("the script runs in-process so the permission lands on us",
       "NSAppleScript(source: source)" in _tw and "/usr/bin/osascript" not in _tw)
 check("a host with no scripting interface declines rather than pretending",
-      "case .warp, .app, .degraded, .unknown: return false" in _tw)
+      "case .appleTerminal, .warp, .app, .degraded, .unknown: return false" in _tw)
 # This used to assert the console hid the field when it could not write. It no longer hides it:
 # an unwritable host now gets the Stop-hook queue or the clipboard instead (section 51). What
 # still must hold is that declining is never silent — every route reports what it did.
@@ -2842,7 +2875,7 @@ check("a pane id keeps its sigil",
 check("text is sent literally, and the Return is separate",
       "-l \\(shellQuoted(text))" in _tw2 and "Enter\")" in _tw2)
 check("and tmux counts as writable, which is what reaches Warp",
-      "case .tmux, .iterm, .appleTerminal, .kitty, .wezterm: return true" in _tw2)
+      "case .tmux, .iterm, .kitty, .wezterm: return true" in _tw2)
 
 print("\n=== 47. the bar shows what it exists to show ===")
 _iv12 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
@@ -2994,8 +3027,8 @@ check("an approval alert carries Allow and Deny",
       and "UNNotificationAction(identifier: denyAction, title: \"Deny\"" in _al_nt
       and "content.categoryIdentifier = approvalCategory" in _al_nt)
 check("and the category is registered before any alert is posted",
-      re.search(r'static func requestAuthorization\(\) \{\s*\n\s*registerActions\(\)', _al_nt)
-      is not None)
+      re.search(r'static func requestAuthorization\(.*\) \{\s*\n\s*registerActions\(\)',
+                _al_nt) is not None)
 check("the buttons answer through the same path the card uses",
       "Notifier.onDecision = { [weak self] id, allow in" in _al_is
       and "self.answer(a, allow: allow); return" in _al_is)
@@ -3421,7 +3454,12 @@ check("an engine that is merely installed is not assumed to work",
 # Measured: claude ~15s, codex ~17s, cursor ~19s — all three answer headlessly.
 check("each engine is invoked the way it actually runs headless",
       '"exec", "--skip-git-repo-check", "--sandbox", "read-only", "--json"' in _ex
-      and '"-p", "--trust", "--output-format", "text"' in _ex)
+      and '"-p", "--output-format", "text"' in _ex)
+# The prompt carries an agent's own question and transcript, which is untrusted text. --trust
+# waives the confirmation on every tool the engine then runs, so no engine may be given it.
+check("and no engine is trusted with the untrusted prompt",
+      not any("--trust" in l for l in _ex.splitlines()
+              if not l.lstrip().startswith(("//", "///"))))
 check("and codex's narration is parsed down to its answer",
       'o["type"] as? String == "item.completed"' in _ex
       and 'item["type"] as? String == "agent_message"' in _ex)

@@ -62,10 +62,38 @@ enum Notifier {
         return id.hasPrefix("dev.warp.Warp") || id == Bundle.main.bundleIdentifier
     }
 
-    static func requestAuthorization() {
+    /// What the system will actually do with an alert, as opposed to whether we once asked.
+    /// notify() returns silently unless this is .on, so a welcome screen reporting "asked"
+    /// while the grant was denied is a UI that says everything is fine and delivers nothing.
+    enum Grant { case unasked, on, blocked }
+
+    static func grant(_ done: @escaping (Grant) -> Void) {
+        UNUserNotificationCenter.current().getNotificationSettings { s in
+            let g: Grant
+            switch s.authorizationStatus {
+            case .authorized, .provisional, .ephemeral: g = .on
+            case .denied:                               g = .blocked
+            default:                                    g = .unasked
+            }
+            DispatchQueue.main.async { done(g) }
+        }
+    }
+
+    /// macOS only ever prompts once. After a denial the request returns immediately with no
+    /// dialog, so the only way back is System Settings — which is why the caller needs this.
+    static func openSettings() {
+        guard let u = URL(string:
+            "x-apple.systempreferences:com.apple.Notifications-Settings.extension") else { return }
+        NSWorkspace.shared.open(u)
+    }
+
+    static func requestAuthorization(_ done: ((Grant) -> Void)? = nil) {
         registerActions()
         UNUserNotificationCenter.current()
-            .requestAuthorization(options: [.alert, .sound]) { _, _ in }
+            .requestAuthorization(options: [.alert, .sound]) { _, _ in
+                guard let done else { return }
+                grant(done)
+            }
     }
 
     /// `approval` turns the alert into a question with two buttons. Without it the alert is a
