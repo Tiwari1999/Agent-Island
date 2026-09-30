@@ -101,6 +101,14 @@ def main():
     if len(items) != len(questions):
         bail()      # one unreadable question means the whole ask belongs in the terminal
 
+    # The idle grace has to scale with how much there is to read. A flat 60s expired while the
+    # reader was still on the second of five paragraph-length options, and the ask fell through
+    # to the terminal underneath a card that still looked answerable. ~12 chars/sec, floored at
+    # the old value and capped by the hard window.
+    chars = sum(len(i["question"]) + sum(len(o["label"]) + len(o.get("description", ""))
+                                         for o in i["options"]) for i in items)
+    grace = min(max(GRACE, chars / 12.0), WINDOW)
+
     req_id = f"aq-{os.getpid()}-{int(time.time())}"
     try:
         # Answers are private: the default mode leaves them readable by every user on the box.
@@ -117,6 +125,9 @@ def main():
                 # How long this hook will actually wait, so the island never offers an answer
                 # to something that has stopped listening, or withdraws one too early.
                 "expires_at": time.time() + WINDOW,
+                # The island mirrors this, so its card hands over exactly when this stops
+                # reading rather than guessing with a constant of its own.
+                "grace_seconds": grace,
                 "items": items,
             }) + "\n")
     except OSError:
@@ -144,7 +155,7 @@ def main():
             last = os.path.getmtime(touched)
         except OSError:
             last = started
-        if now - last >= GRACE:
+        if now - last >= grace:
             break
         if os.path.exists(path):
             # /tmp is world-writable and this file decides what the agent is told the user
@@ -222,6 +233,16 @@ def main():
             os.remove(f)
         except OSError:
             pass
+    # The permission hook has always logged both outcomes; this one logged neither, so a
+    # question that fell through to the terminal left no trace of having done so.
+    try:
+        with open(os.environ.get("AGENTISLAND_LOG", "/tmp/agentisland.log"), "a") as lf:
+            lf.write("%s question %s: gave up after %.0fs idle (grace %.0fs), "
+                     "Claude will ask in the terminal\n"
+                     % (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                        req_id, time.time() - last, grace))
+    except OSError:
+        pass
     bail()   # timed out, or handed over — Claude asks normally
 
 

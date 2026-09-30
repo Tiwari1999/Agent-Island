@@ -1049,6 +1049,10 @@ struct QuestionCard: View {
 
     /// Typing beats hunting for the option that almost fits, and Claude's own picker offers it,
     /// so its absence read as the notch losing an answer rather than never having taken one.
+    /// How tall the free-text answer may grow. Island.questionSize reserves exactly this many
+    /// lines, so the field can never outgrow the card and push its own submit button away.
+    static let composeLines = 4
+
     private var other: some View {
         let on = !text.isEmpty
         return HStack(alignment: .top, spacing: 9) {
@@ -1059,9 +1063,10 @@ struct QuestionCard: View {
                 .overlay(RoundedRectangle(cornerRadius: 4)
                     .stroke(on ? Theme.waiting.opacity(0.4) : Theme.hairline))
             if typing {
-                TextField("", text: Binding(get: { text }, set: onType))
+                TextField("", text: Binding(get: { text }, set: onType), axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(Theme.label(Type.title)).foregroundColor(Theme.text)
+                    .lineLimit(1...Self.composeLines)
                     .focused($writing)
                     .onAppear { writing = true }
                     .onSubmit { isLast ? onSubmit() : onConfirm() }
@@ -1069,7 +1074,7 @@ struct QuestionCard: View {
                 Text(on ? text : "or type your own answer")
                     .font(Theme.label(Type.title))
                     .foregroundColor(on ? Theme.text : Theme.faint)
-                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(Self.composeLines).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }

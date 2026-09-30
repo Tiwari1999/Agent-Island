@@ -941,6 +941,45 @@ def _grace_run(sid, touch_until):
     return out.get("r")
 
 _late=_grace_run("gl", False)
+# Reading is work. A flat 60s grace expired while the reader was on the second of five
+# paragraph-length options, so the hook fell through to the terminal underneath a card that
+# still looked answerable — reported three times before the cause was found.
+def _grace_for(chars_per_option, n_options):
+    opts = [{"label": f"Option {i}", "description": "x" * chars_per_option} for i in range(n_options)]
+    pay = json.dumps({"session_id": "g", "hook_event_name": "PreToolUse",
+                      "tool_name": "AskUserQuestion",
+                      "tool_input": {"questions": [{"question": "Q" * 200, "header": "H",
+                                                    "multiSelect": False, "options": opts}]}})
+    d = tempfile.mkdtemp(prefix="ai-grace-")
+    os.makedirs(f"{d}/dec", exist_ok=True); open(f"{d}/alive", "w").close()
+    env = dict(os.environ, AGENTISLAND_SPOOL=f"{d}/spool.jsonl", AGENTISLAND_DECISIONS=f"{d}/dec",
+               AGENTISLAND_ALIVE=f"{d}/alive", AGENTISLAND_LOG=f"{d}/log")
+    pr = subprocess.Popen([qh], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                          stderr=subprocess.DEVNULL, text=True, env=env)
+    pr.stdin.write(pay); pr.stdin.close()
+    g = None
+    for _ in range(60):
+        try:
+            g = json.loads(open(f"{d}/spool.jsonl").readline())["grace_seconds"]; break
+        except Exception: time.sleep(0.1)
+    pr.kill(); pr.wait(); _shutil.rmtree(d, ignore_errors=True)
+    return g
+_g_long, _g_short = _grace_for(380, 5), _grace_for(4, 2)
+check("a long ask gets longer to read before the hook gives up",
+      _g_long is not None and _g_long > 150, f"{_g_long}s for ~2k chars")
+check("and a short one is unchanged at the old sixty seconds",
+      _g_short == 60, f"{_g_short}s")
+_qh_g = open(os.path.join(REPO, "hooks/agentisland-question.py")).read()
+check("the hook publishes that grace so the card does not guess with a constant",
+      '"grace_seconds": grace' in _qh_g)
+check("and says so in the log when it gives up, as the permission hook always did",
+      "gave up after" in _qh_g and "Claude will ask in the terminal" in _qh_g)
+_is_g = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+check("the island hands over on the hook's number, even with the card off screen",
+      "deadline: .now() + q.grace, execute: work" in _is_g
+      and "case .question(let q) = self.state, q.id == id else { return }"
+          not in _is_g.split("private func armGrace")[1][:800])
+
 check("an answer given after the idle grace is not silently swallowed",
       _late is not None and not _late.stdout.strip(),
       (_late.stdout if _late else "")[:80])
@@ -1339,7 +1378,8 @@ check("status notifications are not treated as asks",
 # The card used to expire under the reader, taking the only way to answer with it.
 check("a question card holds its hook open", "holdQuestion(question)" in _is2)
 check("the question hook slides on the mark, capped by the window",
-      "if now - started >= WINDOW:" in _qh and "if now - last >= GRACE:" in _qh)
+      "if now - started >= WINDOW:" in _qh and "if now - last >= grace:" in _qh
+      and "grace = min(max(GRACE, chars / 12.0), WINDOW)" in _qh)
 check("an unanswered question survives its card",
       "pendingQuestions" in _hs2 and "func clearQuestion" in _hs2)
 check("clicking a blocked row answers it instead of jumping",
@@ -1906,8 +1946,8 @@ check("and an answer that lands says so in the log",
 # The card used to outlive the hook by four minutes, offering a submit nobody would collect.
 check("the card hands over when the hook's grace runs out, not when its window does",
       "private func armGrace(" in _is5
-      and "DispatchQueue.main.asyncAfter(deadline: .now() + Island.graceSeconds, execute: work)" in _is5
-      and "self.handToChat(q)" in _is5.split("private func armGrace")[1][:700])
+      and "DispatchQueue.main.asyncAfter(deadline: .now() + q.grace, execute: work)" in _is5
+      and "self.handToChat(q)" in _is5.split("private func armGrace")[1][:800])
 check("the grace is armed when the card goes up and re-armed on every interaction",
       "armGrace(question.id)" in _is5.split("func ask(")[1].split("private func bindKeys")[0]
       and "armGrace(id)" in _is5.split("func markInteraction")[1][:300])
@@ -1920,6 +1960,15 @@ check("a partial ask cannot be submitted", "q.items.allSatisfy(isAnswered)" in _
 check("either a pick or typed text counts as answered",
       "!(picks[item.text] ?? []).isEmpty" in _is5 and '!(typed[item.text] ?? "")' in _is5)
 check("the submit button is always drawn", 'button("submit", filled: true, on: true' in _vw5)
+
+# A single-line TextField scrolled a long answer sideways, so only its tail was readable.
+check("the free-text answer wraps instead of scrolling sideways",
+      "axis: .vertical)" in _vw5 and ".lineLimit(1...Self.composeLines)" in _vw5)
+# And the window has to reserve those lines, or the field grows the card past the height it
+# was given and the bottom alignment throws the submit row off the top.
+_is_c = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+check("and the card reserves the lines it may grow to",
+      "QuestionCard.composeLines - 1" in _is_c and "typingFor == item.text" in _is_c)
 
 # "answer in chat" releases the hook and cannot be undone, and it was an outlined capsule
 # sitting beside the hint while submit sat at 0.55 on an unanswered card — so the brightest
@@ -3542,7 +3591,7 @@ check("the explanation scrolls with the options, so no control is pushed off the
                 r'VStack\(alignment: \.leading, spacing: 8\) \{\s*\n\s*'
                 r'if explaining \|\| explanation != nil \{ explainer \}', _exv) is not None)
 check("and the card is allowed to grow for it, still under the same cap",
-      "min(item.cardHeight(width: w) + extra, max(120, cap))" in _exi)
+      "min(item.cardHeight(width: w) + extra + composing, max(120, cap))" in _exi)
 
 # ~3s of the call was the user's nine MCP servers booting for a call that uses no tools, and
 # another 3s was the CLI waiting on a stdin that never arrives.

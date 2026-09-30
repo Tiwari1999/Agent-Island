@@ -71,6 +71,10 @@ struct Question: Identifiable, Equatable {
     let session: String
     let items: [QuestionItem]
     let deadline: Date
+    /// How long the hook keeps reading with no interaction. It scales with how much there is
+    /// to read, so the island takes the hook's number instead of holding a constant that ran
+    /// out while the reader was still on the second of five options.
+    var grace: TimeInterval = 60
     /// Where it was asked. A card that cannot name its session leaves you answering blind.
     var cwd: String?
     var project: String? { (cwd as NSString?)?.lastPathComponent }
@@ -267,6 +271,7 @@ final class HookStream: ObservableObject {
                     deadline: (obj["expires_at"] as? NSNumber).map {
                         Date(timeIntervalSince1970: $0.doubleValue)
                     } ?? Date().addingTimeInterval(45),
+                    grace: (obj["grace_seconds"] as? NSNumber)?.doubleValue ?? 60,
                     cwd: obj["cwd"] as? String))
                 // Paired with "on screen" in Island.ask: between them, a question that never
                 // reaches the notch says which half lost it.

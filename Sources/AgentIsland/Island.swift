@@ -49,6 +49,10 @@ final class Island: NSObject, ObservableObject {
     private var expiryWork: DispatchWorkItem?
     /// Fires when the hook's idle grace runs out, so the card hands over instead of lying.
     private var graceWork: DispatchWorkItem?
+    /// The question the grace timer belongs to. armGrace used to require the card to be the
+    /// current state, so a question whose card was dismissed never handed over — while the
+    /// hook gave up underneath it anyway.
+    private var heldQuestionValue: Question?
     /// Which question of the ask is on screen, and what has been chosen so far.
     @Published var questionStep = 0
     /// Whose picks/typed/step these are. The card can be closed and reopened from the row;
@@ -434,7 +438,10 @@ final class Island: NSObject, ObservableObject {
         let shown = explaining.contains(item.id) || explanations[item.id] != nil
         // A lead sentence, plus a line of its own under each option.
         let extra: CGFloat = shown ? 40 + CGFloat(item.options.prefix(4).count) * 30 : 0
-        return CGSize(width: w, height: min(item.cardHeight(width: w) + extra, max(120, cap)))
+        let composing = typingFor == item.text
+            ? CGFloat(QuestionCard.composeLines - 1) * 18 : 0
+        return CGSize(width: w,
+                      height: min(item.cardHeight(width: w) + extra + composing, max(120, cap)))
     }
 
     private var consoleRect: NSRect {
@@ -830,6 +837,7 @@ final class Island: NSObject, ObservableObject {
     private func holdQuestion(_ q: Question) {
         guard heldQuestion != q.id else { return }
         heldQuestion = q.id
+        heldQuestionValue = q
         expiryWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.heldQuestion == q.id else { return }
@@ -915,6 +923,7 @@ final class Island: NSObject, ObservableObject {
     private func releaseQuestion(_ id: String) {
         guard heldQuestion == id else { return }
         heldQuestion = nil
+        heldQuestionValue = nil
         if answeringId == id { answeringId = nil; picks = [:]; typed = [:]; questionStep = 0
                                explanations = [:]; explaining = [] }
         expiryWork?.cancel(); expiryWork = nil
@@ -970,13 +979,15 @@ final class Island: NSObject, ObservableObject {
     /// chat" instead of quietly taking an answer to a file no one reads.
     private func armGrace(_ id: String) {
         graceWork?.cancel()
+        guard let q = heldQuestionValue, q.id == id else { return }
         let work = DispatchWorkItem { [weak self] in
-            guard let self, self.heldQuestion == id, !self.handedOver.contains(id),
-                  case .question(let q) = self.state, q.id == id else { return }
+            // Not gated on the card being on screen: the hook stops reading either way, so a
+            // dismissed card left the question silently undeliverable.
+            guard let self, self.heldQuestion == id, !self.handedOver.contains(id) else { return }
             self.handToChat(q)
         }
         graceWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Island.graceSeconds, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + q.grace, execute: work)
     }
 
     /// Explain the question on screen. The call takes about ten seconds, so it marks an
@@ -1270,7 +1281,7 @@ private struct RootView: View {
                         allAnswered: island.allAnswered(q),
                         handedOver: island.handedOver.contains(q.id),
                         graceBase: island.graceBase,
-                        graceLength: Island.graceSeconds,
+                        graceLength: q.grace,
                         onPick: { island.pick(q, step: island.questionStep, option: $0) },
                         onType: {
                             island.typed[q.items[island.questionStep].text] = $0
