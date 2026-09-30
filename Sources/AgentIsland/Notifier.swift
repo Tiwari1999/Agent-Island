@@ -116,7 +116,9 @@ enum Notifier {
             let content = UNMutableNotificationContent()
             content.title = title
             content.body = body
-            content.sound = .default
+            // The island already plays one cue for this; two sounds for one event reads as
+            // a bug. Whichever surface the user is looking at, they hear it once.
+            content.sound = Prefs.shared.soundNeedsYou ? nil : .default
             if let approval {
                 content.categoryIdentifier = approvalCategory
                 content.userInfo["approval"] = approval
