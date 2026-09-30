@@ -131,7 +131,11 @@ enum Explain {
                 // The explain directory is not a git repo, and nothing here may touch the disk.
                 return ["exec", "--skip-git-repo-check", "--sandbox", "read-only", "--json", prompt]
             case .cursor:
-                return ["-p", "--trust", "--output-format", "text", prompt]
+                // No --trust. The prompt is built from an agent's own question text and its
+                // transcript, which is untrusted input, and --trust waives the confirmation on
+                // every tool the agent then decides to run. Claude gets --strict-mcp-config and
+                // Codex --sandbox read-only; this engine was the one exception.
+                return ["-p", "--output-format", "text", prompt]
             }
         }
 
