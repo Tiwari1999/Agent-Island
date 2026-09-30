@@ -393,8 +393,14 @@ struct PanelView: View {
     static var height: CGFloat { headerHeight + 1 + listHeight + 1 + footerHeight }
     @ObservedObject var store: AgentStore
     @ObservedObject var status: StatusStore
-    // A stranger's first open is the one that decides whether they keep it.
-    @State private var mode: PanelMode = Prefs.shared.seenWelcome ? .sessions : .welcome
+    // A stranger's first open is the one that decides whether they keep it. The mode itself
+    // lives on the Island: this view is rebuilt on every collapse, so holding it here reset
+    // the reader to the welcome screen every time they hovered away and back.
+    @ObservedObject var island: Island
+    private var mode: PanelMode {
+        get { island.panelMode }
+        nonmutating set { island.panelMode = newValue }
+    }
     @State private var hooksReady = Setup.hooksInstalled()
     @State private var installing = false
     @State private var showAllIdle = false

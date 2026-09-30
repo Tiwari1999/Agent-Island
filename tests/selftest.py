@@ -2539,6 +2539,18 @@ check("and a denied grant says so, with the one way out of it",
       and "case .blocked: Notifier.openSettings()" in _wel
       and "x-apple.systempreferences:com.apple.Notifications-Settings.extension" in _nt5)
 
+# The panel is rebuilt on every collapse — `.id(island.state.surface)` forces it — so a @State
+# mode re-ran its initialiser each time. With seenWelcome still false (it is written in exactly
+# one place, the welcome screen's own done button), hovering away and back put the reader on
+# the welcome screen again, for good. The mode has to outlive the view.
+_vw6 = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
+_is6 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+check("the panel's mode outlives the panel, which is rebuilt on every collapse",
+      "@State private var mode" not in _vw6
+      and "@Published var panelMode" in _is6)
+check("and the view reads that one, rather than keeping a copy",
+      "island.panelMode" in _vw6)
+
 # Found by falling into it: `uninstall-hooks.py --help` removed all 26 hooks and then
 # reported what it had done. The script runs at module level and took no arguments at all,
 # so every flag was silently a "yes, uninstall everything".
