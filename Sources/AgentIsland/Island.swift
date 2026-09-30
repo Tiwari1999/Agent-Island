@@ -47,6 +47,8 @@ final class Island: NSObject, ObservableObject {
     /// be confused with the approval hold running beside them.
     private var heldQuestion: String?
     private var expiryWork: DispatchWorkItem?
+    /// Fires when the hook's idle grace runs out, so the card hands over instead of lying.
+    private var graceWork: DispatchWorkItem?
     /// Which question of the ask is on screen, and what has been chosen so far.
     @Published var questionStep = 0
     /// Whose picks/typed/step these are. The card can be closed and reopened from the row;
@@ -769,6 +771,7 @@ final class Island: NSObject, ObservableObject {
         // Keep the hook waiting while the card is on screen: it used to expire underneath the
         // reader after 45 seconds, taking the only way to answer with it.
         holdQuestion(question)
+        armGrace(question.id)
         watchForOutsideClick()
         refreshHitRegion()
         let work = DispatchWorkItem { [weak self] in
@@ -906,6 +909,7 @@ final class Island: NSObject, ObservableObject {
         if answeringId == id { answeringId = nil; picks = [:]; typed = [:]; questionStep = 0
                                explanations = [:]; explaining = [] }
         expiryWork?.cancel(); expiryWork = nil
+        graceWork?.cancel(); graceWork = nil
     }
 
     private func watchForOutsideClick() {
@@ -948,6 +952,22 @@ final class Island: NSObject, ObservableObject {
     func markInteraction(_ id: String) {
         graceBase = Date()
         Approvals.touch(id)
+        armGrace(id)
+    }
+
+    /// The hook stops reading after graceSeconds of no interaction, but the card lived until
+    /// the hook's whole window — up to four more minutes of a submit button whose answer
+    /// nobody was left to collect. Hand over when the hook does, so the card says "answer in
+    /// chat" instead of quietly taking an answer to a file no one reads.
+    private func armGrace(_ id: String) {
+        graceWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.heldQuestion == id, !self.handedOver.contains(id),
+                  case .question(let q) = self.state, q.id == id else { return }
+            self.handToChat(q)
+        }
+        graceWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Island.graceSeconds, execute: work)
     }
 
     /// Explain the question on screen. The call takes about ten seconds, so it marks an
@@ -997,7 +1017,13 @@ final class Island: NSObject, ObservableObject {
     func advance(_ question: Question, from step: Int) {
         // The last question never submits itself. Answering four and having the card vanish
         // under the fourth click, with no way back to revise the first, was the loudest bug.
-        guard step + 1 < question.items.count else { return }
+        // A one-question ask is the exception: there is no earlier answer to revise, so the
+        // pick IS the answer. Demanding a second click on it sent readers away believing they
+        // had answered, and the hook fell through to the terminal sixty seconds later.
+        guard step + 1 < question.items.count else {
+            if question.items.count == 1 { submit(question) }
+            return
+        }
         goToStep(question, step + 1)
     }
 
@@ -1063,6 +1089,7 @@ final class Island: NSObject, ObservableObject {
             presentNext()
             return
         }
+        Diagnostics.log("question \(question.id): answered from the notch")
         questionWork?.cancel()
         hold.end()
         store.hooks.clearQuestion(question.id)

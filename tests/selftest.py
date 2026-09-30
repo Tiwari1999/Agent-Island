@@ -894,6 +894,44 @@ try:
 except Exception: _ok=False; _d={}
 check("a multi-question ask answers in one write", _ok, str(_d)[:70])
 
+# The trap a reader actually fell into: the card stayed up offering "submit" long after the
+# hook had stopped reading, so an answer given a minute in went to a file nobody collected
+# and the question reappeared in the terminal. These pin both halves of the grace, for real.
+def _grace_run(sid, touch_until):
+    """Run the hook with a 2s idle grace, answer at 3.5s, optionally keeping it touched."""
+    os.makedirs(f"{RUN}-{sid}dec", exist_ok=True)
+    open(f"{RUN}-{sid}alive","w").close()
+    out={}
+    def go():
+        out["r"]=subprocess.run([qh],input=QREQ,capture_output=True,text=True,timeout=40,
+            env=dict(os.environ,AGENTISLAND_ALIVE=f"{RUN}-{sid}alive",
+                     AGENTISLAND_Q_TIMEOUT="30",AGENTISLAND_Q_GRACE="2",
+                     AGENTISLAND_SPOOL=f"{RUN}-{sid}spool.jsonl",
+                     AGENTISLAND_DECISIONS=f"{RUN}-{sid}dec"))
+    t=threading.Thread(target=go); t.start()
+    for _ in range(60):
+        if os.path.exists(f"{RUN}-{sid}spool.jsonl") and open(f"{RUN}-{sid}spool.jsonl").read().strip(): break
+        time.sleep(0.1)
+    qid=json.loads(open(f"{RUN}-{sid}spool.jsonl").readline())["ap_question_id"]
+    # 3.5s of waiting against a 2s grace — the island either keeps stamping or it does not.
+    end=time.time()+3.5
+    while time.time()<end:
+        if touch_until: open(f"{RUN}-{sid}dec/{qid}.touched","w").close()
+        time.sleep(0.3)
+    open(f"{RUN}-{sid}dec/{qid}","w").write(json.dumps({"Which DB?":"Postgres"}))
+    t.join()
+    return out.get("r")
+
+_late=_grace_run("gl", False)
+check("an answer given after the idle grace is not silently swallowed",
+      _late is not None and not _late.stdout.strip(),
+      (_late.stdout if _late else "")[:80])
+_kept=_grace_run("gk", True)
+try: _ka=json.loads(_kept.stdout)["hookSpecificOutput"]["updatedInput"]["answers"]
+except Exception: _ka={}
+check("but the island stamping the card slides that grace forward",
+      _ka=={"Which DB?":"Postgres"}, str(_ka)[:70])
+
 # An answer naming a question that was never asked must not reach Claude.
 os.makedirs(f"{RUN}-fqdec",exist_ok=True)
 fq={}
@@ -1712,6 +1750,31 @@ if os.path.exists(_bin) and _tx:
         check("on a multi-hundred-MB transcript, in well under a second",
               float(_m.group(4)) < 500, f"{_m.group(4)} ms on {os.path.getsize(_tx[0])//10**6} MB")
         check("and in the order it happened", "chronological: yes" in _r.stdout)
+
+# Deterministic version of the same thing: one giant tool result used to fill the whole byte
+# window, so a busy session's console showed a single line. The live check above depends on
+# whichever transcript happens to be biggest; this one does not.
+_gfx = tempfile.mkdtemp(prefix="ai-bigline-")
+os.makedirs(f"{_gfx}/.claude/projects/-t", exist_ok=True)
+_gsid = "55555555-5555-5555-5555-555555555555"
+def _said(n):
+    return json.dumps({"type":"assistant","timestamp":"2026-01-01T12:00:00.000Z",
+                       "message":{"content":[{"type":"text","text":f"line {n}"}]}},
+                      separators=(",",":"))
+with open(f"{_gfx}/.claude/projects/-t/{_gsid}.jsonl","w") as _h:
+    for _i in range(12): _h.write(_said(_i)+"\n")
+    # 700 KB in one entry — bigger than the 512 KB window the console starts with.
+    _h.write(json.dumps({"type":"user","timestamp":"2026-01-01T12:00:01.000Z",
+                         "message":{"content":[{"type":"tool_result",
+                                                "content":"x"*700000}]}},
+                        separators=(",",":"))+"\n")
+if os.path.exists(_bin):
+    _gr = subprocess.run([_bin,"--console",_gsid],capture_output=True,text=True,timeout=60,
+                         env=dict(os.environ,AGENTISLAND_HOME=_gfx))
+    _gm = re.match(r"(\d+) entries", _gr.stdout.splitlines()[0] if _gr.stdout else "")
+    check("one huge tool result does not push the whole console out of the window",
+          bool(_gm) and int(_gm.group(1)) >= 10,
+          (_gr.stdout.splitlines()[0] if _gr.stdout else _gr.stderr)[:60])
 # Notifications must come from the app's own channel, never osascript `display notification`,
 # which macOS brands as "Script Editor" — a stray, wrong-looking alert.
 _nt = open(os.path.join(REPO, "Sources/AgentIsland/Notifier.swift")).read()
@@ -1805,9 +1868,28 @@ _ap5 = open(os.path.join(REPO, "Sources/AgentIsland/Approvals.swift")).read()
 _hs5 = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()
 
 # Answering the fourth question used to send the ask and close the card under the click.
-check("moving past the last question never submits",
-      "guard step + 1 < question.items.count else { return }" in _is5
-      and "choose(question, picks: picks)" not in _is5.split("func advance")[1].split("func isAnswered")[0])
+# The cure then over-applied: a ONE-question ask also demanded a second click, so readers
+# tapped their option, believed they had answered, and the hook fell through to the terminal
+# a minute later. Both halves are pinned, because fixing either one broke the other.
+_adv = _is5.split("func advance")[1].split("func isAnswered")[0]
+check("moving past the last of SEVERAL questions never submits",
+      "guard step + 1 < question.items.count else {" in _adv
+      and "choose(question, picks: picks)" not in _adv)
+check("but a one-question ask commits on the pick itself",
+      "if question.items.count == 1 { submit(question) }" in _adv)
+# Absence of any success line is what made this take a transcript dig to diagnose.
+check("and an answer that lands says so in the log",
+      'question \\(question.id): answered from the notch' in _is5)
+# The card used to outlive the hook by four minutes, offering a submit nobody would collect.
+check("the card hands over when the hook's grace runs out, not when its window does",
+      "private func armGrace(" in _is5
+      and "DispatchQueue.main.asyncAfter(deadline: .now() + Island.graceSeconds, execute: work)" in _is5
+      and "self.handToChat(q)" in _is5.split("private func armGrace")[1][:700])
+check("the grace is armed when the card goes up and re-armed on every interaction",
+      "armGrace(question.id)" in _is5.split("func ask(")[1].split("private func bindKeys")[0]
+      and "armGrace(id)" in _is5.split("func markInteraction")[1][:300])
+check("and it dies with the question it belongs to",
+      "graceWork?.cancel(); graceWork = nil" in _is5.split("private func releaseQuestion")[1][:500])
 check("submit is the only path that commits",
       "func submit(_ question: Question)" in _is5
       and "endTyping()\n        choose(question, picks: picks)" in _is5)

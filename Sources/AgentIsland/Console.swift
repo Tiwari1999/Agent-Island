@@ -46,7 +46,12 @@ enum Console {
         }
         lock.unlock()
 
-        let feed = parse(Tail.read(path: path, bytes: window))
+        var feed = parse(Tail.read(path: path, bytes: window))
+        // A byte budget is not an entry budget. One 195 KB tool result fills the whole window,
+        // so the console on a busy session showed a single line — or nothing at all. Widen
+        // once, and only when the first pass came up pathologically short, so the ordinary
+        // case still costs one read.
+        if feed.count < 5 { feed = parse(Tail.read(path: path, bytes: window * 8)) }
         lock.lock(); cache[session] = (mtime, feed); lock.unlock()
         return Array(feed.suffix(limit))
     }
