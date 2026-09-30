@@ -2375,6 +2375,12 @@ _sf_m = open(os.path.join(REPO, "Sources/AgentIsland/Surface.swift")).read()
 check("every island surface morphs instead of popping",
       "static let morph: AnyTransition" in _th_m
       and ".transition(Motion.morph)" in _is_m and ".id(island.state.surface)" in _is_m)
+# Symmetric, the outgoing bar and incoming panel cross-dissolve for the whole spring — two
+# things sharing a space rather than one becoming the other. Out fast, in late.
+check("the old surface leaves before the new one arrives",
+      ".asymmetric(" in _th_m
+      and 'delay(0.08))' in _th_m
+      and 'removal: .opacity.animation(.easeIn(duration: 0.10))' in _th_m)
 # Keyed on the case, not its payload: a second question must not tear the first card down.
 check("and the identity is the surface, not what is on it",
       "var surface: String" in _is_m and 'case .question:  return "question"' in _is_m)
