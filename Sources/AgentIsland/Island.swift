@@ -50,6 +50,10 @@ enum IslandState: Equatable {
 @MainActor
 final class Island: NSObject, ObservableObject {
     @Published var state: IslandState = .collapsed
+    /// Which screen the panel is on. It lives here, not in PanelView, because the panel is
+    /// rebuilt from scratch on every collapse — `.id(island.state.surface)` forces that — so a
+    /// @State mode re-ran its initialiser each time and threw away where the reader was.
+    @Published var panelMode: PanelMode = Prefs.shared.seenWelcome ? .sessions : .welcome
     /// Expanded context on the current approval card. One-way per card: reading is a commitment
     /// the hook is told about (via the hold file), so collapsing back would lie to it.
     @Published var approvalContext: ApprovalContext?
@@ -1004,6 +1008,12 @@ final class Island: NSObject, ObservableObject {
     /// nobody was left to collect. Hand over when the hook does, so the card says "answer in
     /// chat" instead of quietly taking an answer to a file no one reads.
     private func armGrace(_ id: String) {
+        // Stamp the mark the hook polls, not just our own timer. Without this the file does not
+        // exist until the reader's FIRST interaction, so the hook falls back to `last = started`
+        // and both clocks run out together at graceSeconds — the terminal reclaimed the picker
+        // while someone was still typing their answer into the notch, and the answer went to a
+        // file nobody was reading. Re-stamping here starts the hook's window with the card.
+        Approvals.touch(id)
         graceWork?.cancel()
         guard let q = heldQuestionValue, q.id == id else { return }
         let work = DispatchWorkItem { [weak self] in
@@ -1350,7 +1360,7 @@ private struct RootView: View {
                 case .expanded:
                     // Inset past the physical notch so text clears the camera, while the shape
                     // behind it still reaches the screen edge and reads as one piece with it.
-                    PanelView(store: store, status: status)
+                    PanelView(store: store, status: status, island: island)
                         .padding(.top, island.notchHeight + Island.notchClearance)
                 }
                 }

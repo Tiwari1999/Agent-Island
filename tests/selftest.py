@@ -1944,10 +1944,17 @@ check("but a one-question ask commits on the pick itself",
 check("and an answer that lands says so in the log",
       'question \\(question.id): answered from the notch' in _is5)
 # The card used to outlive the hook by four minutes, offering a submit nobody would collect.
+# Scoped to the function, not to a byte count: a comment added inside armGrace used to push
+# handToChat past a fixed window and fail a check that had nothing to do with the change.
+_grace = _is5.split("private func armGrace")[1].split("\n    /// ")[0]
 check("the card hands over when the hook's grace runs out, not when its window does",
       "private func armGrace(" in _is5
       and "DispatchQueue.main.asyncAfter(deadline: .now() + q.grace, execute: work)" in _is5
-      and "self.handToChat(q)" in _is5.split("private func armGrace")[1][:800])
+      and "self.handToChat(q)" in _grace)
+# The hook polls <id>.touched and falls back to the card's start time when it is absent, so a
+# card that never stamped it handed over at its grace no matter how much the reader typed.
+check("and the hook's own mark is stamped when the card goes up, not only on interaction",
+      "Approvals.touch(id)" in _grace)
 check("the grace is armed when the card goes up and re-armed on every interaction",
       "armGrace(question.id)" in _is5.split("func ask(")[1].split("private func bindKeys")[0]
       and "armGrace(id)" in _is5.split("func markInteraction")[1][:300])
@@ -2538,6 +2545,18 @@ check("and a denied grant says so, with the one way out of it",
       '"notifications blocked \u2014 open Settings"' in _wel
       and "case .blocked: Notifier.openSettings()" in _wel
       and "x-apple.systempreferences:com.apple.Notifications-Settings.extension" in _nt5)
+
+# The panel is rebuilt on every collapse — `.id(island.state.surface)` forces it — so a @State
+# mode re-ran its initialiser each time. With seenWelcome still false (it is written in exactly
+# one place, the welcome screen's own done button), hovering away and back put the reader on
+# the welcome screen again, for good. The mode has to outlive the view.
+_vw6 = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
+_is6 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+check("the panel's mode outlives the panel, which is rebuilt on every collapse",
+      "@State private var mode" not in _vw6
+      and "@Published var panelMode" in _is6)
+check("and the view reads that one, rather than keeping a copy",
+      "island.panelMode" in _vw6)
 
 # Found by falling into it: `uninstall-hooks.py --help` removed all 26 hooks and then
 # reported what it had done. The script runs at module level and took no arguments at all,
