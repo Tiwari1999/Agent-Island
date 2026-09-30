@@ -71,7 +71,19 @@ enum Theme {
 /// switch on .snappy(0.2) beside a shell on .spring(0.30/0.85) — so things that move together
 /// ran on different clocks, which is what reads as rough.
 enum Motion {
-    static let shell   = Animation.spring(response: 0.32, dampingFraction: 0.84)
+    static let shell   = Animation.spring(response: 0.38, dampingFraction: 0.82)
+    /// Contents used to hard-cut while the shell sprang around them — the silhouette moved and
+    /// everything inside it snapped.
+    ///
+    /// Asymmetric on purpose. Symmetric, the outgoing bar and the incoming panel cross-dissolve
+    /// over the whole spring, which reads as two things sharing a space rather than one becoming
+    /// the other — and the new content sits at full size inside a shell still growing around it,
+    /// so it looks masked. The old surface leaves quickly, the new one waits for the shape to be
+    /// most of the way there and then rises the last 3%.
+    static let morph: AnyTransition = .asymmetric(
+        insertion: .opacity.combined(with: .scale(scale: 0.97, anchor: .top))
+            .animation(.easeOut(duration: 0.20).delay(0.08)),
+        removal: .opacity.animation(.easeIn(duration: 0.10)))
     static let content = Animation.spring(response: 0.26, dampingFraction: 0.90)
     static let quick   = Animation.easeOut(duration: 0.15)
     static let hover   = Animation.easeOut(duration: 0.11)

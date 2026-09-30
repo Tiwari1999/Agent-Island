@@ -100,7 +100,7 @@ struct WelcomeView: View {
                 }
             }
             .padding(.horizontal, 9).padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.amber.opacity(0.08)))
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.amber.opacity(0.08)))
         }
     }
 
