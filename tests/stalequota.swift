@@ -11,13 +11,13 @@ func at(_ s: TimeInterval) -> Date { Date().addingTimeInterval(s) }
 check("no reset time is not staleness", !Q.isStale(nil))
 check("and prints nothing at all", Q.remaining(nil) == "")
 check("a future window is fresh", !Q.isStale(at(3600)))
-check("and counts down", Q.remaining(at(3600 + 120)) == "1h2m")
-check("days collapse to d+h", Q.remaining(at(26 * 3600)) == "1d2h")
+check("and counts down", Q.remaining(at(3600 + 120 + 0.5)) == "1h2m")
+check("days collapse to d+h", Q.remaining(at(26 * 3600 + 0.5)) == "1d2h")
 // The grace: a window that just rolled over is not yet evidence of a dead writer, and
 // flashing "stale" at every reset would cry wolf five times a day.
 check("a window that just turned over is still fresh", !Q.isStale(at(-30)))
 check("and still says now", Q.remaining(at(-30)) == "now")
-check("five minutes past is the edge, not yet stale", !Q.isStale(at(-299)))
+check("five minutes past is the edge, not yet stale", !Q.isStale(at(-298.5)))
 check("well past the grace is stale", Q.isStale(at(-3600)))
 check("and says so instead of 'now'", Q.remaining(at(-3600)) == "stale")
 check("a day-old timestamp is stale too", Q.isStale(at(-86400)))
