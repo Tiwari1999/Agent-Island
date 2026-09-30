@@ -139,7 +139,10 @@ enum Approvals {
         if fm.fileExists(atPath: aliveFile) {
             try? fm.setAttributes([.modificationDate: Date()], ofItemAtPath: aliveFile)
         } else {
-            fm.createFile(atPath: aliveFile, contents: Data())
+            // Owner-only like every other file this app puts in /tmp. It carries no content,
+            // but a world-writable heartbeat is one another account could forge.
+            fm.createFile(atPath: aliveFile, contents: Data(),
+                          attributes: [.posixPermissions: 0o600])
         }
     }
 }

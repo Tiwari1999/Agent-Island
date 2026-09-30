@@ -157,7 +157,26 @@ final class HookStream: ObservableObject {
         spoolQueue.async { self.open() }
     }
 
+    /// Hooks only ever append, and nothing ever shortened the file: it reached 78 MB here, a
+    /// plaintext record of every prompt and tool payload that passed through. Rotate at a size
+    /// that still comfortably holds the 1 MB replay window.
+    private static let maxSpoolBytes = 4 * 1024 * 1024
+
+    /// Rename, do not truncate. Hooks hold no handle between writes so they recreate the file,
+    /// and the tailer already reopens on `.rename` — truncating in place would instead leave
+    /// its offset past a now-shorter file, and it would read nothing until the next restart.
+    private func rotateIfLarge() {
+        let fm = FileManager.default
+        guard let size = (try? fm.attributesOfItem(atPath: Self.spool))?[.size] as? Int,
+              size > Self.maxSpoolBytes else { return }
+        let previous = Self.spool + ".1"
+        try? fm.removeItem(atPath: previous)
+        try? fm.moveItem(atPath: Self.spool, toPath: previous)
+        try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: previous)
+    }
+
     private func open() {
+        rotateIfLarge()
         if !FileManager.default.fileExists(atPath: Self.spool) {
             // Tool payloads and prompts pass through here; /tmp is shared, so do not let the
             // default mode publish them to every account on the machine.
@@ -192,6 +211,11 @@ final class HookStream: ObservableObject {
                 self.open()
             } else {
                 self.drain()
+                // open() alone would only ever rotate at launch, and this app is meant to run
+                // for weeks. Checking after a drain costs one stat per batch.
+                if self.offset > UInt64(Self.maxSpoolBytes) {
+                    self.rotateIfLarge()
+                }
             }
         }
         src.resume()
