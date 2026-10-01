@@ -1398,7 +1398,7 @@ check("the question hook slides on the mark, capped by the window",
 check("an unanswered question survives its card",
       "pendingQuestions" in _hs2 and "func clearQuestion" in _hs2)
 check("clicking a blocked row answers it instead of jumping",
-      "onRowActivate" in _as2 and "self.ask(q)" in _is2)
+      "onRowActivate" in _as2 and "self.ask(q, announce: false)" in _is2)
 check("a question names the session it came from",
       "var project: String?" in _hs2 and "question.project" in _is2)
 
@@ -3799,6 +3799,137 @@ b=os.path.join(REPO,".build/debug/AgentIsland")
 check("binary exists", os.path.exists(b))
 
 print()
+print("\n=== 54. the completion beat, sound gating and asymmetric close ===")
+_st = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
+_th = open(os.path.join(REPO, "Sources/AgentIsland/Theme.swift")).read()
+_isl = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_snd = open(os.path.join(REPO, "Sources/AgentIsland/Sounds.swift")).read()
+
+# The edge, not the state. A finish is working->idle, and the seed case is the whole trick:
+# `knownWorking[id] == true` is false when the key is absent, so a session that was already
+# idle when the app launched cannot fire. `!= false` or `?? true` would flash every row on
+# every cold start, which is the bug this check exists to catch.
+_edge = re.search(r"if knownWorking\[id\] == true, !working, rows\[i\]\.died == nil",
+                  _st)
+check("a finish is the working->idle edge, seeded so cold start cannot fire it",
+      _edge is not None)
+check("a crash is not a finish", "died == nil" in (_edge.group(0) if _edge else ""))
+# Without this the stamp is immortal and the glow replays on every rebuild forever.
+check("finish stamps expire",
+      re.search(r"finishStamps = finishStamps\.filter \{[^}]*finishFor", _st) is not None)
+# applyLive is the Stop-hook path; the 15s rebuild would land the beat seconds late.
+_al = _st[_st.index("private func applyLive()"):]
+check("the beat lands on the hook, not the backstop refresh",
+      "noteFinishes(&next)" in _al[:900])
+# The manifest is how this gets verified without watching the screen (see AgentStore's own note).
+check("the finish stamp reaches the manifest", '"finished": r.finishedAt' in _st)
+
+# One-shot. A repeating animation on a finished session is an app that never stops nagging.
+check("the completion curve never repeats",
+      "static let settle" in _th and "repeatForever" not in
+      _th[_th.index("static let settle"):_th.index("static let settle") + 200])
+
+# Opening overshoots, closing does not: that asymmetry is the whole perceived smoothness.
+# Equal curves here would mean the close bounces, which reads as the panel refusing to go.
+_close = re.search(r"static let close\s+= Animation\.timingCurve\(([\d.]+), *0, *([\d.]+), *1,"
+                   r" duration: ([\d.]+)\)", _th)
+check("closing has its own non-springy curve", _close is not None)
+_shell = re.search(r"static let shell\s+= Animation\.spring\(response: [\d.]+,"
+                   r" dampingFraction: ([\d.]+)\)", _th)
+check("opening is underdamped enough to overshoot",
+      _shell is not None and float(_shell.group(1)) < 0.80,
+      "" if _shell else "shell spring not found")
+_collapses = len(re.findall(r"withAnimation\(Motion\.close\) \{ (?:self\.)?state = \.collapsed",
+                            _isl))
+check(f"every collapse uses the close curve ({_collapses} sites)", _collapses >= 5)
+check("no collapse still uses the open spring",
+      not re.search(r"withAnimation\(Motion\.shell\) \{ (?:self\.)?state = \.collapsed", _isl))
+
+# Two sounds, and every gate on them. A sound that plays while Quiet is on is the complaint
+# that gets an app uninstalled, so each guard is asserted individually.
+check("exactly two sounds exist", len(re.findall(r"static func (needsYou|done)\(", _snd)) == 2)
+# Per function, not per file: asserting the substring exists anywhere let a gate be deleted
+# from needsYou while done still carried it, and the check stayed green.
+for _fn, _pref in (("needsYou", "soundNeedsYou"), ("done", "soundDone")):
+    _body = _snd.split(f"static func {_fn}(")[1].split("\n    }")[0]
+    for _g in [f"Prefs.shared.{_pref}", "!Prefs.shared.snoozing", "!silenced"]:
+        check(f"{_fn} is gated on {_g}", _g in _body)
+check("needs-you defaults on, done defaults off",
+      re.search(r"soundNeedsYouKey\) as\? Bool \?\? true", open(
+          os.path.join(REPO, "Sources/AgentIsland/Settings.swift")).read()) is not None
+      and re.search(r"soundDoneKey\) as\? Bool \?\? false", open(
+          os.path.join(REPO, "Sources/AgentIsland/Settings.swift")).read()) is not None)
+# hushed is read before the state write; reading it after always answers false, so the
+# auto-hidden gate would silently never apply.
+for _fn in ["state = .approval(approval)", "state = .question(question)"]:
+    _i = _isl.index(_fn)
+    check(f"hushed is captured before `{_fn[:22]}...`",
+          re.search(r"(let|var) silenced = hushed", _isl[max(0, _i - 260):_i]) is not None)
+check("both stock sounds exist on this machine",
+      all(os.path.exists(f"/System/Library/Sounds/{n}.aiff") for n in ("Ping", "Glass")))
+
+# The tint lerp must not be cancelled by the pulse teardown — removeAllAnimations did exactly
+# that, which made the 0.3s colour fade look like a hard swap.
+check("the pulse teardown does not cancel the tint lerp",
+      ".removeAllAnimations()" not in _th and 'removeAnimation(forKey: "pulse")' in _th)
+# The palette decision is deliberate and documented; a per-state rainbow was rejected.
+check("hue stays semantic — two colours, not eight",
+      re.search(r"private var color: Color \{\s*\n\s*kind == \.waiting \? Theme\.waiting"
+                r" : Theme\.working", _th) is not None)
+
+# --- what the five-lane review caught, so it cannot come back -------------
+_vw = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
+_nt = open(os.path.join(REPO, "Sources/AgentIsland/Notifier.swift")).read()
+_row = _vw[_vw.index("struct AgentRowView"):]
+
+# Theme.swift's own law: three semantic hues, everything else neutral. A green wash on a row
+# that has STOPPED working spends the "working" channel on the opposite of working, and at a
+# glance that reads as still running.
+_bg = _row[_row.index(".frame(height: AgentRowView.height"):]
+_bg = _bg[:_bg.index(".contentShape(Rectangle())")]
+check("the completion beat claims no semantic hue",
+      "Theme.working" not in _bg and "Theme.raised.opacity(finished)" in _bg)
+check("and a finished row's dot is not repainted working",
+      "finished > 0 ? Theme.working" not in _row)
+# A 1.5% spring pop on the row was mascot grammar: a finished session must stop asking.
+check("the beat does not bounce the row", "scaleEffect(settling" not in _row)
+
+# Absent `live`, "not working" can mean the hook state merely aged out mid-turn — that beat
+# (and its sound) fired for a turn that was still running, after 180s of silent thinking.
+check("a finish needs hook evidence, not just the absence of work",
+      "rows[i].live != nil" in _st)
+check("a stamp is dropped the moment the session works again",
+      "if working { finishStamps.removeValue(forKey: id) }" in _st)
+# onAppear re-fires while the stamp is fresh, so collapse+reopen replayed the same finish.
+check("one stamp plays at most once", "at != played" in _row)
+# The stamp is pruned by the next refresh, which when collapsed is 180s away.
+_fin = _row[_row.index("private var finished: CGFloat {"):]
+_fin = _fin[:_fin.index("\n    }")]
+check("the Reduce Motion wash is age-gated, not prune-gated",
+      "Self.beatFor" in _fin and "static let beatFor" in _row)
+
+# Nothing pinned the chip spring, so it could drift back to a bounce. 0.58 read as a toy;
+# anything at or under 0.70 is rubber-band on a surface that sits up all day.
+_pop = re.search(r"static let pop\s+= Animation\.spring\(response: ([\d.]+),"
+                 r" dampingFraction: ([\d.]+)\)", _th)
+check("the chip pop is only just underdamped",
+      _pop is not None and float(_pop.group(2)) >= 0.70,
+      "" if _pop else "pop spring not found")
+
+# Two sounds for one event reads as a bug, and Quiet silences only one of them.
+check("the island and the notification never both sound",
+      "Prefs.shared.soundNeedsYou ? nil : .default" in _nt)
+# A cue is for a question arriving. One you opened, or one already on screen, is not news.
+check("a question the user opened themselves is silent",
+      "self.ask(q, announce: false)" in _isl)
+check("and re-showing the card already on screen is silent",
+      re.search(r"if case \.question\(let q\) = state, q\.id == question\.id \{ silenced = true \}",
+                _isl) is not None)
+# It queued itself behind itself, so answering it presented the same request again.
+check("a visible approval does not queue behind itself",
+      re.search(r"if case \.approval\(let a\) = state, a\.id == approval\.id \{ return \}",
+                _isl) is not None)
+
 # The README advertises a number of checks; it had drifted to 411 against a real 760. A floor
 # rather than an equality: opt-in sections add checks, and bulk deletion is the failure that
 # matters — deleted checks do not run, so the suite still says green while covering less.

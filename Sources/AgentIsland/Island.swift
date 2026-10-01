@@ -287,7 +287,7 @@ final class Island: NSObject, ObservableObject {
             guard let self else { return false }
             guard let q = self.store.hooks.pendingQuestions[row.agent.sessionId],
                   q.deadline > Date() else { return false }
-            self.ask(q)
+            self.ask(q, announce: false)
             return true
         }
         store.hooks.onQuestion = { [weak self] question in
@@ -304,10 +304,15 @@ final class Island: NSObject, ObservableObject {
             // agents spawned by another agent, which are deliberately excluded. Announcing
             // their finishes both leaked a raw id and reported work the user never started.
             guard let name = self.store.name(for: session) else { return }
+            let silenced = self.hushed
             self.peek(PeekPayload(session: session, title: name,
                                   message: needsInput ? message : "finished",
                                   needsInput: needsInput))
-            if needsInput { Notifier.notify(title: name, body: message, key: session) }
+            if needsInput {
+                Notifier.notify(title: name, body: message, key: session)
+            } else {
+                Sounds.done(silenced: silenced)
+            }
         }
 
         // One chord summons the console for whoever needs you most; pressing it again closes it.
@@ -633,7 +638,7 @@ final class Island: NSObject, ObservableObject {
     func collapse() {
         guard state != .collapsed else { return }
         tearDownPanel()
-        withAnimation(Motion.shell) { state = .collapsed }
+        withAnimation(Motion.close) { state = .collapsed }
         repoll()
         // Every other transition refreshes this; collapse did not. The panel therefore kept
         // accepting events across its whole frame until the next poll — up to 750ms — and
@@ -658,7 +663,7 @@ final class Island: NSObject, ObservableObject {
         refreshHitRegion()
         let work = DispatchWorkItem { [weak self] in
             guard let self, case .peek = self.state else { return }
-            withAnimation(Motion.shell) { self.state = .collapsed }
+            withAnimation(Motion.close) { self.state = .collapsed }
         }
         peekWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 4.0, execute: work)
@@ -693,7 +698,7 @@ final class Island: NSObject, ObservableObject {
         if !queuedQuestions.isEmpty || !queuedApprovals.isEmpty { state = .collapsed }
         if !queuedQuestions.isEmpty { ask(queuedQuestions.removeFirst()); return }
         if !queuedApprovals.isEmpty { present(queuedApprovals.removeFirst()); return }
-        withAnimation(Motion.shell) { state = .collapsed }
+        withAnimation(Motion.close) { state = .collapsed }
     }
 
     /// Expand the visible approval: assemble context off-main, hold the hook open, re-arm the
@@ -734,6 +739,9 @@ final class Island: NSObject, ObservableObject {
             return
         }
         guard !showingCard else {
+            // The card on screen is not "behind" itself: queueing it here re-presented the same
+            // request the moment it was answered, with a second cue to match.
+            if case .approval(let a) = state, a.id == approval.id { return }
             if !queuedApprovals.contains(where: { $0.id == approval.id }) {
                 queuedApprovals.append(approval)
             }
@@ -752,7 +760,10 @@ final class Island: NSObject, ObservableObject {
             (kVK_ANSI_D, Hotkeys.cmdOpt, { [weak self] in self?.answer(approval, allow: false) }),
             (kVK_ANSI_E, Hotkeys.cmdOpt, { [weak self] in self?.expandApproval() }),
         ])
+        // Read before the state write: hushed is false the moment a card is on screen.
+        let silenced = hushed
         withAnimation(Motion.shell) { state = .approval(approval) }
+        Sounds.needsYou(silenced: silenced)
         refreshHitRegion()
         // Drop the card when the hook stops waiting, so a dead prompt can't linger.
         let work = DispatchWorkItem { [weak self] in
@@ -769,7 +780,9 @@ final class Island: NSObject, ObservableObject {
     }
 
     /// A question outranks everything: an agent is blocked until it is answered.
-    func ask(_ question: Question) {
+    /// `announce` is false when the user opened this themselves, or when the same card is
+    /// being re-shown: a cue is for a question arriving, not for one you went looking for.
+    func ask(_ question: Question, announce: Bool = true) {
         guard !Prefs.shared.snoozing else {
             if question.deadline > Date(),
                !queuedQuestions.contains(where: { $0.id == question.id }) {
@@ -812,7 +825,10 @@ final class Island: NSObject, ObservableObject {
         // Keys are bound per question as the sequence advances, so 1-4 always means "this
         // question's options" rather than a running index across the whole ask.
         bindKeys(question, step: questionStep)
+        var silenced = hushed
+        if case .question(let q) = state, q.id == question.id { silenced = true }
         withAnimation(Motion.shell) { state = .question(question) }
+        if announce { Sounds.needsYou(silenced: silenced) }
         Diagnostics.log("question \(question.id): on screen")
         // Keep the hook waiting while the card is on screen: it used to expire underneath the
         // reader after 45 seconds, taking the only way to answer with it.
@@ -917,7 +933,7 @@ final class Island: NSObject, ObservableObject {
         // Dismiss means dismiss, for the outside click, the chord and the chord's tag alike.
         // Only the `‹ agents` control goes back to the list, via consoleBackToPanel().
         consoleFromPanel = false
-        withAnimation(Motion.shell) { state = .collapsed }
+        withAnimation(Motion.close) { state = .collapsed }
         repoll()
         refreshHitRegion()
     }
@@ -1180,7 +1196,7 @@ final class Island: NSObject, ObservableObject {
         if let row = store.rows.first(where: { $0.agent.sessionId == payload.session }) {
             store.jump(row)
         }
-        withAnimation(Motion.shell) { state = .collapsed }
+        withAnimation(Motion.close) { state = .collapsed }
     }
 }
 

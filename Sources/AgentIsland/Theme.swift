@@ -71,7 +71,8 @@ enum Theme {
 /// switch on .snappy(0.2) beside a shell on .spring(0.30/0.85) — so things that move together
 /// ran on different clocks, which is what reads as rough.
 enum Motion {
-    static let shell   = Animation.spring(response: 0.38, dampingFraction: 0.82)
+    /// Opening overshoots slightly on purpose; 0.82 settled dead flat and read as a resize.
+    static let shell   = Animation.spring(response: 0.38, dampingFraction: 0.76)
     /// Contents used to hard-cut while the shell sprang around them — the silhouette moved and
     /// everything inside it snapped.
     ///
@@ -88,6 +89,17 @@ enum Motion {
     static let quick   = Animation.easeOut(duration: 0.15)
     static let hover   = Animation.easeOut(duration: 0.11)
     static let value   = Animation.snappy(duration: 0.24)
+    /// One-shot beat when a turn ends. Long enough to register in peripheral vision, short
+    /// enough not to leave an afterimage under the next row's hover; never repeats, because a
+    /// finished session must stop asking for attention.
+    static let settle  = Animation.easeOut(duration: 0.9)
+    /// Chip identity changes only, and only just underdamped: 0.58 read as a toy bouncing,
+    /// 0.78 sits beside `shell`'s 0.76 so an arriving chip and an opening panel share a feel.
+    /// Digits stay on `value` — a count ticking is not a thing appearing.
+    static let pop     = Animation.spring(response: 0.28, dampingFraction: 0.78)
+    /// Closing is not opening played backwards. A spring's overshoot on the way out reads as
+    /// the panel being reluctant; a cubic ease with no bounce reads as dismissed.
+    static let close   = Animation.timingCurve(0.45, 0, 0.2, 1, duration: 0.30)
 }
 
 /// Flush to the screen edge on top, rounded below — reads as part of the hardware.
@@ -267,18 +279,33 @@ private struct PulseLayer: NSViewRepresentable {
 
     func updateNSView(_ v: NSView, context: Context) { apply(to: v, context: context) }
 
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    final class Coordinator { var kind: WorkKind? }
+
     private func apply(to v: NSView, context: Context) {
         guard let track = v.layer?.sublayers?.first(where: { $0.name == "track" }),
               let ball = v.layer?.sublayers?.first(where: { $0.name == "dot" }) else { return }
         let cg = NSColor(color).cgColor
-        track.backgroundColor = NSColor(color).withAlphaComponent(0.18).cgColor
-        ball.backgroundColor = cg
+        let trackCG = NSColor(color).withAlphaComponent(0.18).cgColor
+        // Needs-you arriving mid-work used to swap hue on one frame, which reads as a glitch
+        // rather than a change of state. One-shot lerp, no display link, no cost when static.
+        if context.coordinator.kind != nil, context.coordinator.kind != kind,
+           !context.environment.accessibilityReduceMotion {
+            Self.lerp(ball, to: cg, key: "tint")
+            Self.lerp(track, to: trackCG, key: "trackTint")
+        } else {
+            ball.backgroundColor = cg
+            track.backgroundColor = trackCG
+        }
+        context.coordinator.kind = kind
         ball.shadowColor = cg
         ball.shadowOpacity = 0.5
         ball.shadowRadius = 2
         ball.shadowOffset = .zero
         track.isHidden = !travels
-        ball.removeAllAnimations()
+        // Keyed removal, not removeAllAnimations: that cancelled the tint lerp mid-flight.
+        ball.removeAnimation(forKey: "pulse")
+        ball.removeAnimation(forKey: "fade")
 
         let still = context.environment.accessibilityReduceMotion || kind == .idle
         let mid = (width - dot) / 2
@@ -310,6 +337,16 @@ private struct PulseLayer: NSViewRepresentable {
         a.repeatCount = .infinity
         a.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         ball.add(a, forKey: "pulse")
+    }
+
+    private static func lerp(_ layer: CALayer, to: CGColor, key: String) {
+        let a = CABasicAnimation(keyPath: "backgroundColor")
+        a.fromValue = layer.presentation()?.backgroundColor ?? layer.backgroundColor
+        a.toValue = to
+        a.duration = 0.30
+        a.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        layer.backgroundColor = to
+        layer.add(a, forKey: key)
     }
 
     /// Every working state is one colour, because thinking IS working — greying it out made the

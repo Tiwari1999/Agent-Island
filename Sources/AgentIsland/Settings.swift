@@ -9,6 +9,8 @@ final class Prefs: ObservableObject {
     private static let autoHideKey = "autoHideSeconds"
     private static let reopenKey = "reopenIn"
     private static let welcomeKey = "seenWelcome"
+    private static let soundNeedsYouKey = "soundNeedsYou"
+    private static let soundDoneKey = "soundDone"
 
     /// Shown once. A returning user opening the panel to check on an agent does not want a
     /// greeting, and Settings has a way back to it for anyone who does.
@@ -59,9 +61,22 @@ final class Prefs: ObservableObject {
         // A fresh install has no value at all, which is different from a stored zero.
         autoHideSeconds = d.object(forKey: Self.autoHideKey) as? Double ?? 4
         reopenIn = d.string(forKey: Self.reopenKey).flatMap(ReopenTarget.init) ?? ReopenTarget.preferred
+        // object(forKey:) so a deliberately stored false is not read back as the default.
+        soundNeedsYou = d.object(forKey: Self.soundNeedsYouKey) as? Bool ?? true
+        soundDone = d.object(forKey: Self.soundDoneKey) as? Bool ?? false
         let t = d.double(forKey: Self.snoozeKey)
         snoozedUntil = t > 0 ? Date(timeIntervalSince1970: t) : nil
         armExpiry()
+    }
+
+    /// An agent blocked on you is the one thing worth a sound by default.
+    @Published var soundNeedsYou: Bool {
+        didSet { UserDefaults.standard.set(soundNeedsYou, forKey: Self.soundNeedsYouKey) }
+    }
+
+    /// Off by default: finishes are frequent, so this one turns into noise fastest.
+    @Published var soundDone: Bool {
+        didSet { UserDefaults.standard.set(soundDone, forKey: Self.soundDoneKey) }
     }
 
     var snoozing: Bool { (snoozedUntil ?? .distantPast) > Date() }
@@ -148,6 +163,14 @@ struct SettingsView: View {
                             choice("1 hour", on: false) { prefs.snooze(minutes: 60) }
                             choice("4 hours", on: false) { prefs.snooze(minutes: 240) }
                         }
+                    }
+                }
+
+                group("sounds") {
+                    row("Play a sound",
+                        note: "Silent while Quiet, or while the bar is stepped aside") {
+                        choice("Needs you", on: prefs.soundNeedsYou) { prefs.soundNeedsYou.toggle() }
+                        choice("Done", on: prefs.soundDone) { prefs.soundDone.toggle() }
                     }
                 }
 

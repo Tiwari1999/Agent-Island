@@ -66,6 +66,9 @@ struct AgentRow: Identifiable {
     var status: SessionStatus?
     var tasks: TaskProgress?
     var died: String?
+    /// When this session's turn ended. The store owns the lifetime; the row only plays off it,
+    /// so a rebuild mid-animation cannot restart or lose the beat.
+    var finishedAt: Date?
     /// The agent's own last sentence, shown while it is thinking rather than calling a tool.
     var narration: String?
     var id: String { agent.sessionId }
@@ -256,6 +259,33 @@ final class AgentStore: ObservableObject {
     /// list under the cursor turns the row you are about to click into a different session.
     /// New sessions still appear — appended, not interleaved.
     private var frozenOrder: [String: Int] = [:]
+    /// Last known isWorking per session. Absent means never seen, which seeds without firing —
+    /// otherwise every already-idle session flashes "finished" on launch.
+    private var knownWorking: [String: Bool] = [:]
+    private var finishStamps: [String: Date] = [:]
+    private static let finishFor: TimeInterval = 2.2
+
+    private func noteFinishes(_ rows: inout [AgentRow]) {
+        let now = Date()
+        finishStamps = finishStamps.filter { now.timeIntervalSince($0.value) < Self.finishFor }
+        var live: Set<String> = []
+        for i in rows.indices {
+            let id = rows[i].agent.sessionId
+            live.insert(id)
+            let working = rows[i].isWorking
+            // A row that died did not finish, it stopped — no reward for a crash. And a finish
+            // needs the hook that reports one: without `live`, "not working" can just as easily
+            // mean the hook state aged out mid-turn, which beat for a turn still running.
+            if knownWorking[id] == true, !working, rows[i].died == nil, rows[i].live != nil {
+                finishStamps[id] = now
+            }
+            // Resuming inside the window would otherwise leave finish chrome on a live row.
+            if working { finishStamps.removeValue(forKey: id) }
+            knownWorking[id] = working
+            rows[i].finishedAt = finishStamps[id]
+        }
+        knownWorking = knownWorking.filter { live.contains($0.key) }
+    }
 
     /// Take the freeze from the first sorted result after the panel opens.
     private func freezeOrderIfNeeded() {
@@ -460,7 +490,7 @@ final class AgentStore: ObservableObject {
             }
             Task { @MainActor in
                 let now = Date()
-                let built = resolved
+                var built = resolved
                     .filter { agent, _, lastActive, _ in
                         // The explain button runs a throwaway agent of its own. Whichever CLI
                         // answers, its session must never become a row: nobody started it.
@@ -496,6 +526,7 @@ final class AgentStore: ObservableObject {
                                         ? Narration.line(session: $0.0.sessionId, cwd: $0.0.cwd)
                                         : nil) }
                 // Recency by default; frozen to the opening order while the panel is visible.
+                self.noteFinishes(&built)
                 self.rows = self.applyOrder(built)
                 self.freezeOrderIfNeeded()
                 self.refreshing = false
@@ -516,6 +547,9 @@ final class AgentStore: ObservableObject {
              "blocked": r.dormantBlocked, "working": r.isWorking, "waiting": r.waiting,
              "context": r.contextPct ?? -1, "remote": r.agent.remoteHost ?? "",
              "pid": r.agent.pid ?? -1,
+             // The working->idle edge, so a completion beat can be asserted off disk instead of
+             // by watching the screen.
+             "finished": r.finishedAt.map { ISO8601DateFormatter().string(from: $0) } ?? "",
              // Where the row would jump to, and the exact handle it aims at — the terminal it
              // resolved (Warp / iTerm2 / Terminal / …), whether the jump is precise, and why not.
              "host": r.host.name, "target": r.host.target ?? "",
@@ -541,7 +575,7 @@ final class AgentStore: ObservableObject {
 
     private func applyLive() {
         let now = Date()
-        rows = rows.map { row in
+        var next = rows.map { row -> AgentRow in
             var r = row
             if let l = hooks.live[row.agent.sessionId],
                l.inTool || now.timeIntervalSince(l.at) < Self.liveWindow {
@@ -552,7 +586,9 @@ final class AgentStore: ObservableObject {
             }
             return r
         }
-        rows = applyOrder(rows)
+        // Stop arrives here, not on the 15s rebuild — the beat has to land on the hook.
+        noteFinishes(&next)
+        rows = applyOrder(next)
     }
 
     /// The name a human recognises, resolved the same way everywhere: a renamed Warp tab, then

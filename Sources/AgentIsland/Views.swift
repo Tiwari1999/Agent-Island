@@ -11,6 +11,7 @@ struct CollapsedView: View {
     var revealed: Bool = false
     /// Nothing running, nothing waiting, pointer elsewhere: say the least the bar can say.
     var quiet: Bool = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Content is never allowed nearer the notch than this — text sliding under the camera
     /// housing is the one thing that makes the bar look broken.
@@ -129,6 +130,8 @@ struct CollapsedView: View {
                             .foregroundColor(Theme.working.opacity(0.85))
                     }
                     .lineLimit(1)
+                    .transition(reduceMotion ? .opacity
+                                : .scale(scale: 0.88).combined(with: .opacity))
                 }
                 if store.waitingCount > 0 {
                     HStack(spacing: 3) {
@@ -142,6 +145,8 @@ struct CollapsedView: View {
                         Text("waiting").font(Theme.mono(Type.micro)).foregroundColor(Theme.waiting)
                     }
                     .lineLimit(1)
+                    .transition(reduceMotion ? .opacity
+                                : .scale(scale: 0.88).combined(with: .opacity))
                 } else if store.blockedCount > 0 {
                     HStack(spacing: 3) {
                         Text("\(store.blockedCount)")
@@ -149,9 +154,16 @@ struct CollapsedView: View {
                         Text("blocked").font(Theme.mono(Type.micro)).foregroundColor(Theme.faint)
                     }
                     .lineLimit(1)
+                    .transition(reduceMotion ? .opacity
+                                : .scale(scale: 0.88).combined(with: .opacity))
                 }
                 Spacer(minLength: 0)
             }
+            // Presence bools only. Keyed on the counts, every digit tick would re-pop the chip;
+            // numericText already handles digits and stays on Motion.value.
+            .animation(reduceMotion ? nil : Motion.pop,
+                       value: [store.workingCount > 1, store.waitingCount > 0,
+                               store.blockedCount > 0])
             .frame(width: Self.sides(revealed: revealed, left: leftText, right: rightText).right,
                    alignment: .leading)
             .padding(.leading, Self.notchMargin)
@@ -204,6 +216,9 @@ struct AgentRowView: View {
     var onConsole: (() -> Void)? = nil
     let onJump: () -> Void
     @State private var hover = false
+    @State private var glow: CGFloat = 0
+    @State private var played: Date?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// "Claude · Fable 5 · Warp", with a ⇅ host prefix when the session is remote.
     private var identity: String {
@@ -221,6 +236,27 @@ struct AgentRowView: View {
     /// the output is evidence — leading with commands would be unreadable, since most of them
     /// are shell noise and a good share of the output is minified source.
 
+
+    /// Reduce Motion keeps the wash and drops the fade. Age-gated rather than trusting the
+    /// stamp to be pruned: the next prune can be a collapsed 180s refresh away, and a wash that
+    /// outlives its beat by three minutes is worse than no wash.
+    private var finished: CGFloat {
+        guard let at = row.finishedAt else { return 0 }
+        guard reduceMotion else { return glow }
+        return Date().timeIntervalSince(at) < Self.beatFor ? 1 : 0
+    }
+
+    private static let beatFor: TimeInterval = 0.9
+
+    /// One-shot, once per stamp. `onAppear` also calls this so a finish that happened while the
+    /// panel was closed still lands — which means the same stamp can arrive twice.
+    private func beat(_ at: Date?) {
+        guard let at, at != played, Date().timeIntervalSince(at) < Self.beatFor,
+              !reduceMotion else { return }
+        played = at
+        glow = 1
+        withAnimation(Motion.settle) { glow = 0 }
+    }
 
     private var tint: Color {
         if row.waiting { return Theme.waiting }
@@ -354,9 +390,15 @@ struct AgentRowView: View {
         .background(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(hover && row.canJump ? Theme.raised : Color.clear)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(Theme.raised.opacity(finished))
+                )
         )
         .contentShape(Rectangle())
         .onHover { h in withAnimation(Motion.hover) { hover = h } }
+        .onAppear { beat(row.finishedAt) }
+        .onChange(of: row.finishedAt) { _, at in beat(at) }
         .onTapGesture { if row.canJump { onJump() } }
         .help(row.agent.pidTakenBySibling
               ? "Another chat in this folder owns the running process, so this row cannot jump "
