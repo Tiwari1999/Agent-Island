@@ -3093,9 +3093,15 @@ check("and stays click-through for as long as it is only a readout",
 # window's toolbar opened a 640pt panel over it. Capping the share did not fix it, because the
 # panel still lands on the chrome being reached for. The notch is the whole target now: it is a
 # place you must aim at, and no app's own controls live inside it.
-check("the reveal strip is the notch, not the bar",
-      "let w = HoverSensor.hotWidth(notchWidth: notchWidth)" in _iv12
-      and "barWidth" not in _iv12.split("private var hotRect")[1][:600])
+# Two displays, two problems. With a notch, aim at the notch — tracking the bar made a third
+# of the top edge a trigger and opened a 640pt panel over whatever chrome was being reached
+# for. Without one (mirrored, or an external screen) there is nothing to aim at but the bar,
+# and a narrow invisible strip in the middle of a flat edge is unfindable.
+check("the reveal strip is the notch where there is one",
+      re.search(r"let w = notchWidth > 0 \? aim : \(hushed \? aim : max\(aim, barWidth\)\)",
+                _iv12) is not None)
+check("and falls back to the bar where there is no notch to aim at",
+      "notchWidth = 0" in _iv12 and "max(aim, barWidth)" in _iv12)
 _hw = re.search(r"\(notchWidth > 0 \? notchWidth : \d+\) \+ (\d+)",
                 open(os.path.join(REPO, "Sources/AgentIsland/HoverSensor.swift")).read())
 check("and it is only modestly wider than the notch itself",
@@ -4169,9 +4175,9 @@ check("and release actually removes the mark",
 # with its activity line, and a working agent pushed it past 650pt on a 1512pt screen — a third
 # of the top edge — so reaching for another app's toolbar opened the island over it.
 _isl3 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
-check("the strip no longer grows with whatever the bar is saying",
-      "barWidth" not in _isl3.split("private var hotRect")[1][:600]
-      and "hotShare" not in _isl3)
+check("the strip only grows with the bar when the display has no notch",
+      "hotShare" not in _isl3
+      and re.search(r"let w = notchWidth > 0 \? aim :", _isl3) is not None)
 # Collapsed, the panel must decline the pointer outright: anything it swallowed up there is a
 # click the menu bar never got.
 _hr = _isl3[_isl3.index("private func refreshHitRegion()"):]

@@ -398,20 +398,24 @@ final class Island: NSObject, ObservableObject {
         return notchWidth + w.left + w.right + 2 * CollapsedView.notchMargin
     }
 
-    /// The strip that reveals the island.
+    /// The strip that reveals the island, which is two different problems depending on the
+    /// display.
     ///
-    /// This tracked the bar's width, so that hovering anything the bar said would open it. That
-    /// is a nice idea and it cost more than it was worth: the bar grows with its activity line,
-    /// so a working agent turned a third of the top edge into a trigger, and reaching for
-    /// another window's toolbar opened a 640pt panel on top of it. Capping the share helped and
-    /// did not fix it, because the panel still lands over whatever chrome was being reached for.
+    /// On a notched screen the notch is a physical thing you have to aim at, and no app puts
+    /// its own controls inside it. Claiming it and nothing else is safe. Tracking the bar's
+    /// width instead turned a third of the top edge into a trigger, so reaching for another
+    /// window's toolbar opened a 640pt panel over it — capping the share did not help, because
+    /// the panel still lands on the chrome being reached for.
     ///
-    /// So the strip is the notch and a small margin, and nothing else. The notch is a place you
-    /// have to aim at; no app's own controls live inside it, which is exactly why it is safe to
-    /// claim and the rest of that edge is not.
+    /// Mirrored or on an external display there is no notch, so there is nothing to aim at but
+    /// the bar itself, and a narrow invisible strip in the middle of a flat edge is unfindable.
+    /// There the bar IS the affordance and the strip has to cover it. The accident this guards
+    /// against cannot happen there anyway: without a notch the island only draws where the bar
+    /// is, and the bar is what the pointer is being aimed at.
     private var hotRect: NSRect {
         guard let screen else { return .zero }
-        let w = HoverSensor.hotWidth(notchWidth: notchWidth)
+        let aim = HoverSensor.hotWidth(notchWidth: notchWidth)
+        let w = notchWidth > 0 ? aim : (hushed ? aim : max(aim, barWidth))
         // One point taller than the notch, and the point matters: CGRect.contains EXCLUDES its
         // max edge, and macOS pins the cursor to exactly screen.maxY when you push it to the top
         // — the most natural way to reach the bar. The pointer then sat one point outside the
