@@ -32,24 +32,23 @@ struct AgentAvatar: View {
         return h
     }
 
-    /// One hue per chat: eight hues evenly spaced around OKLCh at a single lightness (0.74)
-    /// and a single chroma. Generated in HSV first, these drifted from L* 0.52 to 0.82 — which
-    /// is why one face ended up with white eyes while the rest had dark ones, and why some
-    /// looked heavier than others. Equal perceptual lightness is what makes all eight read as
-    /// the same character wearing a different colour.
+    /// A hue per chat, continuous rather than chosen from a list. Eight buckets meant two of
+    /// thirty sessions sharing a colour was not unlikely but certain, and two neighbouring rows
+    /// in the same orange reads as a bug. The wheel is continuous, so collisions need the two
+    /// sessions to hash within a couple of degrees of each other.
+    ///
+    /// Fixed lightness and chroma in OKLCh is what makes that safe: every hue comes out at the
+    /// same perceptual weight, so no session is louder than another and the eye rule that
+    /// depends on that weight holds for all of them.
     private var skin: Color {
-        let hues: [Color] = [
-            Color(red: 0.91, green: 0.55, blue: 0.60),   // coral
-            Color(red: 0.89, green: 0.59, blue: 0.38),   // amber
-            Color(red: 0.73, green: 0.68, blue: 0.31),   // olive
-            Color(red: 0.48, green: 0.75, blue: 0.49),   // green
-            Color(red: 0.31, green: 0.75, blue: 0.73),   // teal
-            Color(red: 0.35, green: 0.71, blue: 0.92),   // sky
-            Color(red: 0.62, green: 0.64, blue: 0.94),   // indigo
-            Color(red: 0.82, green: 0.57, blue: 0.82),   // orchid
-        ]
-        return hues[Int(hash % UInt64(hues.count))]
+        Color(FaceLayer.fromOklch(l: Self.skinL, c: Self.skinC,
+                                  h: Double(hash % 3600) / 3600 * 2 * .pi))
     }
+
+    /// 0.116 is the largest chroma that stays in gamut at L 0.74 for every hue — the tightest
+    /// is around 200 degrees, which tops out at 0.126.
+    static let skinL: CGFloat = 0.74
+    static let skinC: CGFloat = 0.116
 
     var body: some View {
         FaceLayer(mood: mood, size: size, tint: NSColor(skin), hovered: hovered,
@@ -90,7 +89,7 @@ private struct Pose {
     }
 }
 
-private struct FaceLayer: NSViewRepresentable {
+struct FaceLayer: NSViewRepresentable {
     let mood: Mood
     let size: CGFloat
     let tint: NSColor
@@ -168,7 +167,7 @@ private struct FaceLayer: NSViewRepresentable {
                 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s)
     }
 
-    private static func fromOklab(_ L: CGFloat, _ A: CGFloat, _ B: CGFloat) -> NSColor {
+    static func fromOklab(_ L: CGFloat, _ A: CGFloat, _ B: CGFloat) -> NSColor {
         let l = pow(L + 0.3963377774 * A + 0.2158037573 * B, 3)
         let m = pow(L - 0.1055613458 * A - 0.0638541728 * B, 3)
         let s = pow(L - 0.0894841775 * A - 1.2914855480 * B, 3)
@@ -180,6 +179,10 @@ private struct FaceLayer: NSViewRepresentable {
                        green: g(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
                        blue: g(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s),
                        alpha: 1)
+    }
+
+    static func fromOklch(l: CGFloat, c: CGFloat, h: Double) -> NSColor {
+        fromOklab(l, c * CGFloat(cos(h)), c * CGFloat(sin(h)))
     }
 
     private static func luminance(_ c: NSColor) -> CGFloat {

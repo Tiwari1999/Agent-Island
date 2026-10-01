@@ -404,10 +404,20 @@ final class Island: NSObject, ObservableObject {
     /// but the notch, and a wide invisible strip is what made merely heading for a browser tab
     /// open the island. While it is on screen, anything narrower than the bar means hovering most
     /// of what you can see does nothing — which is just as broken, from the other end.
+    /// The most of the screen's top edge the reveal strip may ever claim. The rest of that
+    /// edge belongs to whatever app is up there — its menu bar, its tab strip, its sidebar.
+    private static let hotShare: CGFloat = 0.3
+
     private var hotRect: NSRect {
         guard let screen else { return .zero }
         let aim = HoverSensor.hotWidth(notchWidth: notchWidth)
-        let w = hushed ? aim : max(aim, barWidth)
+        // Capped, because the bar grows with whatever it is saying. A working agent with a long
+        // activity line pushed this past 650pt on a 1512pt screen — a third of the top edge —
+        // and reaching for another app's toolbar opened the island on top of it. The visible
+        // bar should still be hoverable along most of its length, but never so far out that
+        // heading for a window's own chrome counts as aiming at us.
+        let cap = max(aim, screen.frame.width * Self.hotShare)
+        let w = hushed ? aim : min(max(aim, barWidth), cap)
         // One point taller than the notch, and the point matters: CGRect.contains EXCLUDES its
         // max edge, and macOS pins the cursor to exactly screen.maxY when you push it to the top
         // — the most natural way to reach the bar. The pointer then sat one point outside the

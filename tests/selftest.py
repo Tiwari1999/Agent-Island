@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Headless self-test: verifies every claim the app makes, without a human looking at it."""
-import glob, json, os, re, subprocess, sys, time
+import glob, json, os, re, subprocess, sys, time, math
 
 # Resolve paths from the repo itself so the suite runs anywhere, not just my machine.
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -3088,8 +3088,9 @@ check("and stays click-through for as long as it is only a readout",
 # notch + 150 covered a third of the menu bar, so merely heading elsewhere up there opened it.
 # Two widths, because they answer different questions: hidden, there is nothing on screen to aim
 # at; visible, a strip narrower than the bar means hovering most of what you can see does nothing.
-check("the strip follows the bar once the bar is on screen",
-      "let w = hushed ? aim : max(aim, barWidth)" in _iv12 and "private var barWidth" in _iv12)
+check("the strip follows the bar once the bar is on screen, up to the cap",
+      "let w = hushed ? aim : min(max(aim, barWidth), cap)" in _iv12
+      and "private var barWidth" in _iv12)
 check("and the bar is asked its own width, not told one",
       "CollapsedView.sides(revealed: revealed, left: bar.leftText, right: bar.rightText)" in _iv12)
 # Synthetic CGEvent moves are NOT delivered to global monitors (verified), so hover cannot be
@@ -4030,18 +4031,24 @@ check("a mood change interpolates rather than cutting",
       and "CATransaction.setDisableActions(!arrived || reduce)" in _av)
 check("and Reduce Motion still gets the instant swap",
       re.search(r"setDisableActions\(!arrived \|\| reduce\)", _av) is not None)
+# Colour says WHOSE the row is, never what it is doing — the mood does that, and a running
+# agent is not entitled to a different hue from an idle one.
 check("the face colour comes from the session, not the state",
-      "hues[Int(hash % UInt64(hues.count))]" in _av)
-# Identity must never out-shout state. Saturation here is capped well under the palette's
-# three semantic hues, which sit around 0.6-0.8, so a row's colour reads as whose it is.
-_skin = _av[_av.index("private var skin: Color {"):]
-_skin = _skin[:_skin.index("return hues[")]
-_rgb = re.findall(r"red: ([\d.]+), green: ([\d.]+), blue: ([\d.]+)", _skin)
-check(f"there are eight face hues", len(_rgb) == 8)
+      "Double(hash % 3600)" in _av
+      and not re.search(r"skin[\s\S]{0,200}mood ==", _av))
+# The palette is a continuous wheel now, not eight entries, so sample all the way round it
+# rather than checking a list. Everything below is computed from the implementation's own
+# constants — a change to the Swift has to break these.
+_sl = re.search(r"static let skinL: CGFloat = ([\d.]+)", _av)
+_sc = re.search(r"static let skinC: CGFloat = ([\d.]+)", _av)
+check("the skin is one lightness and one chroma in OKLCh", _sl is not None and _sc is not None)
+_L, _C = (float(_sl.group(1)), float(_sc.group(1))) if _sl and _sc else (0.74, 0.116)
+check("eight buckets gave way to a continuous hue",
+      "Double(hash % 3600) / 3600 * 2 * .pi" in _av and "let hues: [Color]" not in _av)
 
-# All of this is computed from the palette, not matched against it, so a new hue cannot slip
-# past by looking plausible. OKLab because sRGB luminance under-reads blue badly: on the old
-# HSV palette that one fact gave seven faces dark eyes and the eighth white ones.
+# OKLab, because sRGB luminance under-reads blue badly — on the old HSV palette that one fact
+# gave seven faces dark eyes and the eighth white ones. These mirror Avatar.swift and read its
+# constants, so a change there has to break the checks below rather than slip past them.
 def _lin(x):
     x = float(x)
     return x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4
@@ -4069,18 +4076,13 @@ def _lum(c):
 def _ratio(a, b):
     la, lb = _lum(a), _lum(b)
     return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
-# Read the constants out of the source rather than restating them, or this mirror drifts and
-# the checks go quietly toothless when the implementation changes under them.
 _ks = re.search(r"let k: CGFloat = lit \? ([\d.]+) : ([\d.]+)", _av)
 _Ls = re.search(r"var l: CGFloat = lit \? ([\d.]+) : ([\d.]+)", _av)
 check("the eye constants are readable from the source", _ks is not None and _Ls is not None)
 _K = (float(_ks.group(1)), float(_ks.group(2))) if _ks else (0.3, 0.18)
 _LL = (float(_Ls.group(1)), float(_Ls.group(2))) if _Ls else (0.3, 0.95)
-# The dark-or-light call has to be perceptual. On sRGB luminance blue reads far darker than it
-# looks, and that one fact is what gave a single face white eyes among seven with dark ones.
 check("the dark-or-light decision is made perceptually",
       re.search(r"let lit = bl > [\d.]+", _av) is not None)
-
 def _eye_for(body):                      # mirrors AgentAvatar.eyeColor
     bl, ba, bb = _oklab(body)
     lit = bl > 0.5
@@ -4093,37 +4095,29 @@ def _eye_for(body):                      # mirrors AgentAvatar.eyeColor
         if L < 0.05 or L > 1: break
     return _from(0.05 if lit else 1, ba * k, bb * k)
 
-_bodyL = [_oklab(c)[0] for c in _rgb]
-check("every face weighs the same, whatever its hue",
-      max(_bodyL) - min(_bodyL) < 0.02,
-      f"lightness spread is {max(_bodyL) - min(_bodyL):.3f}")
-_eyes = [_eye_for(c) for c in _rgb]
+_wheel = [_from(_L, _C * math.cos(math.radians(d)), _C * math.sin(math.radians(d)))
+          for d in range(0, 360, 5)]
+_ingamut = [c for c in _wheel if all(0.0 < v < 1.0 for v in c)]
+check(f"every hue on the wheel is in gamut ({len(_wheel)} sampled)",
+      len(_ingamut) == len(_wheel), f"{len(_wheel) - len(_ingamut)} clipped")
+_bodyL = [_oklab(c)[0] for c in _wheel]
+check("and every one weighs the same",
+      max(_bodyL) - min(_bodyL) < 0.02, f"spread {max(_bodyL) - min(_bodyL):.3f}")
+_eyes = [_eye_for(c) for c in _wheel]
 _eyeL = [_oklab(e)[0] for e in _eyes]
-# One face with white eyes among seven with dark ones does not read as the same character in
-# a different colour, which is the entire job of this palette.
-check("every face gets the same kind of eye",
+check("every face gets the same kind of eye, all the way round",
       max(_eyeL) < 0.5 and max(_eyeL) - min(_eyeL) < 0.02,
       f"eye lightness spans {min(_eyeL):.2f}-{max(_eyeL):.2f}")
-_worst = min(_ratio(e, c) for e, c in zip(_eyes, _rgb))
+_worst = min(_ratio(e, c) for e, c in zip(_eyes, _wheel))
 check("and it is readable against its body", _worst >= 4.5, f"worst is {_worst:.2f}:1")
-# Pure greyscale eyes read as holes punched in the face, which is what black-on-yellow looked
-# like. Each eye has to carry a trace of the body it sits in.
 _flat = [e for e in _eyes if max(e) - min(e) < 0.03]
-check("no eye is flat grey", not _flat, f"{len(_flat)} of 8 are untinted")
+check("no eye on the wheel is flat grey", not _flat, f"{len(_flat)} untinted")
 _floor = re.search(r"Self\.contrast\(c, b\) >= ([\d.]+)", _av)
 check("the contrast floor is the readable one",
       _floor is not None and float(_floor.group(1)) >= 4.5)
 check("the eye colour is derived, and derived perceptually",
       "Self.eyeColor(on: tint)" in _av and "NSColor.white.cgColor" not in _av
       and "private static func oklab(" in _av)
-# The first attempt capped saturation instead, which on a flat fill was the only way to stay
-# quiet — and it made all eight read as the same grey-blue. A shaded body carries chroma, so
-# what actually has to hold is that the hues are far APART on the wheel.
-import colorsys
-_hues = sorted(colorsys.rgb_to_hsv(*map(float, c))[0] * 360 for c in _rgb)
-_gaps = [(_hues[i + 1] - _hues[i]) for i in range(len(_hues) - 1)] + [360 - _hues[-1] + _hues[0]]
-check("and they are spread far enough apart to tell one chat from another",
-      min(_gaps) >= 18, f"closest pair is {min(_gaps):.0f} degrees apart")
 
 # --- an ask waiting its turn is not an ask nobody is coming to -------------
 _ap2 = open(os.path.join(REPO, "Sources/AgentIsland/Approvals.swift")).read()
@@ -4159,6 +4153,24 @@ check("an expired queue entry releases its hold",
 _rel = re.search(r"static func release\(_ id: String\) \{(.*?)\n    \}", _ap2, re.S)
 check("and release actually removes the mark",
       _rel is not None and "removeItem" in _rel.group(1) and ".touched" in _rel.group(1))
+
+# --- the island must not own the top edge ---------------------------------
+# The reveal strip tracks the bar's width so you can hover what you can see. But the bar grows
+# with its activity line, and a working agent pushed it past 650pt on a 1512pt screen — a third
+# of the top edge — so reaching for another app's toolbar opened the island over it.
+_isl3 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_share = re.search(r"static let hotShare: CGFloat = ([\d.]+)", _isl3)
+check("the reveal strip is capped as a share of the screen",
+      _share is not None and float(_share.group(1)) <= 0.35,
+      f"claims {float(_share.group(1)) * 100:.0f}% of the top edge" if _share else "no cap")
+check("and the cap is actually applied to the bar-tracking width",
+      re.search(r"let w = hushed \? aim : min\(max\(aim, barWidth\), cap\)", _isl3) is not None)
+# Collapsed, the panel must decline the pointer outright: anything it swallowed up there is a
+# click the menu bar never got.
+_hr = _isl3[_isl3.index("private func refreshHitRegion()"):]
+_hr = _hr[:_hr.index("\n    }")]
+check("a collapsed island accepts no clicks at all",
+      "if state == .collapsed {" in _hr and "window.ignoresMouseEvents = true" in _hr)
 
 # The README advertises a number of checks; it had drifted to 411 against a real 760. A floor
 # rather than an equality: opt-in sections add checks, and bulk deletion is the failure that
