@@ -8,6 +8,9 @@ struct SessionStatus {
     var contextPct: Int?
     /// Everything this session has spent, input + output — what "how big is this chat" means.
     var totalTokens: Int?
+    /// This session's model, not the window's. Rows read the global quota model before, so a
+    /// chat on a different model was labelled with whichever one wrote the status file last.
+    var model: String?
 }
 
 enum SessionStatuses {
@@ -30,6 +33,7 @@ enum SessionStatuses {
                 let o = (cw["total_output_tokens"] as? NSNumber)?.intValue ?? 0
                 if i + o > 0 { s.totalTokens = i + o }
             }
+            s.model = (o["model"] as? [String: Any])?["display_name"] as? String
             out[String(f.dropLast(5))] = s
         }
         if !out.isEmpty { cache = out }

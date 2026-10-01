@@ -1630,6 +1630,15 @@ check("the card is capped by the panel it is drawn in, not the screen",
 check("number keys reset per question", "func bindKeys" in _is3 and "step: Int" in _is3)
 
 print("\n=== 24. the row's chevron opens the console ===")
+# An external display has no notch, so the island's strip is the menu bar itself. Sitting on
+# it blanked the window title and the clock and ate the reach to the top for them.
+check("the island clears the menu bar on a screen with no notch",
+      "notchWidth > 0 ? 0 : NSStatusBar.system.thickness" in _is3)
+check("and every rect hangs off that edge, not off the raw top of the screen",
+      "screen.frame.maxY - notchHeight" not in _is3
+      and "screen.frame.maxY - h" not in _is3
+      and _is3.count("topEdge -") >= 5)
+
 _tv = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
 _tc = open(os.path.join(REPO, "Sources/AgentIsland/ToolCalls.swift")).read()
 _cs = open(os.path.join(REPO, "Sources/AgentIsland/Console.swift")).read()
@@ -1647,8 +1656,13 @@ check("clicking the row still jumps", "onTapGesture { if row.canJump { onJump() 
 check("no inline timeline is left behind",
       "private var timeline" not in _tv and "openCalls" not in _tv
       and "ToolCalls.recent" not in _tv)
-check("so a row is one fixed height again",
-      "AgentRowView.height, alignment: .center" in _tv and "expanded" not in _tv)
+check("so a row is one of two fixed heights, never a growing one",
+      "compact ? AgentRowView.compactHeight : AgentRowView.height" in _tv
+      and "expanded" not in _tv)
+# A dormant roster was the complaint: full-height rows for sessions with nothing to say.
+_rh = float(re.search(r"static let height: CGFloat = ([\d.]+)", _tv).group(1))
+_rch = float(re.search(r"static let compactHeight: CGFloat = ([\d.]+)", _tv).group(1))
+check("and the dormant one is genuinely shorter, not a token trim", _rch < _rh * 0.75)
 
 # The console said a call happened but not what it ran, which is the whole reason to open it.
 check("a console line carries what was sent",
@@ -3055,10 +3069,14 @@ check("and tmux counts as writable, which is what reaches Warp",
 
 print("\n=== 47. the bar shows what it exists to show ===")
 _iv12 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
-# Auto-hide fading the bar while an agent was working removed the one thing the bar is for.
-check("auto-hide never fires while something is running",
-      "guard self.store.workingCount == 0, self.store.waitingCount == 0," in _iv12
+# Auto-hide must not fade a bar that is ASKING — an unanswered prompt is the one thing you
+# cannot afford to lose. Work in progress is the opposite: ambient news, and holding the bar
+# open for it parked an opaque strip over the menu bar for the whole run.
+check("auto-hide never fires while something needs you",
+      "guard self.store.waitingCount == 0," in _iv12
       and "self.store.blockedCount == 0 else { return }" in _iv12)
+check("but work in progress no longer pins the bar there",
+      "self.store.workingCount == 0, self.store.waitingCount" not in _iv12)
 check("and the owning terminal is found by walking the process tree, not the environment",
       "Proc.ancestorWithTTY(pid: pid)" in _iv12.replace("", "")
       or "Proc.ancestorWithTTY" in open(
@@ -3097,11 +3115,11 @@ check("and stays click-through for as long as it is only a readout",
 # of the top edge a trigger and opened a 640pt panel over whatever chrome was being reached
 # for. Without one (mirrored, or an external screen) there is nothing to aim at but the bar,
 # and a narrow invisible strip in the middle of a flat edge is unfindable.
-check("the reveal strip is the notch where there is one",
-      re.search(r"let w = notchWidth > 0 \? aim : \(hushed \? aim : max\(aim, barWidth\)\)",
-                _iv12) is not None)
-check("and falls back to the bar where there is no notch to aim at",
-      "notchWidth = 0" in _iv12 and "max(aim, barWidth)" in _iv12)
+# Narrowing this to the notch stopped the island opening over another window's toolbar, and
+# broke the thing people actually do — hover the bar they can see. Reverted. If the overlap
+# needs solving it belongs in where the panel lands, not in making the bar unhoverable.
+check("the strip follows the bar once the bar is on screen",
+      "let w = hushed ? aim : max(aim, barWidth)" in _iv12 and "private var barWidth" in _iv12)
 _hw = re.search(r"\(notchWidth > 0 \? notchWidth : \d+\) \+ (\d+)",
                 open(os.path.join(REPO, "Sources/AgentIsland/HoverSensor.swift")).read())
 check("and it is only modestly wider than the notch itself",
@@ -3906,7 +3924,7 @@ _row = _vw[_vw.index("struct AgentRowView"):]
 # Theme.swift's own law: three semantic hues, everything else neutral. A green wash on a row
 # that has STOPPED working spends the "working" channel on the opposite of working, and at a
 # glance that reads as still running.
-_bg = _row[_row.index(".frame(height: AgentRowView.height"):]
+_bg = _row[_row.index(".frame(height: compact ? AgentRowView.compactHeight"):]
 _bg = _bg[:_bg.index(".contentShape(Rectangle())")]
 check("the completion beat claims no semantic hue",
       "Theme.working" not in _bg and "Theme.raised.opacity(finished)" in _bg)
@@ -4175,9 +4193,8 @@ check("and release actually removes the mark",
 # with its activity line, and a working agent pushed it past 650pt on a 1512pt screen — a third
 # of the top edge — so reaching for another app's toolbar opened the island over it.
 _isl3 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
-check("the strip only grows with the bar when the display has no notch",
-      "hotShare" not in _isl3
-      and re.search(r"let w = notchWidth > 0 \? aim :", _isl3) is not None)
+check("the strip is not capped away from the bar it reveals",
+      "hotShare" not in _isl3 and "let w = hushed ? aim : max(aim, barWidth)" in _isl3)
 # Collapsed, the panel must decline the pointer outright: anything it swallowed up there is a
 # click the menu bar never got.
 _hr = _isl3[_isl3.index("private func refreshHitRegion()"):]

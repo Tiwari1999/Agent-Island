@@ -198,6 +198,11 @@ struct PeekView: View {
 
 struct AgentRowView: View {
     static let height: CGFloat = 64
+    /// A dormant row still said "idle" on its own line, echoed a prompt whose answer arrived
+    /// hours ago, and named a model and terminal identical to its neighbours' — three bands of
+    /// furniture to say nothing changed. Compact keeps what finds a session and what says how
+    /// long ago: the face, project, title, age, and the jump.
+    static let compactHeight: CGFloat = 36
 
     let row: AgentRow
     let model: String?
@@ -238,6 +243,9 @@ struct AgentRowView: View {
     /// Reduce Motion keeps the wash and drops the fade. Age-gated rather than trusting the
     /// stamp to be pruned: the next prune can be a collapsed 180s refresh away, and a wash that
     /// outlives its beat by three minutes is worse than no wash.
+    /// Dormant, by the same rule the face uses — so a row can never look asleep and read busy.
+    private var compact: Bool { row.mood == .idle && onAnswer == nil && onPlan == nil }
+
     private var finished: CGFloat {
         guard let at = row.finishedAt else { return 0 }
         guard reduceMotion else { return glow }
@@ -267,9 +275,11 @@ struct AgentRowView: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             VStack(spacing: 5) {
-                AgentAvatar(seed: row.agent.sessionId, size: 34, mood: row.mood, hovered: hover)
+                AgentAvatar(seed: row.agent.sessionId, size: compact ? 22 : 34,
+                            mood: row.mood, hovered: hover)
+                // The dot repeats what the face already says; only a waiting row needs it to pulse.
                 if row.isWorking { ActivityBars(color: tint, height: 9, active: true) }
-                else { Dot(color: tint, size: 5, pulse: row.waiting) }
+                else if !compact { Dot(color: tint, size: 5, pulse: row.waiting) }
             }
             .frame(width: 22)
             .padding(.top, 2)
@@ -294,7 +304,7 @@ struct AgentRowView: View {
                     Spacer(minLength: 6)
                     // One quiet identity cluster instead of three capsules: what a row IS
                     // never demands action, so it never earns three separate shapes.
-                    chip(identity, row.agent.remoteHost != nil ? Theme.amber : Theme.muted)
+                    if !compact { chip(identity, row.agent.remoteHost != nil ? Theme.amber : Theme.muted) }
                     if let onAnswer {
                         HStack(spacing: 3) {
                             Image(systemName: "questionmark.bubble.fill").font(.system(size: 10))
@@ -341,46 +351,50 @@ struct AgentRowView: View {
                         .font(.system(size: 10.5)).foregroundColor(hover ? tint : Theme.faint)
                 }
 
-                if let p = row.lastPrompt, !p.isEmpty {
+                if let p = row.lastPrompt, !p.isEmpty, !compact {
                     Text("You: \(p)")
                         .font(Theme.mono(Type.small)).foregroundColor(Theme.muted)
                         .lineLimit(1).truncationMode(.tail)
                 }
 
                 // Tool name reads as a link, argument stays quiet — the reference's "Bash cargo test".
-                HStack(spacing: 5) {
-                    if let why = row.died {
-                        Image(systemName: "xmark.octagon.fill")
-                            .font(.system(size: 10)).foregroundColor(Theme.failed)
-                        Text("died · \(why)").font(Theme.mono(Type.small)).foregroundColor(Theme.failed)
-                    } else if let t = row.tool {
-                        Text(t).font(Theme.mono(Type.small)).foregroundColor(Theme.tool)
-                    }
-                    if row.dormantBlocked, let q = row.blockedQuestion {
-                        Image(systemName: "pause.circle")
-                            .font(.system(size: 10)).foregroundColor(Theme.faint)
-                        Text("blocked · \(q)")
-                            .font(Theme.mono(Type.small)).foregroundColor(Theme.muted)
-                            .lineLimit(1).truncationMode(.tail)
-                    } else if row.died == nil {
-                        Text(row.tasks?.current
-                             ?? row.activity
-                             ?? (row.waiting ? "waiting for your input"
-                                 : row.isWorking ? "working"
-                                 : row.justCompleted ? "completed" : "idle"))  // never raw phase
-                            .font(Theme.mono(Type.small))
-                            // Weight, not hue: the palette keeps its three semantic colours.
-                            .foregroundColor(row.waiting ? Theme.waiting
-                                             : row.justCompleted ? Theme.muted : Theme.faint)
-                            .lineLimit(1).truncationMode(.middle)
+                // Skipped entirely when dormant: its only possible value there is the word "idle".
+                if !compact {
+                    HStack(spacing: 5) {
+                        if let why = row.died {
+                            Image(systemName: "xmark.octagon.fill")
+                                .font(.system(size: 10)).foregroundColor(Theme.failed)
+                            Text("died · \(why)").font(Theme.mono(Type.small)).foregroundColor(Theme.failed)
+                        } else if let t = row.tool {
+                            Text(t).font(Theme.mono(Type.small)).foregroundColor(Theme.tool)
+                        }
+                        if row.dormantBlocked, let q = row.blockedQuestion {
+                            Image(systemName: "pause.circle")
+                                .font(.system(size: 10)).foregroundColor(Theme.faint)
+                            Text("blocked · \(q)")
+                                .font(Theme.mono(Type.small)).foregroundColor(Theme.muted)
+                                .lineLimit(1).truncationMode(.tail)
+                        } else if row.died == nil {
+                            Text(row.tasks?.current
+                                 ?? row.activity
+                                 ?? (row.waiting ? "waiting for your input"
+                                     : row.isWorking ? "working"
+                                     : row.justCompleted ? "completed" : "idle"))  // never raw phase
+                                .font(Theme.mono(Type.small))
+                                // Weight, not hue: the palette keeps its three semantic colours.
+                                .foregroundColor(row.waiting ? Theme.waiting
+                                                 : row.justCompleted ? Theme.muted : Theme.faint)
+                                .lineLimit(1).truncationMode(.middle)
+                        }
                     }
                 }
             }
         }
-        .padding(.horizontal, 12).padding(.vertical, 9)
+        .padding(.horizontal, 12).padding(.vertical, compact ? 6 : 9)
         // Rows are a fixed height so the panel can size itself exactly; centring splits the
         // slack of a two-line row instead of pooling it all under the text as a gap.
-        .frame(height: AgentRowView.height, alignment: .center)
+        .frame(height: compact ? AgentRowView.compactHeight : AgentRowView.height,
+               alignment: .center)
         .background(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(hover && row.canJump ? Theme.raised : Color.clear)
@@ -545,7 +559,7 @@ struct PanelView: View {
                     // is a stutter, and the stopped-session fold already caps what is here.
                     VStack(spacing: PanelView.rowGap) {
                         ForEach(visibleRows) { row in
-                            AgentRowView(row: row, model: status.quota.model,
+                            AgentRowView(row: row, model: row.status?.model ?? status.quota.model,
                                          onPlan: store.hooks.plans[row.agent.sessionId].map { _ in
                                              { withAnimation(Motion.shell) {
                                                    mode = .plan(session: row.agent.sessionId,

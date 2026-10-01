@@ -193,15 +193,36 @@ final class Island: NSObject, ObservableObject {
                                          repeats: false) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.state == .collapsed, !self.revealed else { return }
-                // Never while something is happening. The bar exists to show that an agent is
-                // working; hiding it then removes the one thing it is for.
-                guard self.store.workingCount == 0, self.store.waitingCount == 0,
+                // Never while something needs you — an agent blocked on an answer is an
+                // interruption, and a bar that hides it is not doing its job.
+                //
+                // Work in progress is different. It used to hold the bar open too, on the
+                // grounds that showing work is what the bar is for. But an agent runs for
+                // minutes while you work in another window, and the bar sits opaque across the
+                // top of it the whole time, over the toolbar you are reaching for. It steps
+                // aside now and comes straight back: `wake()` runs on hover and on every change
+                // to what the bar says, so nothing is lost except the obstruction.
+                guard self.store.waitingCount == 0,
                       self.store.blockedCount == 0 else { return }
                 withAnimation(Motion.content) { self.autoHidden = true }
             }
         }
     }
     private var screen: NSScreen? { pinned ?? activeScreen }
+
+    /// How far below the top of the display the island starts.
+    ///
+    /// Zero on a notched screen: the bar lives in the notch, beside the menu bar, not over it.
+    /// A screen with no notch has the menu bar in that exact strip instead, and sitting on it
+    /// blanked the window title and the clock and swallowed the slam-to-the-top reach for them.
+    static func topInset(notchWidth: CGFloat) -> CGFloat {
+        notchWidth > 0 ? 0 : NSStatusBar.system.thickness
+    }
+
+    /// The island's own top edge — `screen.frame.maxY` only when that is not the menu bar.
+    private var topEdge: CGFloat {
+        (screen?.frame.maxY ?? 0) - Self.topInset(notchWidth: notchWidth)
+    }
 
     /// Re-home the window on the active display. Safe to do while collapsed because nothing is
     /// drawn then, so the move cannot be seen.
@@ -213,11 +234,12 @@ final class Island: NSObject, ObservableObject {
         measureNotch(target)
         let size = Self.maxSize
         window.setFrame(NSRect(x: target.frame.midX - size.width / 2,
-                               y: target.frame.maxY - size.height,
+                               y: topEdge - size.height,
                                width: size.width, height: size.height),
                         display: false)
         sensor.rect = { [weak self] in self?.hotRect ?? .zero }
-        sensor.install(on: target, notchWidth: notchWidth, notchHeight: notchHeight)
+        sensor.install(on: target, notchWidth: notchWidth, notchHeight: notchHeight,
+                       topInset: Self.topInset(notchWidth: notchWidth))
         Diagnostics.log("island moved to screen \(target.frame)")
         return true
     }
@@ -229,7 +251,7 @@ final class Island: NSObject, ObservableObject {
 
         let size = Self.maxSize
         let origin = NSPoint(x: screen.frame.midX - size.width / 2,
-                             y: screen.frame.maxY - size.height)
+                             y: topEdge - size.height)
         let panel = Panel(contentRect: NSRect(origin: origin, size: size),
                           styleMask: [.borderless, .nonactivatingPanel],
                           backing: .buffered, defer: false)
@@ -343,7 +365,8 @@ final class Island: NSObject, ObservableObject {
         }
 
         sensor.rect = { [weak self] in self?.hotRect ?? .zero }
-        sensor.install(on: screen, notchWidth: notchWidth, notchHeight: notchHeight)
+        sensor.install(on: screen, notchWidth: notchWidth, notchHeight: notchHeight,
+                       topInset: Self.topInset(notchWidth: notchWidth))
         wake()
         sensor.onEnter = { [weak self] in
             guard let self else { return }
@@ -398,29 +421,26 @@ final class Island: NSObject, ObservableObject {
         return notchWidth + w.left + w.right + 2 * CollapsedView.notchMargin
     }
 
-    /// The strip that reveals the island, which is two different problems depending on the
-    /// display.
+    /// The strip that reveals the island, and keeps it open once it is.
     ///
-    /// On a notched screen the notch is a physical thing you have to aim at, and no app puts
-    /// its own controls inside it. Claiming it and nothing else is safe. Tracking the bar's
-    /// width instead turned a third of the top edge into a trigger, so reaching for another
-    /// window's toolbar opened a 640pt panel over it — capping the share did not help, because
-    /// the panel still lands on the chrome being reached for.
+    /// Two different questions, so two widths. While the bar is hidden there is nothing to aim at
+    /// but the notch, and a wide invisible strip is what made merely heading for a browser tab
+    /// open the island. While it is on screen, anything narrower than the bar means hovering most
+    /// of what you can see does nothing — which is just as broken, from the other end.
     ///
-    /// Mirrored or on an external display there is no notch, so there is nothing to aim at but
-    /// the bar itself, and a narrow invisible strip in the middle of a flat edge is unfindable.
-    /// There the bar IS the affordance and the strip has to cover it. The accident this guards
-    /// against cannot happen there anyway: without a notch the island only draws where the bar
-    /// is, and the bar is what the pointer is being aimed at.
+    /// Narrowing this to the notch was tried, to stop the island opening over another window's
+    /// toolbar. It fixed that and broke the thing people actually do, which is hover the bar they
+    /// can see — so it was reverted. If the overlap needs solving, it needs solving in where the
+    /// panel lands, not in making the bar unhoverable.
     private var hotRect: NSRect {
         guard let screen else { return .zero }
         let aim = HoverSensor.hotWidth(notchWidth: notchWidth)
-        let w = notchWidth > 0 ? aim : (hushed ? aim : max(aim, barWidth))
+        let w = hushed ? aim : max(aim, barWidth)
         // One point taller than the notch, and the point matters: CGRect.contains EXCLUDES its
         // max edge, and macOS pins the cursor to exactly screen.maxY when you push it to the top
         // — the most natural way to reach the bar. The pointer then sat one point outside the
         // strip and the island opened only if you stopped just short of the edge.
-        return NSRect(x: screen.frame.midX - w / 2, y: screen.frame.maxY - notchHeight,
+        return NSRect(x: screen.frame.midX - w / 2, y: topEdge - notchHeight,
                       width: w, height: notchHeight + 1)
     }
 
@@ -429,7 +449,7 @@ final class Island: NSObject, ObservableObject {
     private var panelRect: NSRect {
         guard let screen else { return .zero }
         return NSRect(x: screen.frame.midX - PanelView.width / 2,
-                      y: screen.frame.maxY - notchHeight - Self.notchClearance - PanelView.height,
+                      y: topEdge - notchHeight - Self.notchClearance - PanelView.height,
                       width: PanelView.width,
                       height: notchHeight + Self.notchClearance + PanelView.height)
     }
@@ -438,7 +458,7 @@ final class Island: NSObject, ObservableObject {
     private var peekRect: NSRect {
         guard let screen else { return .zero }
         let w: CGFloat = 380, h = notchHeight + Self.notchClearance + 38
-        return NSRect(x: screen.frame.midX - w / 2, y: screen.frame.maxY - h, width: w, height: h)
+        return NSRect(x: screen.frame.midX - w / 2, y: topEdge - h, width: w, height: h)
     }
 
     /// Both the window and the card read this, so the card can never be drawn at a size the
@@ -457,7 +477,7 @@ final class Island: NSObject, ObservableObject {
         guard case .approval(let a) = state else { return .zero }
         let size = approvalSize(a)
         let h = notchHeight + Self.notchClearance + size.height
-        return NSRect(x: screen.frame.midX - size.width / 2, y: screen.frame.maxY - h,
+        return NSRect(x: screen.frame.midX - size.width / 2, y: topEdge - h,
                       width: size.width, height: h)
     }
 
@@ -500,7 +520,7 @@ final class Island: NSObject, ObservableObject {
         guard case .question(let q) = state else { return .zero }
         let size = questionSize(q)
         let h = notchHeight + Self.notchClearance + size.height
-        return NSRect(x: screen.frame.midX - size.width / 2, y: screen.frame.maxY - h,
+        return NSRect(x: screen.frame.midX - size.width / 2, y: topEdge - h,
                       width: size.width, height: h)
     }
 
