@@ -189,6 +189,18 @@ struct AgentRow: Identifiable {
     /// on something that finished a minute ago hides the thing you came back to look at.
     static let completedFor: TimeInterval = 3600
 
+    /// Precedence is the order you would want to be told: a crash outranks a question,
+    /// a question outranks work in progress, and "finished" only applies to a row that is
+    /// genuinely finished rather than merely between tool calls.
+    var mood: Mood {
+        if died != nil { return .died }
+        if waiting { return .needsYou }
+        if isWorking { return .working }
+        if dormantBlocked { return .blocked }
+        if justCompleted { return .done }
+        return .idle
+    }
+
     var justCompleted: Bool {
         guard !isWorking, !waiting, died == nil, !dormantBlocked,
               let seen = lastActive else { return false }

@@ -3962,6 +3962,57 @@ _cx = re.search(r"if rate >= ([\d.]+) \{ q\.exhaustsIn", _st2)
 check("the estimate is computed whenever the window is actually climbing",
       _cx is not None and float(_cx.group(1)) <= 0.1)
 
+# --- the sprite has moods, and most of them cost nothing --------------------
+_av = open(os.path.join(REPO, "Sources/AgentIsland/Avatar.swift")).read()
+# The whole lightweight promise: a panel can hold a dozen sprites, and only the ones whose
+# agent is actually doing something (or actually waiting on you) are allowed to move.
+check("only working and needs-you animate",
+      re.search(r"var animates: Bool \{ self == \.working \|\| self == \.needsYou \}",
+                _av) is not None)
+check("and everything else returns before an animation is added",
+      "guard !reduce, mood.animates else { return }" in _av)
+# SwiftUI's repeatForever measured 6.9% CPU on this exact kind of view; CA costs the process
+# nothing once the render server has it. That decision must not quietly regress.
+check("the sprite animates on CoreAnimation, not SwiftUI",
+      ".repeatForever(" not in _av and "CAKeyframeAnimation" in _av)
+# Twenty-five SwiftUI Rectangles per sprite, times a dozen rows, is the version that was
+# cheap to write and expensive to run.
+check("a sprite is one shape layer, not twenty-five views",
+      "CAShapeLayer" in _av and _av.count("Rectangle()") == 0)
+# Reduce Motion must not cost the user the information: colour and posture carry the state.
+_rm = _av[_av.index("switch mood {"):_av.index("guard !reduce, mood.animates")]
+check("every mood paints before any Reduce Motion bail", _rm.count("fillColor") == 6)
+# Posture is not motion: needs-you leans out and blocked slumps even with Reduce Motion on,
+# because the lean says something the colour does not.
+_lean = re.search(r"let lean: CGFloat = mood == \.needsYou \? ([\d.-]+) : "
+                  r"\(mood == \.blocked \? ([\d.-]+) : 0\)", _av)
+check("needs-you leans out and blocked slumps the other way",
+      _lean is not None and float(_lean.group(1)) > 0 and float(_lean.group(2)) < 0)
+# SwiftUI re-runs updateNSView on every store change, and .done lasts an hour — without the
+# edge the celebration hop replays several times a second for the whole hour.
+check("the completion hop plays once on arrival, not on every update",
+      "if mood == .done, arrived, !reduce {" in _av and "let arrived = context.coordinator.mood != mood" in _av)
+# An hour of full-brightness "finished" is indistinguishable from "still running" at a glance.
+_done = re.search(r"case \.done:\s+shape\.fillColor = lit\.cgColor;\s+shape\.opacity = ([\d.]+)", _av)
+_work = re.search(r"case \.working:\s+shape\.fillColor = lit\.cgColor;\s+shape\.opacity = ([\d.]+)", _av)
+check("a finished sprite settles dimmer than a working one",
+      _done is not None and _work is not None and float(_done.group(1)) < float(_work.group(1)))
+check("posture survives Reduce Motion",
+      "CATransform3DMakeRotation(lean, 0, 0, 1)" in _av
+      and _av.index("let lean") < _av.index("guard !reduce, mood.animates"))
+# Precedence is the order you would want to be told. A crash hidden behind "working" because
+# the process has not been reaped yet is the failure this pins.
+_mood = _st[_st.index("var mood: Mood {"):]
+_mood = _mood[:_mood.index("\n    }")]
+_order = [l.split("return .")[1].split("}")[0].strip()
+          for l in _mood.splitlines() if "return ." in l]
+check("mood precedence puts a crash first and idle last",
+      _order == ["died", "needsYou", "working", "blocked", "done", "idle"],
+      " -> ".join(_order))
+# The bar and the panel read the same property, so a sprite cannot say two things at once.
+check("the bar and the row share one mood source",
+      _vw.count("mood: row.mood") == 2)
+
 # The README advertises a number of checks; it had drifted to 411 against a real 760. A floor
 # rather than an equality: opt-in sections add checks, and bulk deletion is the failure that
 # matters — deleted checks do not run, so the suite still says green while covering less.

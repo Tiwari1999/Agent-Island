@@ -94,7 +94,7 @@ struct CollapsedView: View {
                 }
                 Spacer(minLength: 0)
                 if let row = lead {
-                    AgentAvatar(seed: row.agent.sessionId, size: 13, active: true)
+                    AgentAvatar(seed: row.agent.sessionId, size: 13, mood: row.mood)
                     Text(row.activity ?? row.displayName)
                         .font(Theme.mono(Type.small))
                         .foregroundColor(row.waiting ? Theme.waiting : Theme.muted)
@@ -273,8 +273,7 @@ struct AgentRowView: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             VStack(spacing: 5) {
-                AgentAvatar(seed: row.agent.sessionId, size: 20,
-                            active: row.isWorking || row.waiting)
+                AgentAvatar(seed: row.agent.sessionId, size: 20, mood: row.mood)
                 if row.isWorking { ActivityBars(color: tint, height: 9, active: true) }
                 else { Dot(color: tint, size: 5, pulse: row.waiting) }
             }

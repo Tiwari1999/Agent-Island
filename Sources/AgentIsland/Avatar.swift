@@ -1,11 +1,26 @@
 import SwiftUI
+import AppKit
 
-/// A deterministic pixel glyph per session — the same agent always draws the same badge, so rows
-/// become recognisable by shape before you read them. Generated, so there are no assets to ship.
+/// What the sprite is doing. The reference app this idea came from runs one mascot for the
+/// whole window; a roster wants one face per agent, so the expression lives here rather than
+/// in a single character, and it scales with the list instead of competing with it.
+enum Mood: Equatable {
+    case working, needsYou, blocked, idle, done, died
+
+    /// Only these two move. Everything else parks, which is what keeps a panel full of
+    /// sprites off the idle budget — nothing animates unless an agent is actually doing
+    /// something or actually waiting on you.
+    var animates: Bool { self == .working || self == .needsYou }
+}
+
 struct AgentAvatar: View {
     let seed: String
     var size: CGFloat = 20
-    var active: Bool = true
+    var mood: Mood = .idle
+
+    init(seed: String, size: CGFloat = 20, mood: Mood = .idle) {
+        self.seed = seed; self.size = size; self.mood = mood
+    }
 
     private var hash: UInt64 {
         // FNV-1a: cheap, well-spread, and stable across launches.
@@ -41,19 +56,132 @@ struct AgentAvatar: View {
 
     var body: some View {
         let (fg, dim) = palette
+        SpriteLayer(cells: cells, size: size, mood: mood,
+                    lit: NSColor(fg), dull: NSColor(dim))
+            .frame(width: size, height: size)
+    }
+}
+
+/// One shape layer, not twenty-five SwiftUI rectangles. A panel can hold a dozen of these and
+/// each needs a repeating transform while its agent works — the same reason `RunningPulse`
+/// is CoreAnimation: SwiftUI's `repeatForever` measured 6.9% CPU, a CAAnimation costs this
+/// process nothing once the render server has it.
+private struct SpriteLayer: NSViewRepresentable {
+    let cells: [Bool]
+    let size: CGFloat
+    let mood: Mood
+    let lit: NSColor
+    let dull: NSColor
+
+    func makeNSView(context: Context) -> NSView {
+        let v = NSView(frame: NSRect(x: 0, y: 0, width: size, height: size))
+        v.wantsLayer = true
+        let shape = CAShapeLayer()
+        shape.name = "sprite"
+        shape.frame = v.bounds
+        shape.path = Self.path(cells, size)
+        shape.fillRule = .nonZero
+        v.layer?.addSublayer(shape)
+        apply(to: v, context: context)
+        return v
+    }
+
+    func updateNSView(_ v: NSView, context: Context) { apply(to: v, context: context) }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    final class Coordinator { var mood: Mood? }
+
+    private static func path(_ cells: [Bool], _ size: CGFloat) -> CGPath {
         let px = size / 5
-        VStack(spacing: 0) {
-            ForEach(0..<5, id: \.self) { r in
-                HStack(spacing: 0) {
-                    ForEach(0..<5, id: \.self) { c in
-                        Rectangle()
-                            .fill(cells[r * 5 + c] ? (active ? fg : dim) : Color.clear)
-                            .frame(width: px, height: px)
-                    }
-                }
+        let p = CGMutablePath()
+        for r in 0..<5 {
+            for c in 0..<5 where cells[r * 5 + c] {
+                // Flipped vertically: CALayer's origin is bottom-left, the grid reads top-down.
+                p.addRect(CGRect(x: CGFloat(c) * px, y: CGFloat(4 - r) * px,
+                                 width: px, height: px))
             }
         }
-        .frame(width: size, height: size)
-        .opacity(active ? 1 : 0.55)
+        return p
+    }
+
+    private func apply(to v: NSView, context: Context) {
+        guard let shape = v.layer?.sublayers?.first(where: { $0.name == "sprite" })
+                as? CAShapeLayer else { return }
+        let reduce = context.environment.accessibilityReduceMotion
+        // SwiftUI re-runs this on every store update. Without the edge, a row that sits in
+        // .done for the hour `justCompleted` lasts would replay its hop a few times a second.
+        let arrived = context.coordinator.mood != mood
+        context.coordinator.mood = mood
+
+        shape.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        shape.frame = v.bounds
+        shape.removeAllAnimations()
+
+        // Colour and weight carry the state on their own, so the sprite still reads correctly
+        // with Reduce Motion on and with every animation stripped.
+        switch mood {
+        case .working:  shape.fillColor = lit.cgColor;  shape.opacity = 1
+        case .needsYou: shape.fillColor = NSColor(Theme.waiting).cgColor; shape.opacity = 1
+        // Recently finished, not still running: the hop is the moment, and after it the
+        // sprite settles nearer stale than busy — `justCompleted` lasts an hour, and an hour
+        // of full-brightness green is indistinguishable from work still in flight.
+        case .done:     shape.fillColor = lit.cgColor;  shape.opacity = 0.72
+        case .blocked:  shape.fillColor = dull.cgColor; shape.opacity = 0.5
+        case .idle:     shape.fillColor = dull.cgColor; shape.opacity = 0.42
+        case .died:     shape.fillColor = NSColor(Theme.failed).cgColor; shape.opacity = 0.55
+        }
+
+        // A lean is posture, not motion — it survives Reduce Motion because it says something
+        // the colour does not: this one is leaning out at you.
+        let lean: CGFloat = mood == .needsYou ? 0.10 : (mood == .blocked ? -0.06 : 0)
+        let drop: CGFloat = mood == .blocked ? -size * 0.06 : 0
+        shape.transform = CATransform3DConcat(
+            CATransform3DMakeRotation(lean, 0, 0, 1),
+            CATransform3DMakeTranslation(0, drop, 0))
+
+        // A one-shot celebration: a small hop that settles. It plays on arrival at .done and
+        // then the sprite is still, because a finished agent must stop asking for attention.
+        if mood == .done, arrived, !reduce {
+            let hop = CAKeyframeAnimation(keyPath: "transform.scale")
+            hop.values = [1.0, 0.86, 1.14, 0.97, 1.0]
+            hop.keyTimes = [0, 0.18, 0.42, 0.72, 1]
+            hop.duration = 0.52
+            hop.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            shape.add(hop, forKey: "hop")
+            return
+        }
+
+        guard !reduce, mood.animates else { return }
+
+        let a = CAKeyframeAnimation(keyPath: "transform")
+        if mood == .needsYou {
+            // Two quick tugs then a wait — a wave, not a vibration. The pause is most of the
+            // cycle, which is what stops it reading as an error state you want to mute.
+            func tilt(_ r: CGFloat, _ s: CGFloat) -> NSValue {
+                NSValue(caTransform3D: CATransform3DConcat(
+                    CATransform3DMakeScale(s, s, 1), CATransform3DMakeRotation(r, 0, 0, 1)))
+            }
+            a.values = [tilt(0.10, 1.0), tilt(0.24, 1.07), tilt(0.02, 1.0),
+                        tilt(0.22, 1.06), tilt(0.10, 1.0), tilt(0.10, 1.0)]
+            a.keyTimes = [0, 0.08, 0.17, 0.26, 0.36, 1]
+            a.duration = 2.2
+        } else {
+            // Breathing with an occasional bob. One keyframe animation gives "every so often"
+            // for free — a timer firing every seven seconds to nudge a sprite is exactly the
+            // kind of always-on cost this app does not spend.
+            func s(_ x: CGFloat, _ y: CGFloat) -> NSValue {
+                NSValue(caTransform3D: CATransform3DMakeScale(x, y, 1))
+            }
+            a.values = [s(1, 1), s(1.045, 1.045), s(1, 1), s(1.045, 1.045), s(1, 1),
+                        s(1.10, 0.90), s(0.96, 1.08), s(1, 1)]
+            a.keyTimes = [0, 0.16, 0.32, 0.48, 0.64, 0.74, 0.86, 1]
+            a.duration = 7.4
+        }
+        a.repeatCount = .infinity
+        a.calculationMode = .cubic
+        // Stagger per sprite, so a panel of agents reads as a crowd rather than one organism
+        // breathing in lockstep — which is the thing that looks mechanical.
+        a.timeOffset = Double(abs(cells.hashValue % 97)) / 97.0 * a.duration
+        shape.add(a, forKey: "mood")
     }
 }
