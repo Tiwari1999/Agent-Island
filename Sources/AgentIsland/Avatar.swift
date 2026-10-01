@@ -32,19 +32,21 @@ struct AgentAvatar: View {
         return h
     }
 
-    /// One hue per chat, evenly spaced around the wheel. An earlier pass desaturated these to
-    /// under 0.30 and all eight collapsed into the same grey-blue; eight faces have to be told
-    /// apart at 17pt in a menu bar, so what matters is the spacing, not the restraint.
+    /// One hue per chat: eight hues evenly spaced around OKLCh at a single lightness (0.74)
+    /// and a single chroma. Generated in HSV first, these drifted from L* 0.52 to 0.82 — which
+    /// is why one face ended up with white eyes while the rest had dark ones, and why some
+    /// looked heavier than others. Equal perceptual lightness is what makes all eight read as
+    /// the same character wearing a different colour.
     private var skin: Color {
         let hues: [Color] = [
-            Color(red: 0.80, green: 0.45, blue: 0.34),   // vermilion
-            Color(red: 0.80, green: 0.80, blue: 0.34),   // yellow
-            Color(red: 0.46, green: 0.80, blue: 0.34),   // chartreuse
-            Color(red: 0.34, green: 0.80, blue: 0.56),   // green
-            Color(red: 0.34, green: 0.69, blue: 0.80),   // cyan
-            Color(red: 0.34, green: 0.34, blue: 0.80),   // blue
-            Color(red: 0.68, green: 0.34, blue: 0.80),   // violet
-            Color(red: 0.80, green: 0.34, blue: 0.57),   // magenta
+            Color(red: 0.91, green: 0.55, blue: 0.60),   // coral
+            Color(red: 0.89, green: 0.59, blue: 0.38),   // amber
+            Color(red: 0.73, green: 0.68, blue: 0.31),   // olive
+            Color(red: 0.48, green: 0.75, blue: 0.49),   // green
+            Color(red: 0.31, green: 0.75, blue: 0.73),   // teal
+            Color(red: 0.35, green: 0.71, blue: 0.92),   // sky
+            Color(red: 0.62, green: 0.64, blue: 0.94),   // indigo
+            Color(red: 0.82, green: 0.57, blue: 0.82),   // orchid
         ]
         return hues[Int(hash % UInt64(hues.count))]
     }
@@ -127,20 +129,57 @@ private struct FaceLayer: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
     final class Coordinator { var mood: Mood?; var hovered = false }
 
-    /// White eyes were hardcoded, and measured 1.70:1 against the yellow body — seven of the
-    /// eight hues failed the 4.5:1 readable floor, which at 17pt in a menu bar means the face
-    /// has no eyes at all. Dark eyes on a light face, light on a dark one, then walk until it
-    /// actually passes rather than assuming it does. The rule is blobatar's (MIT).
+    /// Eyes were pure greyscale, and black on a light body is a hole punched in a face. Worse,
+    /// the dark-or-light decision was made on WCAG relative luminance, which under-reads blue
+    /// badly — so seven faces got dark eyes and the blue one alone got white, which is the
+    /// opposite of every configuration feeling like the same character.
+    ///
+    /// Both are the same fix: work in OKLab, where lightness means what the eye means by it.
+    /// The decision is one perceptual threshold, and the eye keeps the body's own hue at a
+    /// sliver of chroma, so a yellow face gets a deep amber eye rather than a black hole.
     static func eyeColor(on body: NSColor) -> NSColor {
-        let lit = Self.luminance(body) > 0.18
-        var l: CGFloat = lit ? 0.10 : 0.98
-        for _ in 0..<40 {
-            let c = NSColor(white: l, alpha: 1)
-            if Self.contrast(c, body) >= 4.5 { return c }
-            l += lit ? -0.02 : 0.02
-            if l < 0 || l > 1 { break }
+        guard let b = body.usingColorSpace(.sRGB) else { return .black }
+        let (bl, ba, bb) = Self.oklab(b)
+        let lit = bl > 0.5
+        // Chroma is scaled down, not dropped: enough for the eye to belong to the face, little
+        // enough that it still reads as an eye. The same two numbers work for all eight hues,
+        // which is the point — no colour gets a special case.
+        let k: CGFloat = lit ? 0.30 : 0.18
+        var l: CGFloat = lit ? 0.30 : 0.95
+        for _ in 0..<50 {
+            let c = Self.fromOklab(l, ba * k, bb * k)
+            if Self.contrast(c, b) >= 4.5 { return c }
+            l += lit ? -0.015 : 0.015
+            if l < 0.05 || l > 1 { break }
         }
-        return NSColor(white: lit ? 0 : 1, alpha: 1)
+        return Self.fromOklab(lit ? 0.05 : 1, ba * k, bb * k)
+    }
+
+    /// Ottosson's OKLab. Perceptual lightness, which is the whole reason it is here: equal L
+    /// looks equally dark whatever the hue, and sRGB luminance does not.
+    private static func oklab(_ c: NSColor) -> (CGFloat, CGFloat, CGFloat) {
+        func f(_ x: CGFloat) -> CGFloat { x <= 0.04045 ? x / 12.92 : pow((x + 0.055) / 1.055, 2.4) }
+        let r = f(c.redComponent), g = f(c.greenComponent), bl = f(c.blueComponent)
+        let l = cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * bl)
+        let m = cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * bl)
+        let s = cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * bl)
+        return (0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+                1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+                0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s)
+    }
+
+    private static func fromOklab(_ L: CGFloat, _ A: CGFloat, _ B: CGFloat) -> NSColor {
+        let l = pow(L + 0.3963377774 * A + 0.2158037573 * B, 3)
+        let m = pow(L - 0.1055613458 * A - 0.0638541728 * B, 3)
+        let s = pow(L - 0.0894841775 * A - 1.2914855480 * B, 3)
+        func g(_ x: CGFloat) -> CGFloat {
+            let v = max(0, min(1, x))
+            return v <= 0.0031308 ? v * 12.92 : 1.055 * pow(v, 1 / 2.4) - 0.055
+        }
+        return NSColor(srgbRed: g(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
+                       green: g(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
+                       blue: g(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s),
+                       alpha: 1)
     }
 
     private static func luminance(_ c: NSColor) -> CGFloat {

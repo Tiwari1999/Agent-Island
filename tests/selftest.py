@@ -4039,34 +4039,83 @@ _skin = _skin[:_skin.index("return hues[")]
 _rgb = re.findall(r"red: ([\d.]+), green: ([\d.]+), blue: ([\d.]+)", _skin)
 check(f"there are eight face hues", len(_rgb) == 8)
 
-# Computed, not grepped. White eyes were hardcoded and measured 1.70:1 on the yellow body —
-# seven of eight hues failed the readable floor, which at 17pt means a face with no eyes.
+# All of this is computed from the palette, not matched against it, so a new hue cannot slip
+# past by looking plausible. OKLab because sRGB luminance under-reads blue badly: on the old
+# HSV palette that one fact gave seven faces dark eyes and the eighth white ones.
+def _lin(x):
+    x = float(x)
+    return x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4
+def _gam(x):
+    v = max(0.0, min(1.0, x))
+    return v * 12.92 if v <= 0.0031308 else 1.055 * v ** (1 / 2.4) - 0.055
+def _oklab(c):
+    r, g, b = map(_lin, c)
+    l = (0.4122214708*r + 0.5363325363*g + 0.0514459929*b) ** (1/3)
+    m = (0.2119034982*r + 0.6806995451*g + 0.1073969566*b) ** (1/3)
+    s_ = (0.0883024619*r + 0.2817188376*g + 0.6299787005*b) ** (1/3)
+    return (0.2104542553*l + 0.7936177850*m - 0.0040720468*s_,
+            1.9779984951*l - 2.4285922050*m + 0.4505937099*s_,
+            0.0259040371*l + 0.7827717662*m - 0.8086757660*s_)
+def _from(L, A, B):
+    l = (L + 0.3963377774*A + 0.2158037573*B) ** 3
+    m = (L - 0.1055613458*A - 0.0638541728*B) ** 3
+    s_ = (L - 0.0894841775*A - 1.2914855480*B) ** 3
+    return (_gam(4.0767416621*l - 3.3077115913*m + 0.2309699292*s_),
+            _gam(-1.2684380046*l + 2.6097574011*m - 0.3413193965*s_),
+            _gam(-0.0041960863*l - 0.7034186147*m + 1.7076147010*s_))
 def _lum(c):
-    def f(x):
-        x = float(x)
-        return x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4
-    r, g, b = map(f, c)
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+    r, g, b = map(_lin, c)
+    return 0.2126*r + 0.7152*g + 0.0722*b
 def _ratio(a, b):
     la, lb = _lum(a), _lum(b)
     return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
-def _eye_for(body):
-    # mirrors AgentAvatar.eyeColor
-    lit = _lum(body) > 0.18
-    l = 0.10 if lit else 0.98
-    for _ in range(40):
-        if _ratio((str(l),) * 3, body) >= 4.5: return (str(l),) * 3
-        l += -0.02 if lit else 0.02
-        if l < 0 or l > 1: break
-    return ("0",) * 3 if lit else ("1",) * 3
-_floor = re.search(r"Self\.contrast\(c, body\) >= ([\d.]+)", _av)
-check("the contrast floor is the readable one", _floor is not None and float(_floor.group(1)) >= 4.5,
-      "" if _floor else "floor not found")
-_worst = min(_ratio(_eye_for(c), c) for c in _rgb)
-check("every face hue has readable eyes against it",
-      _worst >= 4.5, f"worst pair is {_worst:.2f}:1")
-check("and the eye colour is derived rather than assumed white",
-      "Self.eyeColor(on: tint)" in _av and "NSColor.white.cgColor" not in _av)
+# Read the constants out of the source rather than restating them, or this mirror drifts and
+# the checks go quietly toothless when the implementation changes under them.
+_ks = re.search(r"let k: CGFloat = lit \? ([\d.]+) : ([\d.]+)", _av)
+_Ls = re.search(r"var l: CGFloat = lit \? ([\d.]+) : ([\d.]+)", _av)
+check("the eye constants are readable from the source", _ks is not None and _Ls is not None)
+_K = (float(_ks.group(1)), float(_ks.group(2))) if _ks else (0.3, 0.18)
+_LL = (float(_Ls.group(1)), float(_Ls.group(2))) if _Ls else (0.3, 0.95)
+# The dark-or-light call has to be perceptual. On sRGB luminance blue reads far darker than it
+# looks, and that one fact is what gave a single face white eyes among seven with dark ones.
+check("the dark-or-light decision is made perceptually",
+      re.search(r"let lit = bl > [\d.]+", _av) is not None)
+
+def _eye_for(body):                      # mirrors AgentAvatar.eyeColor
+    bl, ba, bb = _oklab(body)
+    lit = bl > 0.5
+    k = _K[0] if lit else _K[1]
+    L = _LL[0] if lit else _LL[1]
+    for _ in range(50):
+        e = _from(L, ba * k, bb * k)
+        if _ratio(e, body) >= 4.5: return e
+        L += -0.015 if lit else 0.015
+        if L < 0.05 or L > 1: break
+    return _from(0.05 if lit else 1, ba * k, bb * k)
+
+_bodyL = [_oklab(c)[0] for c in _rgb]
+check("every face weighs the same, whatever its hue",
+      max(_bodyL) - min(_bodyL) < 0.02,
+      f"lightness spread is {max(_bodyL) - min(_bodyL):.3f}")
+_eyes = [_eye_for(c) for c in _rgb]
+_eyeL = [_oklab(e)[0] for e in _eyes]
+# One face with white eyes among seven with dark ones does not read as the same character in
+# a different colour, which is the entire job of this palette.
+check("every face gets the same kind of eye",
+      max(_eyeL) < 0.5 and max(_eyeL) - min(_eyeL) < 0.02,
+      f"eye lightness spans {min(_eyeL):.2f}-{max(_eyeL):.2f}")
+_worst = min(_ratio(e, c) for e, c in zip(_eyes, _rgb))
+check("and it is readable against its body", _worst >= 4.5, f"worst is {_worst:.2f}:1")
+# Pure greyscale eyes read as holes punched in the face, which is what black-on-yellow looked
+# like. Each eye has to carry a trace of the body it sits in.
+_flat = [e for e in _eyes if max(e) - min(e) < 0.03]
+check("no eye is flat grey", not _flat, f"{len(_flat)} of 8 are untinted")
+_floor = re.search(r"Self\.contrast\(c, b\) >= ([\d.]+)", _av)
+check("the contrast floor is the readable one",
+      _floor is not None and float(_floor.group(1)) >= 4.5)
+check("the eye colour is derived, and derived perceptually",
+      "Self.eyeColor(on: tint)" in _av and "NSColor.white.cgColor" not in _av
+      and "private static func oklab(" in _av)
 # The first attempt capped saturation instead, which on a flat fill was the only way to stay
 # quiet — and it made all eight read as the same grey-blue. A shaded body carries chroma, so
 # what actually has to hold is that the hues are far APART on the wheel.
