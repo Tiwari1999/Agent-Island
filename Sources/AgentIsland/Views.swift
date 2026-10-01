@@ -919,7 +919,7 @@ struct QuestionCard: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            AgentAvatar(seed: question.session, size: 30, mood: .needsYou)
+            AgentAvatar(seed: question.session, size: 30, mood: .confused)
             // Which session is asking, before what it is asking.
             if let p = question.project, p != agentName {
                 Text(p).font(Theme.label(Type.title)).foregroundColor(Theme.text).lineLimit(1)

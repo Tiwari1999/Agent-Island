@@ -3999,6 +3999,25 @@ check("an idle face is shut, not merely dimmed",
 # One hue per chat, from the session id, so a row and its card are visibly the same agent.
 check("the face colour comes from the session, not the state",
       "hues[Int(hash % UInt64(hues.count))]" in _av)
+# Identity must never out-shout state. Saturation here is capped well under the palette's
+# three semantic hues, which sit around 0.6-0.8, so a row's colour reads as whose it is.
+_skin = _av[_av.index("private var skin: Color {"):]
+_skin = _skin[:_skin.index("return hues[")]
+_rgb = re.findall(r"red: ([\d.]+), green: ([\d.]+), blue: ([\d.]+)", _skin)
+check(f"every face hue is desaturated ({len(_rgb)} of them)", len(_rgb) == 8)
+_sat = [(max(map(float, c)) - min(map(float, c))) / max(map(float, c)) for c in _rgb]
+check("and none of them competes with the semantic colours",
+      max(_sat) < 0.30, f"loudest is {max(_sat):.2f}")
+# Being asked a multiple choice is not the same as being interrupted, so the question card
+# gets its own expression. Asymmetry is the whole trick: one brow up, one down.
+check("the question card looks puzzled, not alarmed",
+      "mood: .confused)" in _vw and "case .confused: return Pose(" in _av)
+check("and confusion is asymmetric, applied to one eye only",
+      re.search(r"var cock: CGFloat = 0", _av) is not None
+      and 'let extra = (lid === top && side == "L") ? p.cock : 0' in _av)
+_conf = re.search(r"case \.confused: return Pose\([^)]*cock: ([\d.]+)\)", _av)
+check("with enough cock to read at card size",
+      _conf is not None and float(_conf.group(1)) >= 15)
 check("and both cards wear the asking agent's own face",
       "AgentAvatar(seed: approval.session" in _vw and "AgentAvatar(seed: question.session" in _vw)
 # Scope to each surface's own header, not the whole file after it. The row's small "answer"

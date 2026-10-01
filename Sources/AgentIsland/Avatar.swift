@@ -5,7 +5,7 @@ import AppKit
 /// whole window; a roster wants one face per agent, so the expression lives on the per-session
 /// avatar and the body colour is the session's own.
 enum Mood: Equatable {
-    case working, needsYou, blocked, idle, done, died
+    case working, needsYou, blocked, idle, done, died, confused
 
     /// Only these two move. Everything else holds a pose, which is what keeps a panel of a
     /// dozen agents off the idle budget — a face is not a reason to run a render loop.
@@ -30,14 +30,19 @@ struct AgentAvatar: View {
         return h
     }
 
-    /// One hue per chat. Muted on purpose: a dozen of these sit in a list all day, and the
-    /// palette's three semantic colours have to stay louder than any of them.
+    /// One hue per chat, deliberately desaturated. A dozen of these sit in a list all day, so
+    /// they have to be distinguishable without ever competing with the three semantic colours
+    /// the palette reserves for state — identity should be recognisable, not loud.
     private var skin: Color {
         let hues: [Color] = [
-            Color(red: 0.36, green: 0.72, blue: 0.62), Color(red: 0.42, green: 0.60, blue: 0.88),
-            Color(red: 0.78, green: 0.56, blue: 0.42), Color(red: 0.68, green: 0.52, blue: 0.86),
-            Color(red: 0.86, green: 0.68, blue: 0.38), Color(red: 0.44, green: 0.74, blue: 0.80),
-            Color(red: 0.84, green: 0.52, blue: 0.56), Color(red: 0.54, green: 0.70, blue: 0.46),
+            Color(red: 0.47, green: 0.63, blue: 0.59),   // sage
+            Color(red: 0.50, green: 0.58, blue: 0.70),   // dusty blue
+            Color(red: 0.68, green: 0.58, blue: 0.52),   // clay
+            Color(red: 0.61, green: 0.57, blue: 0.70),   // lavender
+            Color(red: 0.72, green: 0.65, blue: 0.54),   // sand
+            Color(red: 0.51, green: 0.64, blue: 0.66),   // pale cyan
+            Color(red: 0.71, green: 0.57, blue: 0.58),   // dusty rose
+            Color(red: 0.57, green: 0.64, blue: 0.54),   // moss
         ]
         return hues[Int(hash % UInt64(hues.count))]
     }
@@ -53,17 +58,25 @@ struct AgentAvatar: View {
 /// Each pose is just an eye size plus where the two lids sit and how far they are tilted —
 /// every expression in the set falls out of those five numbers.
 private struct Pose {
-    var w: CGFloat, h: CGFloat, topY: CGFloat, botY: CGFloat, tiltL: CGFloat, tiltR: CGFloat
+    var w: CGFloat, h: CGFloat, topY: CGFloat, botY: CGFloat
+    /// Mirrored between the eyes, which is what keeps sad and angry symmetrical.
+    var tiltTop: CGFloat = 0, tiltBot: CGFloat = 0
+    /// Added to one eye only. Symmetry reads as a mood; asymmetry reads as a question — this
+    /// is the single number that makes a face look puzzled rather than merely surprised.
+    var cock: CGFloat = 0
 
     static func of(_ m: Mood) -> Pose {
         switch m {
-        case .working:  return Pose(w: 54, h: 58, topY: -36, botY: 36, tiltL: 0, tiltR: 0)
-        case .needsYou: return Pose(w: 68, h: 68, topY: -40, botY: 40, tiltL: 0, tiltR: 0)
-        case .done:     return Pose(w: 58, h: 58, topY: -36, botY: 0, tiltL: 0, tiltR: 0)
-        case .blocked:  return Pose(w: 58, h: 56, topY: 0, botY: 36, tiltL: 0, tiltR: 0)
-        case .died:     return Pose(w: 58, h: 58, topY: -5, botY: 36, tiltL: -16, tiltR: 16)
+        case .working:  return Pose(w: 54, h: 58, topY: -36, botY: 36)
+        case .needsYou: return Pose(w: 68, h: 68, topY: -40, botY: 40)
+        case .done:     return Pose(w: 58, h: 58, topY: -36, botY: 0)
+        case .blocked:  return Pose(w: 58, h: 56, topY: 0, botY: 36)
+        case .died:     return Pose(w: 58, h: 58, topY: -5, botY: 36, tiltTop: -16, tiltBot: 16)
+        // One brow up, one down, eyes a little uneven: being asked something is not the same
+        // as being interrupted, and the card should not look alarmed about a multiple choice.
+        case .confused: return Pose(w: 60, h: 62, topY: -24, botY: 38, tiltTop: -7, cock: 26)
         // A closed slit, not a dimmed open eye: idle should read as asleep, not as watching.
-        case .idle:     return Pose(w: 62, h: 10, topY: -20, botY: 20, tiltL: 0, tiltR: 0)
+        case .idle:     return Pose(w: 62, h: 10, topY: -20, botY: 20)
         }
     }
 }
@@ -119,7 +132,7 @@ private struct FaceLayer: NSViewRepresentable {
         // working glances sideways and keeps going; one that is idle opens its eyes at you.
         let glancing = hovered && mood == .working
         let p = (hovered && !glancing)
-            ? Pose(w: 68, h: 68, topY: -40, botY: 40, tiltL: 0, tiltR: 0)
+            ? Pose(w: 68, h: 68, topY: -40, botY: 40)
             : Pose.of(mood)
         func L(_ n: String) -> CAShapeLayer? {
             root.sublayers?.compactMap { $0 as? CAShapeLayer ?? ($0.sublayers?
@@ -155,7 +168,7 @@ private struct FaceLayer: NSViewRepresentable {
                                             width: 80 * s, height: 108 * s), transform: nil)
             // Lids are oversized slabs: only their inner edge is ever on screen, so rotating
             // them cannot expose a corner.
-            for (lid, y, tilt) in [(top, p.topY, p.tiltL), (bot, p.botY, p.tiltR)] {
+            for (lid, y, tilt) in [(top, p.topY, p.tiltTop), (bot, p.botY, p.tiltBot)] {
                 let isTop = lid === top
                 let rect = CGRect(x: -70 * s, y: isTop ? 0 : -90 * s, width: 140 * s, height: 90 * s)
                 lid.path = CGPath(rect: rect, transform: nil)
@@ -163,7 +176,9 @@ private struct FaceLayer: NSViewRepresentable {
                 lid.bounds = CGRect(origin: .zero, size: root.bounds.size)
                 lid.position = CGPoint(x: c.x, y: c.y - y * s)
                 lid.anchorPoint = CGPoint(x: 0.5, y: 0.5)
-                let a = (side == "L" ? tilt : -tilt) * .pi / 180
+                // The cock lands on the left top lid alone, so the two brows disagree.
+                let extra = (lid === top && side == "L") ? p.cock : 0
+                let a = ((side == "L" ? tilt : -tilt) + extra) * .pi / 180
                 lid.transform = CATransform3DMakeRotation(a, 0, 0, 1)
             }
             white.removeAllAnimations()
