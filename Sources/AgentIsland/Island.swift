@@ -209,13 +209,40 @@ final class Island: NSObject, ObservableObject {
     /// Zero on a notched screen: the bar lives in the notch, beside the menu bar, not over it.
     /// A screen with no notch has the menu bar in that exact strip instead, and sitting on it
     /// blanked the window title and the clock and swallowed the slam-to-the-top reach for them.
-    static func topInset(notchWidth: CGFloat) -> CGFloat {
-        notchWidth > 0 ? 0 : NSStatusBar.system.thickness
+    /// A fullscreen app or an auto-hidden menu bar frees that strip, and dropping anyway left
+    /// the bar floating over the app's toolbar with a gap above it.
+    static func topInset(notchWidth: CGFloat, menuBar: CGFloat) -> CGFloat {
+        notchWidth > 0 ? 0 : menuBar
     }
+
+    /// The strip the menu bar really holds on this screen. `NSStatusBar.thickness` said 22 on a
+    /// 30pt external bar, and a screen without its own menu bar reserves nothing.
+    static func menuBarHeight(on screen: NSScreen) -> CGFloat {
+        menuBarShown(on: screen) ? max(0, screen.frame.maxY - screen.visibleFrame.maxY) : 0
+    }
+
+    /// While the menu bar is up, macOS keeps every normal window below it — so a full-width
+    /// window reaching the screen's top edge means the menu bar is not holding that strip.
+    static func menuBarShown(on screen: NSScreen) -> Bool {
+        guard let primary = NSScreen.screens.first else { return true }
+        let top = primary.frame.maxY - screen.frame.maxY   // CG space: y grows downward
+        let me = ProcessInfo.processInfo.processIdentifier
+        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                                 kCGNullWindowID) as? [[String: Any]] ?? []
+        return !windows.contains { w in
+            guard (w[kCGWindowLayer as String] as? Int) == 0,
+                  (w[kCGWindowOwnerPID as String] as? pid_t) != me,
+                  let d = w[kCGWindowBounds as String] as? NSDictionary,
+                  let b = CGRect(dictionaryRepresentation: d) else { return false }
+            return b.minY <= top + 1 && b.maxY > top + 40
+                && b.minX <= screen.frame.minX + 1 && b.maxX >= screen.frame.maxX - 1
+        }
+    }
+    private var menuBar: CGFloat = 0
 
     /// The island's own top edge — `screen.frame.maxY` only when that is not the menu bar.
     private var topEdge: CGFloat {
-        (screen?.frame.maxY ?? 0) - Self.topInset(notchWidth: notchWidth)
+        (screen?.frame.maxY ?? 0) - Self.topInset(notchWidth: notchWidth, menuBar: menuBar)
     }
 
     /// Re-home the window on the active display. Safe to do while collapsed because nothing is
@@ -226,6 +253,7 @@ final class Island: NSObject, ObservableObject {
         if let current = pinned, current.frame == target.frame { return false }
         pinned = target
         measureNotch(target)
+        menuBar = Self.menuBarHeight(on: target)
         let size = Self.maxSize
         window.setFrame(NSRect(x: target.frame.midX - size.width / 2,
                                y: topEdge - size.height,
@@ -233,8 +261,8 @@ final class Island: NSObject, ObservableObject {
                         display: false)
         sensor.rect = { [weak self] in self?.hotRect ?? .zero }
         sensor.install(on: target, notchWidth: notchWidth, notchHeight: notchHeight,
-                       topInset: Self.topInset(notchWidth: notchWidth))
-        Diagnostics.log("island moved to screen \(target.frame)")
+                       topInset: Self.topInset(notchWidth: notchWidth, menuBar: menuBar))
+        Diagnostics.log("island moved to screen \(target.frame) notch=\(notchWidth) menuBar=\(menuBar)")
         return true
     }
 
@@ -242,6 +270,7 @@ final class Island: NSObject, ObservableObject {
         guard let screen else { return }
         pinned = screen
         measureNotch(screen)
+        menuBar = Self.menuBarHeight(on: screen)
 
         let size = Self.maxSize
         let origin = NSPoint(x: screen.frame.midX - size.width / 2,
@@ -357,10 +386,23 @@ final class Island: NSObject, ObservableObject {
                 self.refreshHitRegion()
             }
         }
+        // Entering or leaving a fullscreen app swaps the Space, which frees or retakes the menu
+        // bar's strip; the delay lets the fullscreen window land before it is measured.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(700))
+                guard let self else { return }
+                self.pinned = nil
+                self.followActiveScreen()
+                self.refreshHitRegion()
+            }
+        }
 
         sensor.rect = { [weak self] in self?.hotRect ?? .zero }
         sensor.install(on: screen, notchWidth: notchWidth, notchHeight: notchHeight,
-                       topInset: Self.topInset(notchWidth: notchWidth))
+                       topInset: Self.topInset(notchWidth: notchWidth, menuBar: menuBar))
         wake()
         sensor.onEnter = { [weak self] in
             guard let self else { return }
