@@ -3930,6 +3930,14 @@ check("a visible approval does not queue behind itself",
       re.search(r"if case \.approval\(let a\) = state, a\.id == approval\.id \{ return \}",
                 _isl) is not None)
 
+_hsr = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()
+# Rotation renames the file the tailer is mid-line through. A partial line held from the old
+# inode can never be completed, and prepending it to the new spool corrupts the first event of
+# every rotation — a bug that only appears once the spool is bounded at all.
+_rot = _hsr[_hsr.index("private func rotateIfLarge()"):]
+_rot = _rot[:_rot.index("\n    }")]
+check("rotation drops the half-line it can no longer finish", "pending = Data()" in _rot)
+
 # The README advertises a number of checks; it had drifted to 411 against a real 760. A floor
 # rather than an equality: opt-in sections add checks, and bulk deletion is the failure that
 # matters — deleted checks do not run, so the suite still says green while covering less.

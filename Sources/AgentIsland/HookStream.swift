@@ -173,6 +173,10 @@ final class HookStream: ObservableObject {
         try? fm.removeItem(atPath: previous)
         try? fm.moveItem(atPath: Self.spool, toPath: previous)
         try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: previous)
+        // A half-line carried from the file that just went away can never be completed, and
+        // keeping it glues it onto the first line of the new spool — one corrupt event per
+        // rotation, which is every 4 MB rather than never.
+        pending = Data()
     }
 
     private func open() {
