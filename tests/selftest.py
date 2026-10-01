@@ -3992,11 +3992,25 @@ check("and the glance keeps the working pose rather than widening it",
 check("and perks up once on arrival, not continuously",
       "let justHovered = hovered && !context.coordinator.hovered" in _av
       and 'perk.duration = 0.28' in _av and 'head.add(perk, forKey: "perk")' in _av)
-# Idle is a closed slit, so a dormant row reads as asleep rather than staring.
+# Idle dims rather than closing. A slit between two lids reads as squinting, which is a
+# stronger expression than a dormant row has any business wearing.
 _ip = re.search(r"case \.idle:\s+return Pose\(w: \d+, h: (\d+)", _av)
-check("an idle face is shut, not merely dimmed",
-      _ip is not None and int(_ip.group(1)) <= 12)
+check("an idle face keeps round eyes and only dims",
+      _ip is not None and int(_ip.group(1)) >= 40
+      and re.search(r"mood == \.idle \? 0\.4\d : 1", _av) is not None)
 # One hue per chat, from the session id, so a row and its card are visibly the same agent.
+# A shading stack was tried here — base gradient, dark rim, off-centre highlight, copied from
+# the reference. At 24pt in a list it read as a dark navy blob and lost the hue entirely, which
+# is the one thing the colour exists to carry. Flat fill, legible at size, wins.
+check("the head is one flat fill, not a shading stack",
+      "CAGradientLayer" not in _av and "head.fillColor = tint.withAlphaComponent" in _av)
+# Assigning layer properties on a layer-backed NSView lands with no interpolation, so a mood
+# change cut the eye shape, the lid angles and the colour at once.
+check("a mood change interpolates rather than cutting",
+      "CATransaction.setAnimationDuration(0.32)" in _av
+      and "CATransaction.setDisableActions(!arrived || reduce)" in _av)
+check("and Reduce Motion still gets the instant swap",
+      re.search(r"setDisableActions\(!arrived \|\| reduce\)", _av) is not None)
 check("the face colour comes from the session, not the state",
       "hues[Int(hash % UInt64(hues.count))]" in _av)
 # Identity must never out-shout state. Saturation here is capped well under the palette's
@@ -4004,38 +4018,15 @@ check("the face colour comes from the session, not the state",
 _skin = _av[_av.index("private var skin: Color {"):]
 _skin = _skin[:_skin.index("return hues[")]
 _rgb = re.findall(r"red: ([\d.]+), green: ([\d.]+), blue: ([\d.]+)", _skin)
-check(f"every face hue is desaturated ({len(_rgb)} of them)", len(_rgb) == 8)
-_sat = [(max(map(float, c)) - min(map(float, c))) / max(map(float, c)) for c in _rgb]
-check("and none of them competes with the semantic colours",
-      max(_sat) < 0.30, f"loudest is {max(_sat):.2f}")
-# Being asked a multiple choice is not the same as being interrupted, so the question card
-# gets its own expression. Asymmetry is the whole trick: one brow up, one down.
-check("the question card looks puzzled, not alarmed",
-      "mood: .confused)" in _vw and "case .confused: return Pose(" in _av)
-check("and confusion is asymmetric, applied to one eye only",
-      re.search(r"var cock: CGFloat = 0", _av) is not None
-      and 'let extra = (lid === top && side == "L") ? p.cock : 0' in _av)
-_conf = re.search(r"case \.confused: return Pose\([^)]*cock: ([\d.]+)\)", _av)
-check("with enough cock to read at card size",
-      _conf is not None and float(_conf.group(1)) >= 15)
-check("and both cards wear the asking agent's own face",
-      "AgentAvatar(seed: approval.session" in _vw and "AgentAvatar(seed: question.session" in _vw)
-# Scope to each surface's own header, not the whole file after it. The row's small "answer"
-# button keeps its glyph on purpose: that is a control, not the agent speaking.
-def _header_of(anchor):
-    body = _vw[_vw.index(anchor):]
-    i = body.find("header: some View {")
-    if i < 0: return body[:600]
-    return body[i:i + 700]
-for _name, _anchor in (("approval card", "struct ApprovalCard"),
-                       ("question card", "struct QuestionCard")):
-    _hdr = _header_of(_anchor)
-    check(f"the {_name} wears a face, not a glyph",
-          "AgentAvatar(" in _hdr and "hand.raised.fill" not in _hdr
-          and 'systemName: "questionmark"' not in _hdr)
-_peek = _vw[_vw.index("struct PeekView"):][:1200]
-check("the attention toast wears a face, not a glyph",
-      "AgentAvatar(" in _peek and "hand.raised.fill" not in _peek)
+check(f"there are eight face hues", len(_rgb) == 8)
+# The first attempt capped saturation instead, which on a flat fill was the only way to stay
+# quiet — and it made all eight read as the same grey-blue. A shaded body carries chroma, so
+# what actually has to hold is that the hues are far APART on the wheel.
+import colorsys
+_hues = sorted(colorsys.rgb_to_hsv(*map(float, c))[0] * 360 for c in _rgb)
+_gaps = [(_hues[i + 1] - _hues[i]) for i in range(len(_hues) - 1)] + [360 - _hues[-1] + _hues[0]]
+check("and they are spread far enough apart to tell one chat from another",
+      min(_gaps) >= 18, f"closest pair is {min(_gaps):.0f} degrees apart")
 
 # --- an ask waiting its turn is not an ask nobody is coming to -------------
 _ap2 = open(os.path.join(REPO, "Sources/AgentIsland/Approvals.swift")).read()

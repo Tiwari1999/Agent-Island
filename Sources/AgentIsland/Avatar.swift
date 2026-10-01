@@ -30,19 +30,19 @@ struct AgentAvatar: View {
         return h
     }
 
-    /// One hue per chat, deliberately desaturated. A dozen of these sit in a list all day, so
-    /// they have to be distinguishable without ever competing with the three semantic colours
-    /// the palette reserves for state — identity should be recognisable, not loud.
+    /// One hue per chat. These were flattened too far once: on a flat fill a desaturated set
+    /// is the only way to stay quiet, but a shaded body carries chroma without shouting, and
+    /// eight faces have to be told apart at 17pt in a menu bar.
     private var skin: Color {
         let hues: [Color] = [
-            Color(red: 0.47, green: 0.63, blue: 0.59),   // sage
-            Color(red: 0.50, green: 0.58, blue: 0.70),   // dusty blue
-            Color(red: 0.68, green: 0.58, blue: 0.52),   // clay
-            Color(red: 0.61, green: 0.57, blue: 0.70),   // lavender
-            Color(red: 0.72, green: 0.65, blue: 0.54),   // sand
-            Color(red: 0.51, green: 0.64, blue: 0.66),   // pale cyan
-            Color(red: 0.71, green: 0.57, blue: 0.58),   // dusty rose
-            Color(red: 0.57, green: 0.64, blue: 0.54),   // moss
+            Color(red: 0.80, green: 0.45, blue: 0.34),   // rose
+            Color(red: 0.80, green: 0.80, blue: 0.34),   // amber
+            Color(red: 0.46, green: 0.80, blue: 0.34),   // gold
+            Color(red: 0.34, green: 0.80, blue: 0.56),   // lime
+            Color(red: 0.34, green: 0.69, blue: 0.80),   // green
+            Color(red: 0.34, green: 0.34, blue: 0.80),   // teal
+            Color(red: 0.68, green: 0.34, blue: 0.80),   // blue
+            Color(red: 0.80, green: 0.34, blue: 0.57),   // violet
         ]
         return hues[Int(hash % UInt64(hues.count))]
     }
@@ -75,8 +75,10 @@ private struct Pose {
         // One brow up, one down, eyes a little uneven: being asked something is not the same
         // as being interrupted, and the card should not look alarmed about a multiple choice.
         case .confused: return Pose(w: 60, h: 62, topY: -24, botY: 38, tiltTop: -7, cock: 26)
-        // A closed slit, not a dimmed open eye: idle should read as asleep, not as watching.
-        case .idle:     return Pose(w: 62, h: 10, topY: -20, botY: 20)
+        // Round, just quieter. A slit between two lids reads as a creature squinting at you,
+        // which is worse than a dormant row looking blank — dimming says "nothing here" without
+        // the face acquiring an opinion about it.
+        case .idle:     return Pose(w: 50, h: 52, topY: -34, botY: 34)
         }
     }
 }
@@ -124,6 +126,19 @@ private struct FaceLayer: NSViewRepresentable {
         guard let root = v.layer else { return }
         let reduce = context.environment.accessibilityReduceMotion
         let arrived = context.coordinator.mood != mood
+        // Everything below assigns layer properties directly, which on a layer-backed NSView
+        // lands on the next frame with no interpolation — so a mood change snapped the eye
+        // shape, the lid angles and the colour all at once. An explicit transaction turns the
+        // same assignments into one coordinated 0.32s ease, which is the whole difference
+        // between a face that changes expression and a face that cuts to a different frame.
+        CATransaction.begin()
+        CATransaction.setDisableActions(!arrived || reduce)
+        if arrived && !reduce {
+            CATransaction.setAnimationDuration(0.32)
+            CATransaction.setAnimationTimingFunction(
+                CAMediaTimingFunction(controlPoints: 0.33, 0, 0.2, 1))   // cubic out
+        }
+        defer { CATransaction.commit() }
         let justHovered = hovered && !context.coordinator.hovered
         context.coordinator.mood = mood
         context.coordinator.hovered = hovered
@@ -134,23 +149,17 @@ private struct FaceLayer: NSViewRepresentable {
         let p = (hovered && !glancing)
             ? Pose(w: 68, h: 68, topY: -40, botY: 40)
             : Pose.of(mood)
-        func L(_ n: String) -> CAShapeLayer? {
-            root.sublayers?.compactMap { $0 as? CAShapeLayer ?? ($0.sublayers?
-                .compactMap { $0 as? CAShapeLayer }.first { $0.name == n }) }
-                .first { $0.name == n }
-        }
 
-        if let head = L("head") {
+        if let head = root.sublayers?.first(where: { $0.name == "head" }) as? CAShapeLayer {
             // The reference ships a 160-point polyline approximating a squircle. A continuous
             // rounded rect is the same silhouette in one call, and it is the curve the rest of
             // this app already draws.
             let inset: CGFloat = 20 * s
-            let r = NSBezierPath(roundedRect: CGRect(x: inset, y: inset,
-                                                     width: size - inset * 2, height: size - inset * 2),
-                                 xRadius: (size - inset * 2) * 0.32,
-                                 yRadius: (size - inset * 2) * 0.32)
-            head.path = r.cgPath
-            head.fillColor = (mood == .idle ? tint.withAlphaComponent(0.45) : tint).cgColor
+            let side = size - inset * 2
+            head.path = NSBezierPath(roundedRect: CGRect(x: inset, y: inset,
+                                                         width: side, height: side),
+                                     xRadius: side * 0.24, yRadius: side * 0.24).cgPath
+            head.fillColor = tint.withAlphaComponent(mood == .idle ? 0.42 : 1).cgColor
         }
 
         for (side, cx) in [("L", Self.eyeL), ("R", Self.eyeR)] {
@@ -172,7 +181,12 @@ private struct FaceLayer: NSViewRepresentable {
                 let isTop = lid === top
                 let rect = CGRect(x: -70 * s, y: isTop ? 0 : -90 * s, width: 140 * s, height: 90 * s)
                 lid.path = CGPath(rect: rect, transform: nil)
-                lid.fillColor = (mood == .idle ? tint.withAlphaComponent(0.45) : tint).cgColor
+                // The lids are the body closing over the eye, so they take its mid-tone rather
+                // than the raw hue — a flat lid on a shaded head looks like a sticker on it.
+                lid.fillColor = NSColor(hue: tint.hueComponent,
+                                        saturation: tint.saturationComponent,
+                                        brightness: min(1, tint.brightnessComponent + 0.05),
+                                        alpha: mood == .idle ? 0.42 : 1).cgColor
                 lid.bounds = CGRect(origin: .zero, size: root.bounds.size)
                 lid.position = CGPoint(x: c.x, y: c.y - y * s)
                 lid.anchorPoint = CGPoint(x: 0.5, y: 0.5)
@@ -221,7 +235,8 @@ private struct FaceLayer: NSViewRepresentable {
             }
         }
 
-        guard !reduce, let head = L("head") else { return }
+        guard !reduce,
+              let head = root.sublayers?.first(where: { $0.name == "head" }) else { return }
         if justHovered {
             let perk = CAKeyframeAnimation(keyPath: "transform.scale")
             perk.values = [1.0, 1.12, 0.98, 1.0]
