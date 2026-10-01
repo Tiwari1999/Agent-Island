@@ -1656,13 +1656,10 @@ check("clicking the row still jumps", "onTapGesture { if row.canJump { onJump() 
 check("no inline timeline is left behind",
       "private var timeline" not in _tv and "openCalls" not in _tv
       and "ToolCalls.recent" not in _tv)
-check("so a row is one of two fixed heights, never a growing one",
-      "compact ? AgentRowView.compactHeight : AgentRowView.height" in _tv
+# Every row is the same size: a shrunken idle row read as a different kind of agent.
+check("so a row is one fixed height again",
+      "AgentRowView.height, alignment: .center" in _tv and "compactHeight" not in _tv
       and "expanded" not in _tv)
-# A dormant roster was the complaint: full-height rows for sessions with nothing to say.
-_rh = float(re.search(r"static let height: CGFloat = ([\d.]+)", _tv).group(1))
-_rch = float(re.search(r"static let compactHeight: CGFloat = ([\d.]+)", _tv).group(1))
-check("and the dormant one is genuinely shorter, not a token trim", _rch < _rh * 0.75)
 
 # The console said a call happened but not what it ran, which is the whole reason to open it.
 check("a console line carries what was sent",
@@ -3920,7 +3917,7 @@ _row = _vw[_vw.index("struct AgentRowView"):]
 # Theme.swift's own law: three semantic hues, everything else neutral. A green wash on a row
 # that has STOPPED working spends the "working" channel on the opposite of working, and at a
 # glance that reads as still running.
-_bg = _row[_row.index(".frame(height: compact ? AgentRowView.compactHeight"):]
+_bg = _row[_row.index(".frame(height: AgentRowView.height"):]
 _bg = _bg[:_bg.index(".contentShape(Rectangle())")]
 check("the completion beat claims no semantic hue",
       "Theme.working" not in _bg and "Theme.raised.opacity(finished)" in _bg)
@@ -4197,6 +4194,10 @@ _hr = _isl3[_isl3.index("private func refreshHitRegion()"):]
 _hr = _hr[:_hr.index("\n    }")]
 check("a collapsed island accepts no clicks at all",
       "if state == .collapsed {" in _hr and "window.ignoresMouseEvents = true" in _hr)
+# Open states too: the menu bar and a fullscreen toolbar reveal live in the notch strip.
+check("an open island never claims the notch strip",
+      ".union(hotRect)" not in _hr and "let floor = topEdge - notchHeight" in _hr
+      and "mouse.y < floor && hit.contains(mouse)" in _hr)
 
 # The README advertises a number of checks; it had drifted to 411 against a real 760. A floor
 # rather than an equality: opt-in sections add checks, and bulk deletion is the failure that
