@@ -5,7 +5,7 @@
 tracker. This is the answer: it removes only entries this app added, restores a wrapped
 statusLine to whatever it wrapped, and reports what it did.
 """
-import json, os, shutil, sys, time
+import json, os, pwd, shutil, sys, time
 
 # This script is destructive and takes no arguments, so anything on the command line is a
 # misunderstanding. `--help` used to uninstall everything and then report what it had done.
@@ -130,13 +130,23 @@ clean_cursor(os.path.expanduser("~/.cursor/hooks.json"))
 if os.environ.get("AGENTISLAND_KEEP_RUNTIME"):
     print("  kept runtime files (AGENTISLAND_KEEP_RUNTIME)")
 else:
-    for p in ["/tmp/agentisland-events.jsonl", "/tmp/agentisland.alive", "/tmp/agentisland.log",
-              "/tmp/agentisland-status.json"]:
-        if os.path.exists(p):
-            os.remove(p)
-    for d in ["/tmp/agentisland-decisions", "/tmp/agentisland-status"]:
-        shutil.rmtree(d, ignore_errors=True)
-    print("  removed runtime files from /tmp")
+    # /tmp is not under HOME, so running this against a copied config — which is how you
+    # test it — deleted the live app's state and stopped it. Skip the shared files when HOME
+    # has been pointed somewhere else; the config cleanup above is still honoured.
+    real_home = (os.environ.get("HOME") or "") == pwd.getpwuid(os.getuid()).pw_dir
+    if not real_home:
+        print("  left /tmp alone (HOME is not this user's, so this is a dry run)")
+    else:
+        for p in ["/tmp/agentisland-events.jsonl",
+                  # rotation leaves one previous file beside the live one
+                  "/tmp/agentisland-events.jsonl.1",
+                  "/tmp/agentisland.alive", "/tmp/agentisland.log",
+                  "/tmp/agentisland-status.json"]:
+            if os.path.exists(p):
+                os.remove(p)
+        for d in ["/tmp/agentisland-decisions", "/tmp/agentisland-status"]:
+            shutil.rmtree(d, ignore_errors=True)
+        print("  removed runtime files from /tmp")
 # install.sh registers a login item so a reboot brings the island back. Leaving it behind
 # means an uninstalled app is relaunched at every login — the exact orphan this repo has
 # already had to chase out of System Events once.
@@ -149,13 +159,20 @@ elif os.path.isdir(STAGE):
     shutil.rmtree(STAGE, ignore_errors=True)
     print("  removed the staged hook scripts")
 
-AGENT = os.path.expanduser("~/Library/LaunchAgents/io.github.tiwari1999.agentisland.plist")
+# Both labels: the bundle id was renamed, and an install from before that left a second
+# plist behind. Removing only the current one leaves a login item for an app that is gone.
+AGENTS = [("io.github.tiwari1999.agentisland", "the login item"),
+          ("sh.emergent.agentisland", "the login item from the old bundle id")]
 if os.environ.get("AGENTISLAND_KEEP_RUNTIME"):
     print("  kept the login item (AGENTISLAND_KEEP_RUNTIME)")
-elif os.path.exists(AGENT):
-    os.system(f"launchctl bootout gui/{os.getuid()}/io.github.tiwari1999.agentisland 2>/dev/null")
-    os.remove(AGENT)
-    print("  removed the login item, so a reboot no longer relaunches it")
+else:
+    for label, what in AGENTS:
+        path = os.path.expanduser(f"~/Library/LaunchAgents/{label}.plist")
+        if not os.path.exists(path):
+            continue
+        os.system(f"launchctl bootout gui/{os.getuid()}/{label} 2>/dev/null")
+        os.remove(path)
+        print(f"  removed {what}, so a reboot no longer relaunches it")
 
 print("\n  Left in place (yours, not ours): ~/.agentisland/rules.json")
 print("  Remove the app with: rm -rf ~/Applications/AgentIsland.app")

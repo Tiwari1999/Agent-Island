@@ -1204,6 +1204,21 @@ check("uninstaller removes only our entries",
       and "agentisland-question.py" in un)
 check("uninstaller restores a wrapped statusLine", "hand it back" in un)
 
+# The bundle id was renamed. install.sh wrote the new login item without retiring the old one,
+# so upgraders kept two pointing at the same binary, and uninstall only knew the new label —
+# the orphan outlived the app it launched.
+_ins8 = open(os.path.join(REPO, "install.sh")).read()
+check("installing retires the login item from the old bundle id",
+      # the name alone still appeared in a comment once the cleanup was gone, so assert the act
+      'bootout "gui/$UID/sh.emergent.agentisland"' in _ins8
+      and 'rm -f "$LEGACY"' in _ins8)
+check("and uninstalling removes both labels, not just the current one",
+      "sh.emergent.agentisland" in un and "io.github.tiwari1999.agentisland" in un)
+# /tmp is not under HOME, so testing the uninstaller against a copied config deleted the live
+# app's state and stopped it. expanduser("~") only re-reads $HOME, so ask the account instead.
+check("and it leaves shared /tmp alone when HOME is not this user's",
+      "pwd.getpwuid(os.getuid()).pw_dir" in un)
+
 # Re-installing from a moved or re-cloned repo used to append a second copy of every hook, so
 # each one fired twice and dead paths kept firing. Run the real installer, for real, and count.
 def _install_into(home, repo):
@@ -3216,8 +3231,11 @@ _lr_dg = open(os.path.join(REPO, "Sources/AgentIsland/Diagnostics.swift")).read(
 # file and every TCC grant, so this is the last comfortable moment to change it.
 check("the app ships under an identity we own",
       "io.github.tiwari1999.agentisland" in _lr_ma
-      and not any("sh.emergent" in open(os.path.join(REPO, f)).read()
-                  for f in ["install.sh", "scripts/uninstall-hooks.py"]))
+      # The old name may still appear in the installer and uninstaller, but only to retire the
+      # login item it left behind — never as the identity anything is registered under.
+      and "sh.emergent" not in _lr_ma
+      and "Label</key><string>sh.emergent" not in open(
+          os.path.join(REPO, "install.sh")).read())
 # Preferences live in a plist named after the bundle id, so the rename silently reset everyone.
 check("settings survive the rename, once, without overwriting newer choices",
       'UserDefaults(suiteName: "sh.emergent.agentisland")' in _lr_st
@@ -3414,7 +3432,7 @@ check("install and uninstall recognise our own scripts, not a bare word",
 check("a Cursor entry pointing at a moved repo is replaced, not skipped",
       "stale = [e for e in entries if ours(e) and STAGE not in json.dumps(e)]" in _r2_ih)
 check("uninstall takes the login item with it",
-      "launchctl bootout gui/" in _r2_uh and "os.remove(AGENT)" in _r2_uh)
+      "launchctl bootout gui/" in _r2_uh and "os.remove(path)" in _r2_uh)
 
 print("\n=== 52. pre-release review fixes ===")
 _rv_hs = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()

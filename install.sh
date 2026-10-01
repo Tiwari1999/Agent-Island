@@ -21,6 +21,15 @@ echo "==> registering login item"
 # launchd undoes two seconds later is a bug.
 AGENT="$HOME/Library/LaunchAgents/io.github.tiwari1999.agentisland.plist"
 mkdir -p "$HOME/Library/LaunchAgents"
+# The bundle id was renamed from sh.emergent.agentisland. Writing the new label without
+# retiring the old one left every upgrader with two login items pointing at the same binary,
+# and the uninstaller only knew about the new one, so the orphan outlived the app.
+LEGACY="$HOME/Library/LaunchAgents/sh.emergent.agentisland.plist"
+if [ -f "$LEGACY" ]; then
+    launchctl bootout "gui/$UID/sh.emergent.agentisland" 2>/dev/null || true
+    rm -f "$LEGACY"
+    echo "    retired the old sh.emergent.agentisland login item"
+fi
 cat > "$AGENT" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
