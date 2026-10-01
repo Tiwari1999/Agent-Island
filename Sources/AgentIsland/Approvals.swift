@@ -33,6 +33,14 @@ enum Approvals {
         return TmpDir.ours(decisionsDir)
     }
 
+    /// Drop the engagement mark so a hook we can no longer honour stops waiting on us and
+    /// falls through to the terminal immediately, instead of burning its whole ceiling.
+    static func release(_ id: String) {
+        guard validID(id) else { return }
+        let p = (decisionsDir as NSString).appendingPathComponent(id + ".touched")
+        try? FileManager.default.removeItem(atPath: p)
+    }
+
     /// Mark that the reader is engaged with this card, so the hook waits its full window
     /// rather than falling through to the terminal.
     static func touch(_ id: String) {

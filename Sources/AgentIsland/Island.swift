@@ -691,6 +691,10 @@ final class Island: NSObject, ObservableObject {
     /// question is blocked outright, while a tool approval can still fall back to the terminal.
     private func presentNext() {
         let now = Date()
+        // Dropping a queued ask without clearing its mark left the hook waiting out its whole
+        // ceiling for a card that is never coming. Release first, then forget it.
+        for q in queuedQuestions where q.deadline <= now { Approvals.release(q.id) }
+        for a in queuedApprovals where a.deadline <= now { Approvals.release(a.id) }
         queuedQuestions.removeAll { $0.deadline <= now }
         queuedApprovals.removeAll { $0.deadline <= now }
         // Clear first: ask() and present() both treat a different card still being on screen as
@@ -735,6 +739,9 @@ final class Island: NSObject, ObservableObject {
                !queuedApprovals.contains(where: { $0.id == approval.id }) {
                 queuedApprovals.append(approval)
             }
+            // Deliberately unmarked, unlike the queue below: Quiet means the reader is not
+            // coming, so the hook should fall through to the terminal on its base timeout
+            // rather than block the agent for the full ceiling on a card nobody will see.
             Diagnostics.log("approval \(approval.id): held for quiet")
             return
         }
@@ -745,6 +752,11 @@ final class Island: NSObject, ObservableObject {
             if !queuedApprovals.contains(where: { $0.id == approval.id }) {
                 queuedApprovals.append(approval)
             }
+            // Queued is engaged. Someone is right here answering the card in front of this one,
+            // and this one is next — but without the mark the hook kept only its ~20s base and
+            // died while they read, which is a missed approval that nothing reported.
+            Approvals.touch(approval.id)
+            Diagnostics.log("approval \(approval.id): queued behind the card on screen, held open")
             return
         }
         followActiveScreen()
@@ -805,6 +817,9 @@ final class Island: NSObject, ObservableObject {
                 if !queuedQuestions.contains(where: { $0.id == question.id }) {
                     queuedQuestions.append(question)
                 }
+                // Same reason as the approval queue: the grace slides on this mark, and a
+                // question waiting its turn is not a question nobody is coming to.
+                Approvals.touch(question.id)
                 Diagnostics.log("question \(question.id): queued behind \(q.id), "
                                 + "which is on screen and not stale")
                 return

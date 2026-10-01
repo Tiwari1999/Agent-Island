@@ -4013,6 +4013,41 @@ check("mood precedence puts a crash first and idle last",
 check("the bar and the row share one mood source",
       _vw.count("mood: row.mood") == 2)
 
+# --- an ask waiting its turn is not an ask nobody is coming to -------------
+_ap2 = open(os.path.join(REPO, "Sources/AgentIsland/Approvals.swift")).read()
+# The bug: queued behind a live card the hook kept only its ~20s base, so an approval that
+# arrived while you were reading a question died before you ever saw it, and said nothing.
+_q = _isl[_isl.index("guard !showingCard else {"):]
+_q = _q[:_q.index("followActiveScreen()")]
+check("an approval queued behind a live card is held open",
+      "Approvals.touch(approval.id)" in _q)
+check("and says so, instead of queueing silently", "queued behind the card on screen" in _isl)
+# Same root cause on the question side: the hook's grace slides on this mark.
+# Anchor on the live-card branch by its own log line: the FIRST queuedQuestions.append is
+# the Quiet path, which must not hold, so a naive index finds exactly the wrong branch.
+_qlive = _isl[:_isl.index("which is on screen and not stale")]
+_qlive = _qlive[_qlive.rindex("guard !isStaleCard"):] if "guard !isStaleCard" in _qlive \
+         else _qlive[-600:]
+check("a question queued behind a live card is held open too",
+      "Approvals.touch(question.id)" in _qlive)
+# Quiet is the one case that must NOT hold: the reader said they are not coming, so the agent
+# should reach the terminal on the base timeout rather than block for the full ceiling.
+_quiet = _isl[_isl.index("guard !Prefs.shared.snoozing else {"):]
+_quiet = _quiet[:_quiet.index("guard !showingCard else {")]
+check("but Quiet deliberately does not hold the hook open",
+      "Approvals.touch" not in _quiet and "held for quiet" in _quiet)
+# Dropping a queued ask without clearing its mark left the hook waiting out its whole ceiling
+# for a card that is never coming.
+_pn = _isl[_isl.index("private func presentNext()"):]
+_pn = _pn[:_pn.index("\n    }")]
+check("an expired queue entry releases its hold",
+      _pn.count("Approvals.release(") == 2
+      and _pn.index("Approvals.release(") < _pn.index("removeAll"))
+# [^}]* cannot cross the `guard ... else { return }` inside the body — needs DOTALL .*?
+_rel = re.search(r"static func release\(_ id: String\) \{(.*?)\n    \}", _ap2, re.S)
+check("and release actually removes the mark",
+      _rel is not None and "removeItem" in _rel.group(1) and ".touched" in _rel.group(1))
+
 # The README advertises a number of checks; it had drifted to 411 against a real 760. A floor
 # rather than an equality: opt-in sections add checks, and bulk deletion is the failure that
 # matters — deleted checks do not run, so the suite still says green while covering less.
