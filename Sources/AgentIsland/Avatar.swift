@@ -1,26 +1,27 @@
 import SwiftUI
 import AppKit
 
-/// What the sprite is doing. The reference app this idea came from runs one mascot for the
-/// whole window; a roster wants one face per agent, so the expression lives here rather than
-/// in a single character, and it scales with the list instead of competing with it.
+/// What the face is doing. The reference app this idea came from runs one character for the
+/// whole window; a roster wants one face per agent, so the expression lives on the per-session
+/// avatar and the body colour is the session's own.
 enum Mood: Equatable {
     case working, needsYou, blocked, idle, done, died
 
-    /// Only these two move. Everything else parks, which is what keeps a panel full of
-    /// sprites off the idle budget — nothing animates unless an agent is actually doing
-    /// something or actually waiting on you.
+    /// Only these two move. Everything else holds a pose, which is what keeps a panel of a
+    /// dozen agents off the idle budget — a face is not a reason to run a render loop.
     var animates: Bool { self == .working || self == .needsYou }
 }
 
+/// A head and two eyes. Shape and pose geometry follow CX-ArtLab/agent-robot-avatar (MIT),
+/// reimplemented on CoreAnimation rather than its SVG/CSS: the body is the coloured mass and
+/// the eyes stay white, so one hue per session retints the whole face.
 struct AgentAvatar: View {
     let seed: String
     var size: CGFloat = 20
     var mood: Mood = .idle
-
-    init(seed: String, size: CGFloat = 20, mood: Mood = .idle) {
-        self.seed = seed; self.size = size; self.mood = mood
-    }
+    /// Pointer is over this row. The face looks up at you — one-shot, so hovering a list costs
+    /// nothing once the pointer settles.
+    var hovered: Bool = false
 
     private var hash: UInt64 {
         // FNV-1a: cheap, well-spread, and stable across launches.
@@ -29,59 +30,74 @@ struct AgentAvatar: View {
         return h
     }
 
-    private var palette: (Color, Color) {
-        let hues: [(Color, Color)] = [
-            (Theme.working, Color(red: 0.16, green: 0.55, blue: 0.42)),
-            (Theme.waiting, Color(red: 0.25, green: 0.40, blue: 0.72)),
-            (Theme.agentTint, Color(red: 0.62, green: 0.32, blue: 0.24)),
-            (Color(red: 0.76, green: 0.55, blue: 0.98), Color(red: 0.44, green: 0.30, blue: 0.66)),
-            (Theme.amber, Color(red: 0.60, green: 0.44, blue: 0.16)),
-            (Color(red: 0.42, green: 0.82, blue: 0.86), Color(red: 0.20, green: 0.48, blue: 0.53)),
+    /// One hue per chat. Muted on purpose: a dozen of these sit in a list all day, and the
+    /// palette's three semantic colours have to stay louder than any of them.
+    private var skin: Color {
+        let hues: [Color] = [
+            Color(red: 0.36, green: 0.72, blue: 0.62), Color(red: 0.42, green: 0.60, blue: 0.88),
+            Color(red: 0.78, green: 0.56, blue: 0.42), Color(red: 0.68, green: 0.52, blue: 0.86),
+            Color(red: 0.86, green: 0.68, blue: 0.38), Color(red: 0.44, green: 0.74, blue: 0.80),
+            Color(red: 0.84, green: 0.52, blue: 0.56), Color(red: 0.54, green: 0.70, blue: 0.46),
         ]
         return hues[Int(hash % UInt64(hues.count))]
     }
 
-    /// 5x5, mirrored down the centre column — the shape language of an invader sprite.
-    private var cells: [Bool] {
-        var bits: [Bool] = []
-        var h = hash
-        for _ in 0..<15 { bits.append(h & 1 == 1); h >>= 1 }
-        var grid: [Bool] = []
-        for row in 0..<5 {
-            let l = Array(bits[(row * 3)..<(row * 3 + 3)])
-            grid += [l[0], l[1], l[2], l[1], l[0]]
-        }
-        return grid
-    }
-
     var body: some View {
-        let (fg, dim) = palette
-        SpriteLayer(cells: cells, size: size, mood: mood,
-                    lit: NSColor(fg), dull: NSColor(dim))
+        FaceLayer(mood: mood, size: size, tint: NSColor(skin), hovered: hovered,
+                  phase: Double(hash % 1000) / 1000.0)
             .frame(width: size, height: size)
     }
 }
 
-/// One shape layer, not twenty-five SwiftUI rectangles. A panel can hold a dozen of these and
-/// each needs a repeating transform while its agent works — the same reason `RunningPulse`
-/// is CoreAnimation: SwiftUI's `repeatForever` measured 6.9% CPU, a CAAnimation costs this
-/// process nothing once the render server has it.
-private struct SpriteLayer: NSViewRepresentable {
-    let cells: [Bool]
-    let size: CGFloat
+/// Pose numbers are the reference's, in its own 240x240 space, scaled to our size at draw time.
+/// Each pose is just an eye size plus where the two lids sit and how far they are tilted —
+/// every expression in the set falls out of those five numbers.
+private struct Pose {
+    var w: CGFloat, h: CGFloat, topY: CGFloat, botY: CGFloat, tiltL: CGFloat, tiltR: CGFloat
+
+    static func of(_ m: Mood) -> Pose {
+        switch m {
+        case .working:  return Pose(w: 54, h: 58, topY: -36, botY: 36, tiltL: 0, tiltR: 0)
+        case .needsYou: return Pose(w: 68, h: 68, topY: -40, botY: 40, tiltL: 0, tiltR: 0)
+        case .done:     return Pose(w: 58, h: 58, topY: -36, botY: 0, tiltL: 0, tiltR: 0)
+        case .blocked:  return Pose(w: 58, h: 56, topY: 0, botY: 36, tiltL: 0, tiltR: 0)
+        case .died:     return Pose(w: 58, h: 58, topY: -5, botY: 36, tiltL: -16, tiltR: 16)
+        // A closed slit, not a dimmed open eye: idle should read as asleep, not as watching.
+        case .idle:     return Pose(w: 62, h: 10, topY: -20, botY: 20, tiltL: 0, tiltR: 0)
+        }
+    }
+}
+
+private struct FaceLayer: NSViewRepresentable {
     let mood: Mood
-    let lit: NSColor
-    let dull: NSColor
+    let size: CGFloat
+    let tint: NSColor
+    let hovered: Bool
+    let phase: Double
+
+    /// The reference's viewBox. Every constant below is in this space and scaled once.
+    private static let box: CGFloat = 240
+    private static let eyeY: CGFloat = 126
+    private static let eyeL: CGFloat = 86
+    private static let eyeR: CGFloat = 154
 
     func makeNSView(context: Context) -> NSView {
         let v = NSView(frame: NSRect(x: 0, y: 0, width: size, height: size))
         v.wantsLayer = true
-        let shape = CAShapeLayer()
-        shape.name = "sprite"
-        shape.frame = v.bounds
-        shape.path = Self.path(cells, size)
-        shape.fillRule = .nonZero
-        v.layer?.addSublayer(shape)
+        let head = CAShapeLayer(); head.name = "head"
+        v.layer?.addSublayer(head)
+        for side in ["L", "R"] {
+            // The white sits under two body-coloured lids; the visible aperture is whatever
+            // the lids leave uncovered. That is the whole expression system.
+            let white = CAShapeLayer(); white.name = "eye" + side
+            let top = CAShapeLayer(); top.name = "top" + side
+            let bot = CAShapeLayer(); bot.name = "bot" + side
+            let mask = CAShapeLayer(); mask.name = "mask" + side
+            let g = CALayer(); g.name = "g" + side
+            g.addSublayer(white); g.addSublayer(top); g.addSublayer(bot)
+            g.mask = mask
+            v.layer?.addSublayer(g)
+        }
         apply(to: v, context: context)
         return v
     }
@@ -89,99 +105,140 @@ private struct SpriteLayer: NSViewRepresentable {
     func updateNSView(_ v: NSView, context: Context) { apply(to: v, context: context) }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
-    final class Coordinator { var mood: Mood? }
+    final class Coordinator { var mood: Mood?; var hovered = false }
 
-    private static func path(_ cells: [Bool], _ size: CGFloat) -> CGPath {
-        let px = size / 5
+    private func apply(to v: NSView, context: Context) {
+        guard let root = v.layer else { return }
+        let reduce = context.environment.accessibilityReduceMotion
+        let arrived = context.coordinator.mood != mood
+        let justHovered = hovered && !context.coordinator.hovered
+        context.coordinator.mood = mood
+        context.coordinator.hovered = hovered
+        let s = size / Self.box
+        // Looked at, so it looks back — but a busy agent does not stop to stare. One that is
+        // working glances sideways and keeps going; one that is idle opens its eyes at you.
+        let glancing = hovered && mood == .working
+        let p = (hovered && !glancing)
+            ? Pose(w: 68, h: 68, topY: -40, botY: 40, tiltL: 0, tiltR: 0)
+            : Pose.of(mood)
+        func L(_ n: String) -> CAShapeLayer? {
+            root.sublayers?.compactMap { $0 as? CAShapeLayer ?? ($0.sublayers?
+                .compactMap { $0 as? CAShapeLayer }.first { $0.name == n }) }
+                .first { $0.name == n }
+        }
+
+        if let head = L("head") {
+            // The reference ships a 160-point polyline approximating a squircle. A continuous
+            // rounded rect is the same silhouette in one call, and it is the curve the rest of
+            // this app already draws.
+            let inset: CGFloat = 20 * s
+            let r = NSBezierPath(roundedRect: CGRect(x: inset, y: inset,
+                                                     width: size - inset * 2, height: size - inset * 2),
+                                 xRadius: (size - inset * 2) * 0.32,
+                                 yRadius: (size - inset * 2) * 0.32)
+            head.path = r.cgPath
+            head.fillColor = (mood == .idle ? tint.withAlphaComponent(0.45) : tint).cgColor
+        }
+
+        for (side, cx) in [("L", Self.eyeL), ("R", Self.eyeR)] {
+            guard let g = root.sublayers?.first(where: { $0.name == "g" + side }),
+                  let white = g.sublayers?.first(where: { $0.name == "eye" + side }) as? CAShapeLayer,
+                  let top = g.sublayers?.first(where: { $0.name == "top" + side }) as? CAShapeLayer,
+                  let bot = g.sublayers?.first(where: { $0.name == "bot" + side }) as? CAShapeLayer,
+                  let mask = g.mask as? CAShapeLayer else { continue }
+            g.frame = root.bounds
+            let c = CGPoint(x: cx * s, y: size - Self.eyeY * s)
+            white.path = CGPath(ellipseIn: CGRect(x: c.x - p.w * s / 2, y: c.y - p.h * s / 2,
+                                                  width: p.w * s, height: p.h * s), transform: nil)
+            white.fillColor = NSColor.white.cgColor
+            mask.path = CGPath(rect: CGRect(x: c.x - 40 * s, y: c.y - 54 * s,
+                                            width: 80 * s, height: 108 * s), transform: nil)
+            // Lids are oversized slabs: only their inner edge is ever on screen, so rotating
+            // them cannot expose a corner.
+            for (lid, y, tilt) in [(top, p.topY, p.tiltL), (bot, p.botY, p.tiltR)] {
+                let isTop = lid === top
+                let rect = CGRect(x: -70 * s, y: isTop ? 0 : -90 * s, width: 140 * s, height: 90 * s)
+                lid.path = CGPath(rect: rect, transform: nil)
+                lid.fillColor = (mood == .idle ? tint.withAlphaComponent(0.45) : tint).cgColor
+                lid.bounds = CGRect(origin: .zero, size: root.bounds.size)
+                lid.position = CGPoint(x: c.x, y: c.y - y * s)
+                lid.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+                let a = (side == "L" ? tilt : -tilt) * .pi / 180
+                lid.transform = CATransform3DMakeRotation(a, 0, 0, 1)
+            }
+            white.removeAllAnimations()
+            g.removeAllAnimations()
+
+            if glancing, !reduce {
+                // Eyes slide within the lid aperture: a glance, not a head turn. It only runs
+                // while the pointer is on this row, and one row is hovered at a time.
+                let look = CAKeyframeAnimation(keyPath: "transform.translation.x")
+                let d = 11 * s
+                look.values = [0, -d, -d, d, d, 0, 0]
+                look.keyTimes = [0, 0.12, 0.34, 0.5, 0.72, 0.84, 1]
+                look.duration = 2.6
+                look.repeatCount = .infinity
+                look.calculationMode = .cubic
+                white.add(look, forKey: "look")
+                continue
+            }
+            guard !reduce, !hovered, mood.animates else { continue }
+            if mood == .working {
+                // A blink is a height change on the white, not a different shape — and it is
+                // mostly pause, which is what stops a row of faces reading as a strobe.
+                let blink = CAKeyframeAnimation(keyPath: "transform.scale.y")
+                blink.values = [1.0, 1.0, 0.08, 1.0, 1.0]
+                blink.keyTimes = [0, 0.93, 0.955, 0.985, 1]
+                blink.duration = 4.2
+                blink.repeatCount = .infinity
+                blink.timeOffset = phase * 4.2
+                white.add(blink, forKey: "blink")
+            } else {
+                // Needs-you leans in and bobs: the eyes are already wide, so the motion only
+                // has to say "over here" without becoming an alarm.
+                let bob = CAKeyframeAnimation(keyPath: "transform.translation.y")
+                bob.values = [0, -1.6 * s * 10, 0, -1.0 * s * 10, 0, 0]
+                bob.keyTimes = [0, 0.09, 0.2, 0.29, 0.4, 1]
+                bob.duration = 2.0
+                bob.repeatCount = .infinity
+                bob.calculationMode = .cubic
+                g.add(bob, forKey: "bob")
+            }
+        }
+
+        guard !reduce, let head = L("head") else { return }
+        if justHovered {
+            let perk = CAKeyframeAnimation(keyPath: "transform.scale")
+            perk.values = [1.0, 1.12, 0.98, 1.0]
+            perk.keyTimes = [0, 0.35, 0.7, 1]
+            perk.duration = 0.28
+            perk.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            head.add(perk, forKey: "perk")
+            return
+        }
+        guard arrived, mood == .done else { return }
+        let hop = CAKeyframeAnimation(keyPath: "transform.scale")
+        hop.values = [1.0, 0.9, 1.1, 0.98, 1.0]
+        hop.keyTimes = [0, 0.18, 0.44, 0.74, 1]
+        hop.duration = 0.5
+        head.add(hop, forKey: "hop")
+    }
+}
+
+private extension NSBezierPath {
+    /// NSBezierPath has no cgPath before macOS 14's rename settled; this is the stable spelling.
+    var cgPath: CGPath {
         let p = CGMutablePath()
-        for r in 0..<5 {
-            for c in 0..<5 where cells[r * 5 + c] {
-                // Flipped vertically: CALayer's origin is bottom-left, the grid reads top-down.
-                p.addRect(CGRect(x: CGFloat(c) * px, y: CGFloat(4 - r) * px,
-                                 width: px, height: px))
+        var pts = [NSPoint](repeating: .zero, count: 3)
+        for i in 0..<elementCount {
+            switch element(at: i, associatedPoints: &pts) {
+            case .moveTo:    p.move(to: pts[0])
+            case .lineTo:    p.addLine(to: pts[0])
+            case .curveTo:   p.addCurve(to: pts[2], control1: pts[0], control2: pts[1])
+            case .closePath: p.closeSubpath()
+            @unknown default: break
             }
         }
         return p
-    }
-
-    private func apply(to v: NSView, context: Context) {
-        guard let shape = v.layer?.sublayers?.first(where: { $0.name == "sprite" })
-                as? CAShapeLayer else { return }
-        let reduce = context.environment.accessibilityReduceMotion
-        // SwiftUI re-runs this on every store update. Without the edge, a row that sits in
-        // .done for the hour `justCompleted` lasts would replay its hop a few times a second.
-        let arrived = context.coordinator.mood != mood
-        context.coordinator.mood = mood
-
-        shape.anchorPoint = CGPoint(x: 0.5, y: 0.5)
-        shape.frame = v.bounds
-        shape.removeAllAnimations()
-
-        // Colour and weight carry the state on their own, so the sprite still reads correctly
-        // with Reduce Motion on and with every animation stripped.
-        switch mood {
-        case .working:  shape.fillColor = lit.cgColor;  shape.opacity = 1
-        case .needsYou: shape.fillColor = NSColor(Theme.waiting).cgColor; shape.opacity = 1
-        // Recently finished, not still running: the hop is the moment, and after it the
-        // sprite settles nearer stale than busy — `justCompleted` lasts an hour, and an hour
-        // of full-brightness green is indistinguishable from work still in flight.
-        case .done:     shape.fillColor = lit.cgColor;  shape.opacity = 0.72
-        case .blocked:  shape.fillColor = dull.cgColor; shape.opacity = 0.5
-        case .idle:     shape.fillColor = dull.cgColor; shape.opacity = 0.42
-        case .died:     shape.fillColor = NSColor(Theme.failed).cgColor; shape.opacity = 0.55
-        }
-
-        // A lean is posture, not motion — it survives Reduce Motion because it says something
-        // the colour does not: this one is leaning out at you.
-        let lean: CGFloat = mood == .needsYou ? 0.10 : (mood == .blocked ? -0.06 : 0)
-        let drop: CGFloat = mood == .blocked ? -size * 0.06 : 0
-        shape.transform = CATransform3DConcat(
-            CATransform3DMakeRotation(lean, 0, 0, 1),
-            CATransform3DMakeTranslation(0, drop, 0))
-
-        // A one-shot celebration: a small hop that settles. It plays on arrival at .done and
-        // then the sprite is still, because a finished agent must stop asking for attention.
-        if mood == .done, arrived, !reduce {
-            let hop = CAKeyframeAnimation(keyPath: "transform.scale")
-            hop.values = [1.0, 0.86, 1.14, 0.97, 1.0]
-            hop.keyTimes = [0, 0.18, 0.42, 0.72, 1]
-            hop.duration = 0.52
-            hop.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            shape.add(hop, forKey: "hop")
-            return
-        }
-
-        guard !reduce, mood.animates else { return }
-
-        let a = CAKeyframeAnimation(keyPath: "transform")
-        if mood == .needsYou {
-            // Two quick tugs then a wait — a wave, not a vibration. The pause is most of the
-            // cycle, which is what stops it reading as an error state you want to mute.
-            func tilt(_ r: CGFloat, _ s: CGFloat) -> NSValue {
-                NSValue(caTransform3D: CATransform3DConcat(
-                    CATransform3DMakeScale(s, s, 1), CATransform3DMakeRotation(r, 0, 0, 1)))
-            }
-            a.values = [tilt(0.10, 1.0), tilt(0.24, 1.07), tilt(0.02, 1.0),
-                        tilt(0.22, 1.06), tilt(0.10, 1.0), tilt(0.10, 1.0)]
-            a.keyTimes = [0, 0.08, 0.17, 0.26, 0.36, 1]
-            a.duration = 2.2
-        } else {
-            // Breathing with an occasional bob. One keyframe animation gives "every so often"
-            // for free — a timer firing every seven seconds to nudge a sprite is exactly the
-            // kind of always-on cost this app does not spend.
-            func s(_ x: CGFloat, _ y: CGFloat) -> NSValue {
-                NSValue(caTransform3D: CATransform3DMakeScale(x, y, 1))
-            }
-            a.values = [s(1, 1), s(1.045, 1.045), s(1, 1), s(1.045, 1.045), s(1, 1),
-                        s(1.10, 0.90), s(0.96, 1.08), s(1, 1)]
-            a.keyTimes = [0, 0.16, 0.32, 0.48, 0.64, 0.74, 0.86, 1]
-            a.duration = 7.4
-        }
-        a.repeatCount = .infinity
-        a.calculationMode = .cubic
-        // Stagger per sprite, so a panel of agents reads as a crowd rather than one organism
-        // breathing in lockstep — which is the thing that looks mechanical.
-        a.timeOffset = Double(abs(cells.hashValue % 97)) / 97.0 * a.duration
-        shape.add(a, forKey: "mood")
     }
 }

@@ -94,7 +94,7 @@ struct CollapsedView: View {
                 }
                 Spacer(minLength: 0)
                 if let row = lead {
-                    AgentAvatar(seed: row.agent.sessionId, size: 13, mood: row.mood)
+                    AgentAvatar(seed: row.agent.sessionId, size: 19, mood: row.mood)
                     Text(row.activity ?? row.displayName)
                         .font(Theme.mono(Type.small))
                         .foregroundColor(row.waiting ? Theme.waiting : Theme.muted)
@@ -174,6 +174,7 @@ struct CollapsedView: View {
 
 /// Dynamic-Island-style announcement: drops below the notch, holds, springs away.
 struct PeekView: View {
+    let session: String
     let title: String
     let message: String
     let needsInput: Bool
@@ -181,14 +182,9 @@ struct PeekView: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            ZStack {
-                Circle().fill((needsInput ? Theme.waiting : Theme.working).opacity(0.16))
-                    .frame(width: 26, height: 26)
-                Image(systemName: needsInput ? "hand.raised.fill" : "checkmark")
-                    .font(.system(size: 11, weight: .bold))
-                    .contentTransition(.symbolEffect(.replace.downUp))
-                    .foregroundColor(needsInput ? Theme.waiting : Theme.working)
-            }
+            // Same face as the row and the card: the toast is the agent speaking, so it
+            // wears the agent's colour and says with its eyes what the glyph used to say.
+            AgentAvatar(seed: session, size: 32, mood: needsInput ? .needsYou : .done)
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).font(Theme.label(Type.title)).foregroundColor(Theme.text)
                     .lineLimit(1).truncationMode(.tail)
@@ -273,7 +269,7 @@ struct AgentRowView: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             VStack(spacing: 5) {
-                AgentAvatar(seed: row.agent.sessionId, size: 20, mood: row.mood)
+                AgentAvatar(seed: row.agent.sessionId, size: 34, mood: row.mood, hovered: hover)
                 if row.isWorking { ActivityBars(color: tint, height: 9, active: true) }
                 else { Dot(color: tint, size: 5, pulse: row.waiting) }
             }
@@ -340,11 +336,6 @@ struct AgentRowView: View {
                             Text("\(c)%").font(Theme.mono(Type.micro))
                         }
                         .foregroundColor(c >= 90 ? Theme.failed : c >= 75 ? Theme.amber : Theme.muted)
-                    }
-                    // What this chat has spent. Quiet by default — it is a fact, not an alarm.
-                    if let t = row.totalTokens {
-                        Text(Costs.tokens(t))
-                            .font(Theme.mono(Type.micro)).foregroundColor(Theme.faint)
                     }
                     Text(row.ago).font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
                     Image(systemName: row.isBackground
@@ -800,12 +791,9 @@ struct ApprovalCard: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            ZStack {
-                Circle().fill(Theme.waiting.opacity(0.16)).frame(width: 30, height: 30)
-                Image(systemName: approval.plan != nil ? "doc.plaintext.fill" : "hand.raised.fill")
-                    .font(.system(size: 12, weight: .bold)).foregroundColor(Theme.waiting)
-                    .symbolEffect(.pulse, options: .repeating)
-            }
+            // The agent's own face, asking. A generic glyph said "something needs you"; this
+            // says which one, in the same colour its row carries.
+            AgentAvatar(seed: approval.session, size: 36, mood: .needsYou)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(agentName).font(Theme.label(Type.title)).foregroundColor(Theme.text).lineLimit(1)
@@ -931,11 +919,7 @@ struct QuestionCard: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            ZStack {
-                Circle().fill(Theme.waiting.opacity(0.16)).frame(width: 24, height: 24)
-                Image(systemName: "questionmark")
-                    .font(.system(size: 11, weight: .bold)).foregroundColor(Theme.waiting)
-            }
+            AgentAvatar(seed: question.session, size: 30, mood: .needsYou)
             // Which session is asking, before what it is asking.
             if let p = question.project, p != agentName {
                 Text(p).font(Theme.label(Type.title)).foregroundColor(Theme.text).lineLimit(1)

@@ -2631,11 +2631,15 @@ check("a stale read cannot overwrite a newer session",
 check("it opens at the newest entry, after layout",
       ".onChange(of: feed.count)" in _cv)
 
-# "How big is this chat" was invisible: the per-session statusLine already carries the totals,
-# so the row prints them rather than making the user open the console to guess.
+# The row used to print the raw token total beside the context ring. Both come from the same
+# `context_window` block of the statusLine, so it was one fact in two units — and the ring is
+# the readable one, because what matters is how close to full, not how many.
 _ss = open(os.path.join(REPO, "Sources/AgentIsland/SessionStatus.swift")).read()
-check("a row shows what that chat has spent",
-      "Costs.tokens(t)" in _vw and "row.totalTokens" in _vw)
+_rowv = _vw[_vw.index("struct AgentRowView"):]
+check("a row does not print the token total beside the ring it duplicates",
+      "Costs.tokens(" not in _rowv)
+check("and the ring it was duplicating is still there",
+      "ContextRing(pct: c)" in _rowv)
 check("and the total is input + output, from the session's own statusLine",
       "total_input_tokens" in _ss and "total_output_tokens" in _ss
       and "if i + o > 0 { s.totalTokens = i + o }" in _ss)
@@ -3969,49 +3973,50 @@ _av = open(os.path.join(REPO, "Sources/AgentIsland/Avatar.swift")).read()
 check("only working and needs-you animate",
       re.search(r"var animates: Bool \{ self == \.working \|\| self == \.needsYou \}",
                 _av) is not None)
-check("and everything else returns before an animation is added",
-      "guard !reduce, mood.animates else { return }" in _av)
-# SwiftUI's repeatForever measured 6.9% CPU on this exact kind of view; CA costs the process
-# nothing once the render server has it. That decision must not quietly regress.
-check("the sprite animates on CoreAnimation, not SwiftUI",
-      ".repeatForever(" not in _av and "CAKeyframeAnimation" in _av)
-# Twenty-five SwiftUI Rectangles per sprite, times a dozen rows, is the version that was
-# cheap to write and expensive to run.
-check("a sprite is one shape layer, not twenty-five views",
-      "CAShapeLayer" in _av and _av.count("Rectangle()") == 0)
-# Reduce Motion must not cost the user the information: colour and posture carry the state.
-_rm = _av[_av.index("switch mood {"):_av.index("guard !reduce, mood.animates")]
-check("every mood paints before any Reduce Motion bail", _rm.count("fillColor") == 6)
-# Posture is not motion: needs-you leans out and blocked slumps even with Reduce Motion on,
-# because the lean says something the colour does not.
-_lean = re.search(r"let lean: CGFloat = mood == \.needsYou \? ([\d.-]+) : "
-                  r"\(mood == \.blocked \? ([\d.-]+) : 0\)", _av)
-check("needs-you leans out and blocked slumps the other way",
-      _lean is not None and float(_lean.group(1)) > 0 and float(_lean.group(2)) < 0)
-# SwiftUI re-runs updateNSView on every store change, and .done lasts an hour — without the
-# edge the celebration hop replays several times a second for the whole hour.
-check("the completion hop plays once on arrival, not on every update",
-      "if mood == .done, arrived, !reduce {" in _av and "let arrived = context.coordinator.mood != mood" in _av)
-# An hour of full-brightness "finished" is indistinguishable from "still running" at a glance.
-_done = re.search(r"case \.done:\s+shape\.fillColor = lit\.cgColor;\s+shape\.opacity = ([\d.]+)", _av)
-_work = re.search(r"case \.working:\s+shape\.fillColor = lit\.cgColor;\s+shape\.opacity = ([\d.]+)", _av)
-check("a finished sprite settles dimmer than a working one",
-      _done is not None and _work is not None and float(_done.group(1)) < float(_work.group(1)))
-check("posture survives Reduce Motion",
-      "CATransform3DMakeRotation(lean, 0, 0, 1)" in _av
-      and _av.index("let lean") < _av.index("guard !reduce, mood.animates"))
-# Precedence is the order you would want to be told. A crash hidden behind "working" because
-# the process has not been reaped yet is the failure this pins.
-_mood = _st[_st.index("var mood: Mood {"):]
-_mood = _mood[:_mood.index("\n    }")]
-_order = [l.split("return .")[1].split("}")[0].strip()
-          for l in _mood.splitlines() if "return ." in l]
-check("mood precedence puts a crash first and idle last",
-      _order == ["died", "needsYou", "working", "blocked", "done", "idle"],
-      " -> ".join(_order))
-# The bar and the panel read the same property, so a sprite cannot say two things at once.
-check("the bar and the row share one mood source",
-      _vw.count("mood: row.mood") == 2)
+check("and everything else bails before an animation is added",
+      re.search(r"guard !reduce,[^\n]*mood\.animates else \{ (return|continue) \}", _av) is not None)
+# Hovering must not start a loop either: a pointer resting on a list of faces would otherwise
+# be a running animation per row for as long as it sits there.
+check("hovering suppresses the loop rather than adding one",
+      re.search(r"guard !reduce, !hovered, mood\.animates", _av) is not None)
+# Looked at, so it looks back — wide eyes while the pointer is here, without changing state.
+# A busy agent does not stop to stare: working glances sideways and keeps going, everything
+# else opens its eyes. Both are hover-only, so neither survives the pointer leaving.
+check("a hovered idle face opens its eyes wide",
+      "let p = (hovered && !glancing)" in _av and "Pose(w: 68, h: 68" in _av)
+check("but a hovered working face glances sideways instead",
+      "let glancing = hovered && mood == .working" in _av
+      and re.search(r'look\.repeatCount = \.infinity[\s\S]{0,120}forKey: "look"', _av) is not None)
+check("and the glance keeps the working pose rather than widening it",
+      re.search(r"if glancing, !reduce \{", _av) is not None)
+check("and perks up once on arrival, not continuously",
+      "let justHovered = hovered && !context.coordinator.hovered" in _av
+      and 'perk.duration = 0.28' in _av and 'head.add(perk, forKey: "perk")' in _av)
+# Idle is a closed slit, so a dormant row reads as asleep rather than staring.
+_ip = re.search(r"case \.idle:\s+return Pose\(w: \d+, h: (\d+)", _av)
+check("an idle face is shut, not merely dimmed",
+      _ip is not None and int(_ip.group(1)) <= 12)
+# One hue per chat, from the session id, so a row and its card are visibly the same agent.
+check("the face colour comes from the session, not the state",
+      "hues[Int(hash % UInt64(hues.count))]" in _av)
+check("and both cards wear the asking agent's own face",
+      "AgentAvatar(seed: approval.session" in _vw and "AgentAvatar(seed: question.session" in _vw)
+# Scope to each surface's own header, not the whole file after it. The row's small "answer"
+# button keeps its glyph on purpose: that is a control, not the agent speaking.
+def _header_of(anchor):
+    body = _vw[_vw.index(anchor):]
+    i = body.find("header: some View {")
+    if i < 0: return body[:600]
+    return body[i:i + 700]
+for _name, _anchor in (("approval card", "struct ApprovalCard"),
+                       ("question card", "struct QuestionCard")):
+    _hdr = _header_of(_anchor)
+    check(f"the {_name} wears a face, not a glyph",
+          "AgentAvatar(" in _hdr and "hand.raised.fill" not in _hdr
+          and 'systemName: "questionmark"' not in _hdr)
+_peek = _vw[_vw.index("struct PeekView"):][:1200]
+check("the attention toast wears a face, not a glyph",
+      "AgentAvatar(" in _peek and "hand.raised.fill" not in _peek)
 
 # --- an ask waiting its turn is not an ask nobody is coming to -------------
 _ap2 = open(os.path.join(REPO, "Sources/AgentIsland/Approvals.swift")).read()

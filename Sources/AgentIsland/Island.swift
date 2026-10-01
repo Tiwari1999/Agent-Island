@@ -1321,7 +1321,7 @@ private struct RootView: View {
                         .onAppear { island.wake() }
                         .onChange(of: wakeKey) { _, _ in island.wake() }
                 case .peek(let p):
-                    PeekView(title: p.title, message: p.message,
+                    PeekView(session: p.session, title: p.title, message: p.message,
                              needsInput: p.needsInput, notchWidth: island.notchWidth)
                         .frame(maxHeight: .infinity, alignment: .bottom)
                         .padding(.bottom, 6)
