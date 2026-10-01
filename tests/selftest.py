@@ -4197,6 +4197,10 @@ _hr = _isl3[_isl3.index("private func refreshHitRegion()"):]
 _hr = _hr[:_hr.index("\n    }")]
 check("a collapsed island accepts no clicks at all",
       "if state == .collapsed {" in _hr and "window.ignoresMouseEvents = true" in _hr)
+# Open states too: the menu bar and a fullscreen toolbar reveal live in the notch strip.
+check("an open island never claims the notch strip",
+      ".union(hotRect)" not in _hr and "let floor = topEdge - notchHeight" in _hr
+      and "mouse.y < floor && hit.contains(mouse)" in _hr)
 
 # The README advertises a number of checks; it had drifted to 411 against a real 760. A floor
 # rather than an equality: opt-in sections add checks, and bulk deletion is the failure that

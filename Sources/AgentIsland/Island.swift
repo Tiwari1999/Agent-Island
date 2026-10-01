@@ -535,13 +535,17 @@ final class Island: NSObject, ObservableObject {
         let live: NSRect
         switch state {
         case .collapsed: return   // handled above; keeps the switch total
-        case .expanded: live = panelRect.union(hotRect)
-        case .peek:     live = peekRect.union(hotRect)
-        case .approval: live = approvalRect.union(hotRect)
-        case .question: live = questionRect.union(hotRect)
-        case .console:  live = consoleRect.union(hotRect)
+        case .expanded: live = panelRect
+        case .peek:     live = peekRect
+        case .approval: live = approvalRect
+        case .question: live = questionRect
+        case .console:  live = consoleRect
         }
-        window.ignoresMouseEvents = !live.insetBy(dx: -4, dy: -4).contains(mouse)
+        // The notch strip stays click-through even when open: hover comes from HoverSensor and
+        // every control sits below it, so claiming it only stole the menu bar and toolbar reach.
+        let hit = live.insetBy(dx: -4, dy: -4)
+        let floor = topEdge - notchHeight
+        window.ignoresMouseEvents = !(mouse.y < floor && hit.contains(mouse))
     }
 
     /// Hover is handled by the tracking area, so while collapsed this timer only needs to keep
