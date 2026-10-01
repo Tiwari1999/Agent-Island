@@ -1630,22 +1630,14 @@ check("the card is capped by the panel it is drawn in, not the screen",
 check("number keys reset per question", "func bindKeys" in _is3 and "step: Int" in _is3)
 
 print("\n=== 24. the row's chevron opens the console ===")
-# An external display has no notch, so the island's strip is the menu bar itself. Sitting on
-# it blanked the window title and the clock and ate the reach to the top for them.
-check("the island clears the menu bar on a screen with no notch",
-      "notchWidth > 0 ? 0 : menuBar" in _is3)
-# thickness said 22 on a 30pt external bar; only the screen's own reserved strip is true.
-check("by the menu bar's real height, not NSStatusBar.thickness",
-      "NSStatusBar.system.thickness" not in _is3
-      and "screen.frame.maxY - screen.visibleFrame.maxY" in _is3)
-# A fullscreen app frees that strip; dropping anyway floated the bar over its toolbar.
-check("and sits flush at the top when a fullscreen window holds the strip",
-      "menuBarShown(on: screen) ? max(0," in _is3
-      and "b.minY <= top + 1 && b.maxY > top + 40" in _is3
-      and "b.minX <= screen.frame.minX + 1 && b.maxX >= screen.frame.maxX - 1" in _is3)
-_sp = _is3[_is3.index("NSWorkspace.activeSpaceDidChangeNotification"):][:500]
-check("re-measured whenever the Space changes",
-      "self.pinned = nil" in _sp and "self.followActiveScreen()" in _sp)
+# Dropping below the menu bar on a notchless screen read as the bar falling off the edge, and
+# the strip is click-through anyway. So: always the top edge, as tall as the menu bar there.
+check("the island starts at the top of every screen, notch or not",
+      "private var topEdge: CGFloat { screen?.frame.maxY ?? 0 }" in _is3
+      and "topInset" not in _is3 and "NSStatusBar.system.thickness" not in _is3)
+check("and on a notchless screen it is exactly as tall as the menu bar",
+      "notchHeight = inset > 0 ? inset : menuBar > 0 ? menuBar : 28" in _is3
+      and "let menuBar = screen.frame.maxY - screen.visibleFrame.maxY" in _is3)
 check("and every rect hangs off that edge, not off the raw top of the screen",
       "screen.frame.maxY - notchHeight" not in _is3
       and "screen.frame.maxY - h" not in _is3
