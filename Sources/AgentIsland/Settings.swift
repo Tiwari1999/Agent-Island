@@ -134,8 +134,9 @@ struct SettingsView: View {
 
                 group("the bar") {
                     row("Steps aside after",
-                        note: "Only when nothing is running \u{2014} hover the notch to bring it back") {
+                        note: "Stays put while an agent needs you") {
                         choice("Never", on: prefs.autoHideSeconds == 0) { prefs.autoHideSeconds = 0 }
+                        choice("2s", on: prefs.autoHideSeconds == 2) { prefs.autoHideSeconds = 2 }
                         choice("4s", on: prefs.autoHideSeconds == 4) { prefs.autoHideSeconds = 4 }
                         choice("8s", on: prefs.autoHideSeconds == 8) { prefs.autoHideSeconds = 8 }
                     }
