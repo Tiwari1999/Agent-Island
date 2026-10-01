@@ -108,7 +108,9 @@ final class StatusStore: ObservableObject {
                 if hours > 0.02 {
                     let rate = Double(pct - first.1) / hours
                     q.burnPerHour = rate
-                    if rate > 0.5 { q.exhaustsIn = Double(100 - pct) / rate * 3600 }
+                    // Any real climb has an answer to "when does this run out"; gating the
+                    // estimate at 0.5%/h meant a steady burn never produced one.
+                    if rate >= 0.1 { q.exhaustsIn = Double(100 - pct) / rate * 3600 }
                 }
             }
         }

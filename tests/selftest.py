@@ -3938,6 +3938,30 @@ _rot = _hsr[_hsr.index("private func rotateIfLarge()"):]
 _rot = _rot[:_rot.index("\n    }")]
 check("rotation drops the half-line it can no longer finish", "pending = Data()" in _rot)
 
+# --- what the site promises, actually on screen ---------------------------
+_st2 = open(os.path.join(REPO, "Sources/AgentIsland/Status.swift")).read()
+# The ring existed but only past 60%, so a session at 41% showed nothing and the gauge was
+# really a late alarm. The colour still escalates; the ring itself must not be gated.
+_ring = re.search(r"if let c = row\.contextPct(,[^{]*)?\s*\{", _vw)
+check("the context ring is not gated behind a threshold",
+      _ring is not None and (_ring.group(1) or "").strip() == "")
+check("but its colour still escalates", "c >= 90 ? Theme.failed : c >= 75 ? Theme.amber" in _vw)
+# The terminal is the jump target and tail truncation ate it first, because the model label
+# carries a parenthetical variant nobody scans for.
+check("the identity chip drops the model's parenthetical so the terminal survives",
+      'prefix(while: { $0 != "(" })' in _vw)
+# Burn rate and the exhaustion clock were computed and then hidden behind gates a steady
+# session never trips, which is why the footer showed neither.
+_burn = re.search(r"status\.quota\.burnPerHour, r >= ([\d.]+)", _vw)
+check("burn rate shows at a rate a real session reaches",
+      _burn is not None and float(_burn.group(1)) <= 0.1)
+_ex = re.search(r"status\.quota\.exhaustsIn, e < (\d+) \* 3600", _vw)
+check("and the exhaustion clock is not hidden until the last few hours",
+      _ex is not None and int(_ex.group(1)) >= 24)
+_cx = re.search(r"if rate >= ([\d.]+) \{ q\.exhaustsIn", _st2)
+check("the estimate is computed whenever the window is actually climbing",
+      _cx is not None and float(_cx.group(1)) <= 0.1)
+
 # The README advertises a number of checks; it had drifted to 411 against a real 760. A floor
 # rather than an equality: opt-in sections add checks, and bulk deletion is the failure that
 # matters — deleted checks do not run, so the suite still says green while covering less.

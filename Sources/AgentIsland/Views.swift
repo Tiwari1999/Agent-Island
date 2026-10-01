@@ -227,7 +227,11 @@ struct AgentRowView: View {
             parts.append("⇅ " + (host.split(separator: ".").first.map(String.init) ?? host))
         }
         parts.append(row.agent.vendor.label)
-        if let m = model, row.agent.vendor == .claude { parts.append(m) }
+        // "Opus 5 (1M context)" pushed the terminal name off the end of the chip. The variant
+        // is not what you are scanning for; which window it lives in is.
+        if let m = model, row.agent.vendor == .claude {
+            parts.append(m.prefix(while: { $0 != "(" }).trimmingCharacters(in: .whitespaces))
+        }
         parts.append(row.terminal)
         return parts.joined(separator: " · ")
     }
@@ -328,8 +332,10 @@ struct AgentRowView: View {
                         }
                         .foregroundColor(t.blocked ? Theme.failed : Theme.muted)
                     }
-                    if let c = row.contextPct, c >= 60 {
-                        // Context pressure only earns space once it is worth acting on.
+                    if let c = row.contextPct {
+                        // Showing this only past 60% made it an alarm. A gauge you can watch
+                        // fill is what lets you finish a thought before the compact lands;
+                        // the colour still does the escalating, so quiet until it matters.
                         HStack(spacing: 3) {
                             ContextRing(pct: c)
                             Text("\(c)%").font(Theme.mono(Type.micro))
@@ -603,12 +609,12 @@ struct PanelView: View {
             } else {
                 window("5h", q.fiveHourPct, q.fiveHourResets)
                 if store.effectiveVendor == .claude,
-                   let r = status.quota.burnPerHour, r >= 0.5 {
+                   let r = status.quota.burnPerHour, r >= 0.1 {
                     HStack(spacing: 3) {
                         Image(systemName: "flame.fill")
                             .font(.system(size: 10)).foregroundColor(burnTint)
                         Text(Quota.rate(r)).font(Theme.mono(Type.small)).foregroundColor(burnTint)
-                        if let e = status.quota.exhaustsIn, e < 6 * 3600 {
+                        if let e = status.quota.exhaustsIn, e < 24 * 3600 {
                             Text("· full in \(Quota.short(e))")
                                 .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
                         }
