@@ -2558,6 +2558,29 @@ check("the panel's mode outlives the panel, which is rebuilt on every collapse",
 check("and the view reads that one, rather than keeping a copy",
       "island.panelMode" in _vw6)
 
+# Nothing ever shortened the spool or the log. The spool reached 78 MB of prompts and tool
+# payloads in plaintext; the log carries session titles and working directories, and both sit
+# in /tmp where every account can read them.
+_hs7 = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()
+_dg7 = open(os.path.join(REPO, "Sources/AgentIsland/Diagnostics.swift")).read()
+_ap7 = open(os.path.join(REPO, "Sources/AgentIsland/Approvals.swift")).read()
+check("the spool is rotated rather than grown without end",
+      "maxSpoolBytes" in _hs7
+      # the declaration alone proved nothing: it has to be CALLED, on open and on drain
+      and _hs7.count("rotateIfLarge()") >= 2)
+# Truncating in place would leave the tailer's offset past a shorter file, reading nothing
+# until restart; renaming trips the .rename watch it already has.
+check("and it rotates by rename, which the tailer already recovers from",
+      "moveItem(atPath: Self.spool" in _hs7)
+check("the log is trimmed too, and both keep the newest half",
+      "maxBytes" in _dg7 and "lines.suffix(lines.count / 2)" in _dg7)
+# Scoped to the function, not to a byte count: a comment inside it pushed the attribute past
+# a fixed window once already, failing a check that had nothing to do with the change.
+_touch = _ap7.split("private static func touch")[1].split("\n    }")[0]
+check("every file this app leaves in /tmp is owner-only",
+      "posixPermissions: 0o600" in _dg7
+      and "posixPermissions: 0o600" in _touch)
+
 # Found by falling into it: `uninstall-hooks.py --help` removed all 26 hooks and then
 # reported what it had done. The script runs at module level and took no arguments at all,
 # so every flag was silently a "yes, uninstall everything".

@@ -3,14 +3,35 @@ import Foundation
 
 enum Diagnostics {
     static let path = "/tmp/agentisland.log"
+    /// The log carries session titles, working directories and tool calls, and /tmp is readable
+    /// by every account on the machine. It was being created at the default 0644.
+    private static let ownerOnly: [FileAttributeKey: Any] = [.posixPermissions: 0o600]
+    /// Appending forever put days of someone's sessions in one file — 910 KB in a week here, and
+    /// only the tail is ever read. Halve it when it passes this, rather than growing without end.
+    private static let maxBytes = 512 * 1024
+
     static func log(_ message: String) {
         let line = "\(ISO8601DateFormatter().string(from: Date())) \(message)\n"
         guard let data = line.data(using: .utf8) else { return }
         if let h = FileHandle(forWritingAtPath: path) {
             h.seekToEndOfFile(); h.write(data); try? h.close()
+            trimIfLarge()
         } else {
-            FileManager.default.createFile(atPath: path, contents: data)
+            FileManager.default.createFile(atPath: path, contents: data,
+                                           attributes: ownerOnly)
         }
+    }
+
+    /// Keep the newer half. Rewriting in place keeps the inode, so a tail -f survives it.
+    private static func trimIfLarge() {
+        let fm = FileManager.default
+        guard let size = (try? fm.attributesOfItem(atPath: path))?[.size] as? Int,
+              size > maxBytes,
+              let whole = try? String(contentsOfFile: path, encoding: .utf8) else { return }
+        let lines = whole.split(separator: "\n", omittingEmptySubsequences: false)
+        let kept = lines.suffix(lines.count / 2).joined(separator: "\n")
+        try? kept.write(toFile: path, atomically: false, encoding: .utf8)
+        try? fm.setAttributes(ownerOnly, ofItemAtPath: path)
     }
 
     /// Everything someone would otherwise be asked to paste into an issue, in one folder they
