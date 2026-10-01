@@ -1633,7 +1633,19 @@ print("\n=== 24. the row's chevron opens the console ===")
 # An external display has no notch, so the island's strip is the menu bar itself. Sitting on
 # it blanked the window title and the clock and ate the reach to the top for them.
 check("the island clears the menu bar on a screen with no notch",
-      "notchWidth > 0 ? 0 : NSStatusBar.system.thickness" in _is3)
+      "notchWidth > 0 ? 0 : menuBar" in _is3)
+# thickness said 22 on a 30pt external bar; only the screen's own reserved strip is true.
+check("by the menu bar's real height, not NSStatusBar.thickness",
+      "NSStatusBar.system.thickness" not in _is3
+      and "screen.frame.maxY - screen.visibleFrame.maxY" in _is3)
+# A fullscreen app frees that strip; dropping anyway floated the bar over its toolbar.
+check("and sits flush at the top when a fullscreen window holds the strip",
+      "menuBarShown(on: screen) ? max(0," in _is3
+      and "b.minY <= top + 1 && b.maxY > top + 40" in _is3
+      and "b.minX <= screen.frame.minX + 1 && b.maxX >= screen.frame.maxX - 1" in _is3)
+_sp = _is3[_is3.index("NSWorkspace.activeSpaceDidChangeNotification"):][:500]
+check("re-measured whenever the Space changes",
+      "self.pinned = nil" in _sp and "self.followActiveScreen()" in _sp)
 check("and every rect hangs off that edge, not off the raw top of the screen",
       "screen.frame.maxY - notchHeight" not in _is3
       and "screen.frame.maxY - h" not in _is3
