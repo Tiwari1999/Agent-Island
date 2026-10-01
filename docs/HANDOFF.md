@@ -562,6 +562,22 @@ the classifier gate was never established, because the hook had timed out long b
 approval is answered inside the window and Claude still asks in the terminal, that is the
 remaining question, not this one.
 
+## Menu bar reach, external displays, row size (2026-10-01)
+
+- **Open island owned the top strip.** `refreshHitRegion()` unioned `hotRect` into every open
+  state, so the panel took clicks where the menu bar / fullscreen toolbar reveal lives. Now each
+  state rect is clipped below `topEdge - notchHeight`; hover still comes from `HoverSensor`.
+- **Fullscreen menu bar not revealing** reproduced with AgentIsland QUIT — not ours. A stale
+  `screencaptureui` full-screen layer-24 window was ruled out; Dock/WindowManager had 16 days of
+  uptime. Synthetic `CGEvent` moves never trigger the reveal, so they cannot test it.
+- **Notchless screens: always flush with the top edge.** Dropping below the menu bar (a358260)
+  read as the bar falling off the edge and floated over fullscreen toolbars; with the strip
+  click-through it bought nothing. `NSStatusBar.thickness` said 22 on a 30pt bar, so the bar's
+  notchless height is `frame.maxY - visibleFrame.maxY`. A CGWindowList "is the menu bar shown"
+  heuristic was built and then deleted with the drop — do not bring it back for placement.
+- **Compact idle rows reverted.** 36pt dormant rows (d5bc886) made idle agents read as a
+  different kind of thing; every row is 64pt with avatar, dot, chip, prompt and status line.
+
 ## Working rules that bit us (obey them)
 
 - **Never drive synthetic clicks/hover to verify.** It steals the pointer and raises apps on the
