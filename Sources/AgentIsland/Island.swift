@@ -392,32 +392,26 @@ final class Island: NSObject, ObservableObject {
     /// the island cannot drift from what the user can see of it.
     private var barWidth: CGFloat {
         let quiet = store.workingCount == 0 && store.waitingCount == 0 && !revealed
-        let bar = CollapsedView(store: store, status: status, notchWidth: notchWidth,
+        let bar = CollapsedView(store: store, notchWidth: notchWidth,
                                 revealed: revealed, quiet: quiet)
         let w = CollapsedView.sides(revealed: revealed, left: bar.leftText, right: bar.rightText)
         return notchWidth + w.left + w.right + 2 * CollapsedView.notchMargin
     }
 
-    /// The strip that reveals the island, and keeps it open once it is.
+    /// The strip that reveals the island.
     ///
-    /// Two different questions, so two widths. While the bar is hidden there is nothing to aim at
-    /// but the notch, and a wide invisible strip is what made merely heading for a browser tab
-    /// open the island. While it is on screen, anything narrower than the bar means hovering most
-    /// of what you can see does nothing — which is just as broken, from the other end.
-    /// The most of the screen's top edge the reveal strip may ever claim. The rest of that
-    /// edge belongs to whatever app is up there — its menu bar, its tab strip, its sidebar.
-    private static let hotShare: CGFloat = 0.3
-
+    /// This tracked the bar's width, so that hovering anything the bar said would open it. That
+    /// is a nice idea and it cost more than it was worth: the bar grows with its activity line,
+    /// so a working agent turned a third of the top edge into a trigger, and reaching for
+    /// another window's toolbar opened a 640pt panel on top of it. Capping the share helped and
+    /// did not fix it, because the panel still lands over whatever chrome was being reached for.
+    ///
+    /// So the strip is the notch and a small margin, and nothing else. The notch is a place you
+    /// have to aim at; no app's own controls live inside it, which is exactly why it is safe to
+    /// claim and the rest of that edge is not.
     private var hotRect: NSRect {
         guard let screen else { return .zero }
-        let aim = HoverSensor.hotWidth(notchWidth: notchWidth)
-        // Capped, because the bar grows with whatever it is saying. A working agent with a long
-        // activity line pushed this past 650pt on a 1512pt screen — a third of the top edge —
-        // and reaching for another app's toolbar opened the island on top of it. The visible
-        // bar should still be hoverable along most of its length, but never so far out that
-        // heading for a window's own chrome counts as aiming at us.
-        let cap = max(aim, screen.frame.width * Self.hotShare)
-        let w = hushed ? aim : min(max(aim, barWidth), cap)
+        let w = HoverSensor.hotWidth(notchWidth: notchWidth)
         // One point taller than the notch, and the point matters: CGRect.contains EXCLUDES its
         // max edge, and macOS pins the cursor to exactly screen.maxY when you push it to the top
         // — the most natural way to reach the bar. The pointer then sat one point outside the
@@ -1251,7 +1245,7 @@ private struct RootView: View {
         switch island.state {
         case .collapsed:
             // Ask the bar itself what it will print, so the width and the text cannot disagree.
-            let bar = CollapsedView(store: store, status: status, notchWidth: island.notchWidth,
+            let bar = CollapsedView(store: store, notchWidth: island.notchWidth,
                                     revealed: island.revealed, quiet: quiet)
             let w = CollapsedView.sides(revealed: island.revealed,
                                         left: bar.leftText, right: bar.rightText)
@@ -1270,7 +1264,7 @@ private struct RootView: View {
     /// is what made the bar half a screen wide.
     private var shellOffsetX: CGFloat {
         guard island.state == .collapsed, island.notchWidth > 0 else { return 0 }
-        let bar = CollapsedView(store: store, status: status, notchWidth: island.notchWidth,
+        let bar = CollapsedView(store: store, notchWidth: island.notchWidth,
                                 revealed: island.revealed, quiet: quiet)
         let w = CollapsedView.sides(revealed: island.revealed,
                                     left: bar.leftText, right: bar.rightText)
@@ -1320,19 +1314,18 @@ private struct RootView: View {
     var body: some View {
         VStack(spacing: 0) {
             ZStack {
-                IslandBackground(corner: corner, expanded: island.state == .expanded,
-                                 inset: bottomInset)
+                IslandBackground(corner: corner, inset: bottomInset)
 
                 Group {
                 switch island.state {
                 case .collapsed:
-                    CollapsedView(store: store, status: status, notchWidth: island.notchWidth,
+                    CollapsedView(store: store, notchWidth: island.notchWidth,
                                   revealed: island.revealed, quiet: quiet)
                         .onAppear { island.wake() }
                         .onChange(of: wakeKey) { _, _ in island.wake() }
                 case .peek(let p):
                     PeekView(session: p.session, title: p.title, message: p.message,
-                             needsInput: p.needsInput, notchWidth: island.notchWidth)
+                             needsInput: p.needsInput)
                         .frame(maxHeight: .infinity, alignment: .bottom)
                         .padding(.bottom, 6)
                         .contentShape(Rectangle())

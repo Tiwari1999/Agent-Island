@@ -14,7 +14,6 @@ final class Hotkeys {
     private var installed = false
     /// Registered once for the life of the app. Card keys come and go with `bind`/`unbind`; a
     /// summon chord must outlive them, so it is kept in its own id range that unbind never clears.
-    private var lasting: [EventHotKeyRef?] = []
     private static let lastingBase: UInt32 = 900
 
     /// Registered only while a card is on screen, so these keys stay free the rest of the time.
@@ -54,7 +53,6 @@ final class Hotkeys {
                 actions[id] = nil
                 continue
             }
-            lasting.append(ref)
         }
     }
 

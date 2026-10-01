@@ -843,7 +843,7 @@ check("the pulse is kept off the rounded corner", ".padding(.leading, 4)" in vw6
 isl6=open(os.path.join(REPO,"Sources/AgentIsland/Island.swift")).read()
 check("the shell sizes itself from the same text the bar prints",
       "left: bar.leftText, right: bar.rightText" in isl6
-      and "CollapsedView(store: store, status: status" in isl6)
+      and "CollapsedView(store: store" in isl6)
 
 print("\n=== 9o. idle reports what the day consumed ===")
 vw7=open(os.path.join(REPO,"Sources/AgentIsland/Views.swift")).read()
@@ -2878,7 +2878,7 @@ check("the whole shell fades, not just its contents",
           > _iv9.index(".contentShape(NotchShape(radius: corner))"))
 # Fading CollapsedView alone left IslandBackground painting an opaque black block on the tabs.
 check("so the background cannot keep painting once the bar is hidden",
-      "CollapsedView(store: store, status: status, notchWidth: island.notchWidth,\n                                  revealed: island.revealed, quiet: quiet)\n                        .opacity(" not in _iv9)
+      "CollapsedView(store: store, notchWidth: island.notchWidth,\n                                  revealed: island.revealed, quiet: quiet)\n                        .opacity(" not in _iv9)
 check("hovering brings it back",
       "self.wake()" in _iv9 and "func wake()" in _iv9)
 check("and so does anything changing what the bar says",
@@ -3088,9 +3088,19 @@ check("and stays click-through for as long as it is only a readout",
 # notch + 150 covered a third of the menu bar, so merely heading elsewhere up there opened it.
 # Two widths, because they answer different questions: hidden, there is nothing on screen to aim
 # at; visible, a strip narrower than the bar means hovering most of what you can see does nothing.
-check("the strip follows the bar once the bar is on screen, up to the cap",
-      "let w = hushed ? aim : min(max(aim, barWidth), cap)" in _iv12
-      and "private var barWidth" in _iv12)
+# The strip used to track the bar's width so you could hover anything it said. A working
+# agent's activity line then made a third of the top edge a trigger, and reaching for another
+# window's toolbar opened a 640pt panel over it. Capping the share did not fix it, because the
+# panel still lands on the chrome being reached for. The notch is the whole target now: it is a
+# place you must aim at, and no app's own controls live inside it.
+check("the reveal strip is the notch, not the bar",
+      "let w = HoverSensor.hotWidth(notchWidth: notchWidth)" in _iv12
+      and "barWidth" not in _iv12.split("private var hotRect")[1][:600])
+_hw = re.search(r"\(notchWidth > 0 \? notchWidth : \d+\) \+ (\d+)",
+                open(os.path.join(REPO, "Sources/AgentIsland/HoverSensor.swift")).read())
+check("and it is only modestly wider than the notch itself",
+      _hw is not None and int(_hw.group(1)) <= 120,
+      f"margin is {_hw.group(1)}pt each side" if _hw else "not found")
 check("and the bar is asked its own width, not told one",
       "CollapsedView.sides(revealed: revealed, left: bar.leftText, right: bar.rightText)" in _iv12)
 # Synthetic CGEvent moves are NOT delivered to global monitors (verified), so hover cannot be
@@ -4159,12 +4169,9 @@ check("and release actually removes the mark",
 # with its activity line, and a working agent pushed it past 650pt on a 1512pt screen — a third
 # of the top edge — so reaching for another app's toolbar opened the island over it.
 _isl3 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
-_share = re.search(r"static let hotShare: CGFloat = ([\d.]+)", _isl3)
-check("the reveal strip is capped as a share of the screen",
-      _share is not None and float(_share.group(1)) <= 0.35,
-      f"claims {float(_share.group(1)) * 100:.0f}% of the top edge" if _share else "no cap")
-check("and the cap is actually applied to the bar-tracking width",
-      re.search(r"let w = hushed \? aim : min\(max\(aim, barWidth\), cap\)", _isl3) is not None)
+check("the strip no longer grows with whatever the bar is saying",
+      "barWidth" not in _isl3.split("private var hotRect")[1][:600]
+      and "hotShare" not in _isl3)
 # Collapsed, the panel must decline the pointer outright: anything it swallowed up there is a
 # click the menu bar never got.
 _hr = _isl3[_isl3.index("private func refreshHitRegion()"):]

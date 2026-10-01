@@ -117,8 +117,7 @@ def subject(tool, inp):
 # operations, so they are different groups.
 ALIASES = [{"Bash", "Shell", "run_terminal_cmd"},
            {"Read", "read_file"},
-           {"Edit", "edit_file"},
-           {"Write"}]
+           {"Edit", "edit_file"}]
 
 
 def _same_tool(a, b):

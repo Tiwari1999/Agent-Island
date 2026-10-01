@@ -53,7 +53,7 @@ struct Agent: Identifiable {
     var project: String { (cwd as NSString?)?.lastPathComponent ?? "—" }
     /// Background sessions report `state`, interactive ones `status`.
     var phase: String { state ?? status ?? "unknown" }
-    var isWorking: Bool { phase == "busy" || phase == "running" }
+    var isWorking: Bool { phase == "busy" }
 }
 
 struct AgentRow: Identifiable {
@@ -85,9 +85,6 @@ struct AgentRow: Identifiable {
     var displayName: String { aiTitle ?? agent.label }
     /// Context pressure — the compaction cliff is at 90%.
     var contextPct: Int? { agent.contextPctOverride ?? status?.contextPct }
-    /// Total tokens this chat has spent, for the row's usage chip.
-    var totalTokens: Int? { status?.totalTokens }
-
     /// Where this session runs, for the row's context chip.
     var terminal: String { host.name }
 

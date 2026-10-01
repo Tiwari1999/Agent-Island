@@ -37,7 +37,6 @@ enum Sleek {
 struct IslandBackground: View {
     @ObservedObject private var surfaces = Surfaces.shared
     let corner: CGFloat
-    let expanded: Bool
     /// Empty space below the content. The fade may not exceed it, or text renders over desktop.
     var inset: CGFloat = 6
 

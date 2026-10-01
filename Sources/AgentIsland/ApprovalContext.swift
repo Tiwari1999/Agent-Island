@@ -78,7 +78,7 @@ enum Narration {
     }
 }
 
-/// Keeps the hook waiting while the user reads: a fresh `<id>.hold` beside the decision file
+/// Keeps the hook waiting while the user reads: a fresh `<id>.touched` beside the decision file
 /// extends the hook's own loop past its base timeout, up to the hook's hard ceiling.
 @MainActor
 /// A one-shot mark that the reader is engaged with a card. Never refreshed, so it cannot go

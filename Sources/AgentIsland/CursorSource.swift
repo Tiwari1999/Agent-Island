@@ -67,7 +67,7 @@ struct CursorSource: AgentSource {
                     sessionId: session,
                     name: nil,
                     cwd: cwd,
-                    state: activity.state ?? (live != nil ? "idle" : nil),
+                    state: activity ?? (live != nil ? "idle" : nil),
                     status: nil,
                     pid: live,
                     // resolved below: only one chat per cwd may keep it
@@ -118,15 +118,15 @@ struct CursorSource: AgentSource {
         if !map.isEmpty { index = map }
     }
 
-    private static func activity(sessionId: String) -> (state: String?, at: Date?) {
+    private static func activity(sessionId: String) -> String? {
         guard let path = index[sessionId],
               let attrs = try? FileManager.default.attributesOfItem(atPath: path),
-              let mtime = attrs[.modificationDate] as? Date else { return (nil, nil) }
+              let mtime = attrs[.modificationDate] as? Date else { return nil }
         // Only read the file at all when it was touched recently; a stale one is idle by
         // definition and its contents cannot change that.
-        guard Date().timeIntervalSince(mtime) < 30 else { return ("idle", mtime) }
+        guard Date().timeIntervalSince(mtime) < 30 else { return "idle" }
         let ended = lastLine(path).contains("turn_ended")
-        return (ended ? "idle" : "busy", mtime)
+        return ended ? "idle" : "busy"
     }
 
     /// Read the tail in-process rather than spawning `tail`.

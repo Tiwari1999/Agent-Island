@@ -69,8 +69,6 @@ MARK = "agentisland"          # how we recognise our own entries
 # The bare word is too broad to delete on: a third-party hook living under a path that merely
 # contains it is not ours. Ours are these six files, wherever the repo sits — so a copy at an
 # old path is still recognised as a leftover, and somebody else's tool is left alone.
-SCRIPTS = ("agentisland-hook.sh", "agentisland-permission.sh", "agentisland-rules.py",
-           "agentisland-question.py", "agentisland-input.py", "agentisland-status.sh")
 
 
 def ours(obj):

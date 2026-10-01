@@ -207,8 +207,6 @@ struct Dot: View {
 }
 
 
-extension Theme {}
-
 /// What an agent is doing, as far as the hook stream can tell.
 enum WorkKind {
     case idle, thinking, reading, writing, running, searching, delegating, waiting

@@ -4,7 +4,6 @@ import SwiftUI
 /// surface you must hover to discover is not a status surface.
 struct CollapsedView: View {
     @ObservedObject var store: AgentStore
-    @ObservedObject var status: StatusStore
     let notchWidth: CGFloat
     /// True while the pointer is on the notch. At rest the bar stays narrow so the menu bar
     /// beside the notch keeps working; pointing at it widens the bar to show what is running.
@@ -178,7 +177,6 @@ struct PeekView: View {
     let title: String
     let message: String
     let needsInput: Bool
-    let notchWidth: CGFloat
 
     var body: some View {
         HStack(spacing: 10) {
@@ -442,7 +440,6 @@ struct PanelView: View {
     @State private var hooksReady = Setup.hooksInstalled()
     @State private var installing = false
     @State private var showAllIdle = false
-    @ObservedObject private var surfaces = Surfaces.shared
 
     /// A week of finished sessions buried the handful that are live: 44 rows on first open, 23
     /// of them with no process left. Everything that is running, blocked or wants an answer is

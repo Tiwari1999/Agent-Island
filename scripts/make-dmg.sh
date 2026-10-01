@@ -40,7 +40,7 @@ rm -rf "$STAGE"
 echo
 echo "  $DMG"
 echo "  $(du -h "$DMG" | cut -f1)"
-if codesign -dv "$DIST" 2>&1 | grep -q "adhoc" ||
+if codesign -dv "$DMG" 2>&1 | grep -q "adhoc" ||
    ! security find-identity -v -p codesigning 2>/dev/null | grep -q "Developer ID Application"; then
   echo
   echo "  NOT NOTARIZED. Gatekeeper will refuse a double-click; the Read me tells people to"

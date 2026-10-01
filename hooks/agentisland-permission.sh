@@ -75,5 +75,4 @@ printf '%s permission %s: timed out after %ss, Claude will ask in the terminal\n
     "$(date -u +%FT%TZ)" "$id" "$((i / 10))" \
     >> "${AGENTISLAND_LOG:-/tmp/agentisland.log}" 2>/dev/null
 rm -f "$DECISIONS/$id.touched" 2>/dev/null
-printf '' >> "$SPOOL" 2>/dev/null
 exit 0
