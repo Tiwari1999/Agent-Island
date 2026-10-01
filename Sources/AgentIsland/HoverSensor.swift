@@ -60,8 +60,4 @@ final class HoverSensor {
         inside = now
         if now { onEnter?() } else { onExit?() }
     }
-
-    /// Nothing to resize — the rect is read at every sample. Kept so callers need not care which
-    /// of the three designs is in place.
-    func resize() {}
 }
