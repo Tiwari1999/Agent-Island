@@ -13,12 +13,6 @@ enum Capability {
     /// answer, so a card there would be a button that does nothing.
     static func approvals(_ v: Vendor) -> Bool { v == .claude }
 
-    /// Answering an `AskUserQuestion` from the notch. Same reason: no other vendor asks.
-    static func questions(_ v: Vendor) -> Bool { v == .claude }
-
-    /// Reading the session's recent output. The console parses Claude's transcript format.
-    static func console(_ v: Vendor) -> Bool { v == .claude }
-
     /// One line a stranger can act on, rather than a table they have to interpret.
     static func summary(_ v: Vendor) -> String {
         approvals(v)

@@ -4,7 +4,6 @@ import Foundation
 /// A permission request waiting on the user. The hook is blocked until this is answered.
 struct Plan: Equatable {
     let markdown: String
-    let at: Date
 }
 
 struct Approval: Identifiable, Equatable {
@@ -350,7 +349,7 @@ final class HookStream: ObservableObject {
             if obj["tool_name"] as? String == "ExitPlanMode",
                let input = obj["tool_input"] as? [String: Any],
                let p = input["plan"] as? String, !p.isEmpty {
-                planUpdates[session] = Plan(markdown: p, at: Date())
+                planUpdates[session] = Plan(markdown: p)
             }
             var state = updates[session] ?? carried[session] ?? LiveState()
             state.at = stamp ?? (replay ? .distantPast : Date())

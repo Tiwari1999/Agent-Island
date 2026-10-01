@@ -3982,8 +3982,14 @@ check("hovering suppresses the loop rather than adding one",
 # Looked at, so it looks back — wide eyes while the pointer is here, without changing state.
 # A busy agent does not stop to stare: working glances sideways and keeps going, everything
 # else opens its eyes. Both are hover-only, so neither survives the pointer leaving.
-check("a hovered idle face opens its eyes wide",
-      "let p = (hovered && !glancing)" in _av and "Pose(w: 68, h: 68" in _av)
+_hp = re.search(r"\? Pose\(w: (\d+), h: (\d+), topY:", _av)
+_wp = re.search(r"case \.working:  return Pose\(w: (\d+), h: (\d+)", _av)
+check("a hovered idle face opens its eyes wider than it works",
+      "let p = (hovered && !glancing)" in _av and _hp is not None and _wp is not None
+      and int(_hp.group(2)) > int(_wp.group(2)))
+# The lids must vanish into the head. Lifting them even slightly drew two bands across the face.
+check("the lids are exactly the head colour, not a shade of it",
+      "lid.fillColor = skin" in _av and "brightnessComponent + 0.05" not in _av)
 check("but a hovered working face glances sideways instead",
       "let glancing = hovered && mood == .working" in _av
       and re.search(r'look\.repeatCount = \.infinity[\s\S]{0,120}forKey: "look"', _av) is not None)
@@ -3995,15 +4001,28 @@ check("and perks up once on arrival, not continuously",
 # Idle dims rather than closing. A slit between two lids reads as squinting, which is a
 # stronger expression than a dormant row has any business wearing.
 _ip = re.search(r"case \.idle:\s+return Pose\(w: \d+, h: (\d+)", _av)
-check("an idle face keeps round eyes and only dims",
-      _ip is not None and int(_ip.group(1)) >= 40
-      and re.search(r"mood == \.idle \? 0\.4\d : 1", _av) is not None)
+# Shut, and shut cleanly: a short line with the lids kept clear of it. The in-between version
+# — a sliver of white pinched between two lids — read as squinting, not sleeping.
+check("an idle face is shut, with the lids clear of the line",
+      _ip is not None and int(_ip.group(1)) <= 8
+      and re.search(r"case \.idle:\s+return Pose\(w: \d+, h: \d+, topY: -(\d+), botY: (\d+)\)", _av)
+      is not None)
+# Fading head and lids separately stacked two translucent layers and drew the very bands the
+# lids exist to hide. The face dims as one thing or not at all.
+check("idle dims the whole face, not its parts",
+      "root.opacity = mood == .idle ? 0.42 : 1" in _av
+      and "let skin = tint.cgColor" in _av
+      and "withAlphaComponent" not in _av.split("let skin")[1][:400])
+_il = re.search(r"case \.idle:\s+return Pose\(w: \d+, h: (\d+), topY: -(\d+)", _av)
+check("the lids do not pinch the closed line",
+      _il is not None and int(_il.group(2)) > int(_il.group(1)) * 2)
 # One hue per chat, from the session id, so a row and its card are visibly the same agent.
 # A shading stack was tried here — base gradient, dark rim, off-centre highlight, copied from
 # the reference. At 24pt in a list it read as a dark navy blob and lost the hue entirely, which
 # is the one thing the colour exists to carry. Flat fill, legible at size, wins.
 check("the head is one flat fill, not a shading stack",
-      "CAGradientLayer" not in _av and "head.fillColor = tint.withAlphaComponent" in _av)
+      "CAGradientLayer" not in _av and "head.fillColor = skin" in _av
+      and "let skin = tint.cgColor" in _av)
 # Assigning layer properties on a layer-backed NSView lands with no interpolation, so a mood
 # change cut the eye shape, the lid angles and the colour at once.
 check("a mood change interpolates rather than cutting",
@@ -4019,6 +4038,35 @@ _skin = _av[_av.index("private var skin: Color {"):]
 _skin = _skin[:_skin.index("return hues[")]
 _rgb = re.findall(r"red: ([\d.]+), green: ([\d.]+), blue: ([\d.]+)", _skin)
 check(f"there are eight face hues", len(_rgb) == 8)
+
+# Computed, not grepped. White eyes were hardcoded and measured 1.70:1 on the yellow body —
+# seven of eight hues failed the readable floor, which at 17pt means a face with no eyes.
+def _lum(c):
+    def f(x):
+        x = float(x)
+        return x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4
+    r, g, b = map(f, c)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+def _ratio(a, b):
+    la, lb = _lum(a), _lum(b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+def _eye_for(body):
+    # mirrors AgentAvatar.eyeColor
+    lit = _lum(body) > 0.18
+    l = 0.10 if lit else 0.98
+    for _ in range(40):
+        if _ratio((str(l),) * 3, body) >= 4.5: return (str(l),) * 3
+        l += -0.02 if lit else 0.02
+        if l < 0 or l > 1: break
+    return ("0",) * 3 if lit else ("1",) * 3
+_floor = re.search(r"Self\.contrast\(c, body\) >= ([\d.]+)", _av)
+check("the contrast floor is the readable one", _floor is not None and float(_floor.group(1)) >= 4.5,
+      "" if _floor else "floor not found")
+_worst = min(_ratio(_eye_for(c), c) for c in _rgb)
+check("every face hue has readable eyes against it",
+      _worst >= 4.5, f"worst pair is {_worst:.2f}:1")
+check("and the eye colour is derived rather than assumed white",
+      "Self.eyeColor(on: tint)" in _av and "NSColor.white.cgColor" not in _av)
 # The first attempt capped saturation instead, which on a flat fill was the only way to stay
 # quiet — and it made all eight read as the same grey-blue. A shaded body carries chroma, so
 # what actually has to hold is that the hues are far APART on the wheel.

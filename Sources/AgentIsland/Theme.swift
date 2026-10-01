@@ -207,31 +207,11 @@ struct Dot: View {
 }
 
 
-extension Theme {
-    static func surface(_ raised: Bool) -> LinearGradient {
-        LinearGradient(colors: raised
-            ? [Color(red: 0.118, green: 0.126, blue: 0.149), Color(red: 0.086, green: 0.094, blue: 0.114)]
-            : [Color(red: 0.063, green: 0.067, blue: 0.082), Color(red: 0.043, green: 0.047, blue: 0.059)],
-            startPoint: .top, endPoint: .bottom)
-    }
-}
+extension Theme {}
 
 /// What an agent is doing, as far as the hook stream can tell.
 enum WorkKind {
     case idle, thinking, reading, writing, running, searching, delegating, waiting
-
-    var label: String {
-        switch self {
-        case .idle:       return "idle"
-        case .thinking:   return "thinking"
-        case .reading:    return "reading"
-        case .writing:    return "editing"
-        case .running:    return "running"
-        case .searching:  return "searching"
-        case .delegating: return "delegating"
-        case .waiting:    return "needs you"
-        }
-    }
 }
 
 /// Proof of life in the resting bar, where the motion carries the meaning.

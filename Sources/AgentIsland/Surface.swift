@@ -4,8 +4,6 @@ import SwiftUI
 /// beside it so the two can be compared on the same UI instead of one replacing the other.
 enum Surface: String {
     case solid, sleek
-
-    var label: String { rawValue }
     var next: Surface { self == .solid ? .sleek : .solid }
 }
 

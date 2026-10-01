@@ -7,14 +7,16 @@ import AppKit
 enum Mood: Equatable {
     case working, needsYou, blocked, idle, done, died, confused
 
-    /// Only these two move. Everything else holds a pose, which is what keeps a panel of a
-    /// dozen agents off the idle budget — a face is not a reason to run a render loop.
+    /// Only these two run a CONTINUOUS animation. Hover still perks and glances and done
+    /// still hops, but those are one-shots — what this gates is the forever loop, which is
+    /// what would otherwise put a panel of a dozen faces on the idle budget.
     var animates: Bool { self == .working || self == .needsYou }
 }
 
 /// A head and two eyes. Shape and pose geometry follow CX-ArtLab/agent-robot-avatar (MIT),
-/// reimplemented on CoreAnimation rather than its SVG/CSS: the body is the coloured mass and
-/// the eyes stay white, so one hue per session retints the whole face.
+/// reimplemented on CoreAnimation rather than its SVG/CSS. The head and its lids carry the
+/// session's hue; the eyes are whatever shade stays readable against it, which is not always
+/// white — see `eyeColor(on:)`.
 struct AgentAvatar: View {
     let seed: String
     var size: CGFloat = 20
@@ -30,19 +32,19 @@ struct AgentAvatar: View {
         return h
     }
 
-    /// One hue per chat. These were flattened too far once: on a flat fill a desaturated set
-    /// is the only way to stay quiet, but a shaded body carries chroma without shouting, and
-    /// eight faces have to be told apart at 17pt in a menu bar.
+    /// One hue per chat, evenly spaced around the wheel. An earlier pass desaturated these to
+    /// under 0.30 and all eight collapsed into the same grey-blue; eight faces have to be told
+    /// apart at 17pt in a menu bar, so what matters is the spacing, not the restraint.
     private var skin: Color {
         let hues: [Color] = [
-            Color(red: 0.80, green: 0.45, blue: 0.34),   // rose
-            Color(red: 0.80, green: 0.80, blue: 0.34),   // amber
-            Color(red: 0.46, green: 0.80, blue: 0.34),   // gold
-            Color(red: 0.34, green: 0.80, blue: 0.56),   // lime
-            Color(red: 0.34, green: 0.69, blue: 0.80),   // green
-            Color(red: 0.34, green: 0.34, blue: 0.80),   // teal
-            Color(red: 0.68, green: 0.34, blue: 0.80),   // blue
-            Color(red: 0.80, green: 0.34, blue: 0.57),   // violet
+            Color(red: 0.80, green: 0.45, blue: 0.34),   // vermilion
+            Color(red: 0.80, green: 0.80, blue: 0.34),   // yellow
+            Color(red: 0.46, green: 0.80, blue: 0.34),   // chartreuse
+            Color(red: 0.34, green: 0.80, blue: 0.56),   // green
+            Color(red: 0.34, green: 0.69, blue: 0.80),   // cyan
+            Color(red: 0.34, green: 0.34, blue: 0.80),   // blue
+            Color(red: 0.68, green: 0.34, blue: 0.80),   // violet
+            Color(red: 0.80, green: 0.34, blue: 0.57),   // magenta
         ]
         return hues[Int(hash % UInt64(hues.count))]
     }
@@ -55,8 +57,8 @@ struct AgentAvatar: View {
 }
 
 /// Pose numbers are the reference's, in its own 240x240 space, scaled to our size at draw time.
-/// Each pose is just an eye size plus where the two lids sit and how far they are tilted —
-/// every expression in the set falls out of those five numbers.
+/// Every expression in the set falls out of six numbers: the eye's width and height, where
+/// each lid sits, how far the pair is tilted, and a cock applied to one eye alone.
 private struct Pose {
     var w: CGFloat, h: CGFloat, topY: CGFloat, botY: CGFloat
     /// Mirrored between the eyes, which is what keeps sad and angry symmetrical.
@@ -67,18 +69,21 @@ private struct Pose {
 
     static func of(_ m: Mood) -> Pose {
         switch m {
-        case .working:  return Pose(w: 54, h: 58, topY: -36, botY: 36)
-        case .needsYou: return Pose(w: 68, h: 68, topY: -40, botY: 40)
-        case .done:     return Pose(w: 58, h: 58, topY: -36, botY: 0)
-        case .blocked:  return Pose(w: 58, h: 56, topY: 0, botY: 36)
-        case .died:     return Pose(w: 58, h: 58, topY: -5, botY: 36, tiltTop: -16, tiltBot: 16)
+        case .working:  return Pose(w: 46, h: 50, topY: -32, botY: 32)
+        // Half again the size of working, not a nudge above it. A session blocked on you
+        // looked identical to one merely busy at 30pt, which is the one confusion this face
+        // exists to prevent.
+        case .needsYou: return Pose(w: 70, h: 70, topY: -42, botY: 42)
+        case .done:     return Pose(w: 50, h: 50, topY: -32, botY: 0)
+        case .blocked:  return Pose(w: 50, h: 48, topY: 0, botY: 32)
+        case .died:     return Pose(w: 50, h: 50, topY: -4, botY: 32, tiltTop: -16, tiltBot: 16)
         // One brow up, one down, eyes a little uneven: being asked something is not the same
         // as being interrupted, and the card should not look alarmed about a multiple choice.
-        case .confused: return Pose(w: 60, h: 62, topY: -24, botY: 38, tiltTop: -7, cock: 26)
-        // Round, just quieter. A slit between two lids reads as a creature squinting at you,
-        // which is worse than a dormant row looking blank — dimming says "nothing here" without
-        // the face acquiring an opinion about it.
-        case .idle:     return Pose(w: 50, h: 52, topY: -34, botY: 34)
+        case .confused: return Pose(w: 52, h: 54, topY: -20, botY: 34, tiltTop: -7, cock: 26)
+        // Shut, and shut cleanly. A short line of eye with the lids kept well clear of it reads
+        // as closed; the first attempt left a sliver of white pinched between two lids, which
+        // is a creature squinting rather than a session asleep.
+        case .idle:     return Pose(w: 42, h: 5, topY: -30, botY: 30)
         }
     }
 }
@@ -102,8 +107,8 @@ private struct FaceLayer: NSViewRepresentable {
         let head = CAShapeLayer(); head.name = "head"
         v.layer?.addSublayer(head)
         for side in ["L", "R"] {
-            // The white sits under two body-coloured lids; the visible aperture is whatever
-            // the lids leave uncovered. That is the whole expression system.
+            // The eye sits under two lids painted in the head's own colour; the visible
+            // aperture is whatever they leave uncovered. That is the whole expression system.
             let white = CAShapeLayer(); white.name = "eye" + side
             let top = CAShapeLayer(); top.name = "top" + side
             let bot = CAShapeLayer(); bot.name = "bot" + side
@@ -121,6 +126,33 @@ private struct FaceLayer: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
     final class Coordinator { var mood: Mood?; var hovered = false }
+
+    /// White eyes were hardcoded, and measured 1.70:1 against the yellow body — seven of the
+    /// eight hues failed the 4.5:1 readable floor, which at 17pt in a menu bar means the face
+    /// has no eyes at all. Dark eyes on a light face, light on a dark one, then walk until it
+    /// actually passes rather than assuming it does. The rule is blobatar's (MIT).
+    static func eyeColor(on body: NSColor) -> NSColor {
+        let lit = Self.luminance(body) > 0.18
+        var l: CGFloat = lit ? 0.10 : 0.98
+        for _ in 0..<40 {
+            let c = NSColor(white: l, alpha: 1)
+            if Self.contrast(c, body) >= 4.5 { return c }
+            l += lit ? -0.02 : 0.02
+            if l < 0 || l > 1 { break }
+        }
+        return NSColor(white: lit ? 0 : 1, alpha: 1)
+    }
+
+    private static func luminance(_ c: NSColor) -> CGFloat {
+        guard let s = c.usingColorSpace(.sRGB) else { return 0.5 }
+        func f(_ x: CGFloat) -> CGFloat { x <= 0.04045 ? x / 12.92 : pow((x + 0.055) / 1.055, 2.4) }
+        return 0.2126 * f(s.redComponent) + 0.7152 * f(s.greenComponent) + 0.0722 * f(s.blueComponent)
+    }
+
+    private static func contrast(_ a: NSColor, _ b: NSColor) -> CGFloat {
+        let la = luminance(a), lb = luminance(b)
+        return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+    }
 
     private func apply(to v: NSView, context: Context) {
         guard let root = v.layer else { return }
@@ -147,9 +179,14 @@ private struct FaceLayer: NSViewRepresentable {
         // working glances sideways and keeps going; one that is idle opens its eyes at you.
         let glancing = hovered && mood == .working
         let p = (hovered && !glancing)
-            ? Pose(w: 68, h: 68, topY: -40, botY: 40)
+            ? Pose(w: 58, h: 58, topY: -36, botY: 36)
             : Pose.of(mood)
 
+        // Dim the whole face at once, never the parts. Fading the head and the lids
+        // separately composited two translucent layers wherever they overlapped, which drew
+        // exactly the pair of bands above and below the eye that the lids exist to hide.
+        root.opacity = mood == .idle ? 0.42 : 1
+        let skin = tint.cgColor
         if let head = root.sublayers?.first(where: { $0.name == "head" }) as? CAShapeLayer {
             // The reference ships a 160-point polyline approximating a squircle. A continuous
             // rounded rect is the same silhouette in one call, and it is the curve the rest of
@@ -159,7 +196,7 @@ private struct FaceLayer: NSViewRepresentable {
             head.path = NSBezierPath(roundedRect: CGRect(x: inset, y: inset,
                                                          width: side, height: side),
                                      xRadius: side * 0.24, yRadius: side * 0.24).cgPath
-            head.fillColor = tint.withAlphaComponent(mood == .idle ? 0.42 : 1).cgColor
+            head.fillColor = skin
         }
 
         for (side, cx) in [("L", Self.eyeL), ("R", Self.eyeR)] {
@@ -172,7 +209,7 @@ private struct FaceLayer: NSViewRepresentable {
             let c = CGPoint(x: cx * s, y: size - Self.eyeY * s)
             white.path = CGPath(ellipseIn: CGRect(x: c.x - p.w * s / 2, y: c.y - p.h * s / 2,
                                                   width: p.w * s, height: p.h * s), transform: nil)
-            white.fillColor = NSColor.white.cgColor
+            white.fillColor = Self.eyeColor(on: tint).cgColor
             mask.path = CGPath(rect: CGRect(x: c.x - 40 * s, y: c.y - 54 * s,
                                             width: 80 * s, height: 108 * s), transform: nil)
             // Lids are oversized slabs: only their inner edge is ever on screen, so rotating
@@ -181,12 +218,11 @@ private struct FaceLayer: NSViewRepresentable {
                 let isTop = lid === top
                 let rect = CGRect(x: -70 * s, y: isTop ? 0 : -90 * s, width: 140 * s, height: 90 * s)
                 lid.path = CGPath(rect: rect, transform: nil)
-                // The lids are the body closing over the eye, so they take its mid-tone rather
-                // than the raw hue — a flat lid on a shaded head looks like a sticker on it.
-                lid.fillColor = NSColor(hue: tint.hueComponent,
-                                        saturation: tint.saturationComponent,
-                                        brightness: min(1, tint.brightnessComponent + 0.05),
-                                        alpha: mood == .idle ? 0.42 : 1).cgColor
+                // Exactly the head colour, not a shade of it. Lifting the brightness by 0.05
+                // was left over from when the head was shaded, and against a flat head it drew
+                // two visible bands across the face — the lids have to disappear into it, so
+                // that the only thing on screen is whatever eye they leave uncovered.
+                lid.fillColor = skin
                 lid.bounds = CGRect(origin: .zero, size: root.bounds.size)
                 lid.position = CGPoint(x: c.x, y: c.y - y * s)
                 lid.anchorPoint = CGPoint(x: 0.5, y: 0.5)
