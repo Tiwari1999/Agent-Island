@@ -193,17 +193,11 @@ final class Island: NSObject, ObservableObject {
                                          repeats: false) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.state == .collapsed, !self.revealed else { return }
-                // Never while something needs you — an agent blocked on an answer is an
-                // interruption, and a bar that hides it is not doing its job.
-                //
-                // Work in progress is different. It used to hold the bar open too, on the
-                // grounds that showing work is what the bar is for. But an agent runs for
-                // minutes while you work in another window, and the bar sits opaque across the
-                // top of it the whole time, over the toolbar you are reaching for. It steps
-                // aside now and comes straight back: `wake()` runs on hover and on every change
-                // to what the bar says, so nothing is lost except the obstruction.
-                guard self.store.waitingCount == 0,
-                      self.store.blockedCount == 0 else { return }
+                // Never while something is happening. The bar exists to show that an agent is
+            // working; hiding it then removes the one thing it is for. Letting work in progress
+            // fall away was tried, to free the menu bar — it reads as the agent vanishing.
+            guard self.store.workingCount == 0, self.store.waitingCount == 0,
+                  self.store.blockedCount == 0 else { return }
                 withAnimation(Motion.content) { self.autoHidden = true }
             }
         }

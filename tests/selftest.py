@@ -3069,14 +3069,10 @@ check("and tmux counts as writable, which is what reaches Warp",
 
 print("\n=== 47. the bar shows what it exists to show ===")
 _iv12 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
-# Auto-hide must not fade a bar that is ASKING — an unanswered prompt is the one thing you
-# cannot afford to lose. Work in progress is the opposite: ambient news, and holding the bar
-# open for it parked an opaque strip over the menu bar for the whole run.
-check("auto-hide never fires while something needs you",
-      "guard self.store.waitingCount == 0," in _iv12
+# Auto-hide fading the bar while an agent was working removed the one thing the bar is for.
+check("auto-hide never fires while something is running",
+      "guard self.store.workingCount == 0, self.store.waitingCount == 0," in _iv12
       and "self.store.blockedCount == 0 else { return }" in _iv12)
-check("but work in progress no longer pins the bar there",
-      "self.store.workingCount == 0, self.store.waitingCount" not in _iv12)
 check("and the owning terminal is found by walking the process tree, not the environment",
       "Proc.ancestorWithTTY(pid: pid)" in _iv12.replace("", "")
       or "Proc.ancestorWithTTY" in open(
