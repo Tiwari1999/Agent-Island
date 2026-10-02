@@ -4026,6 +4026,28 @@ check("and the glance keeps the working pose rather than widening it",
 check("and perks up once on arrival, not continuously",
       "let justHovered = hovered && !context.coordinator.hovered" in _av
       and 'perk.duration = 0.28' in _av and 'head.add(perk, forKey: "perk")' in _av)
+# A row waiting on you is the one thing the panel exists to surface, so it moves its whole
+# body: the eyes bob inside a head that bounces with them. Two layers, one clock -- running
+# them at different durations drifts them apart within a few seconds and reads as a glitch.
+check("needs-you bounces its head, not only its eyes",
+      re.search(r'head\.add\(bounce, forKey: "bounce"\)', _av) is not None
+      and re.search(r'g\.add\(bob, forKey: "bob"\)', _av) is not None)
+check("and both halves share one duration",
+      len(re.findall(r"(?:bob|bounce)\.duration = Self\.bounce", _av)) == 2)
+# The head travels less than the eyes. Equal travel reads as a sticker sliding up and down;
+# the lag is what makes it a body.
+_eye = re.search(r"bob\.values = \[0, -([\d.]+) \* s", _av)
+_hd  = re.search(r"let lift = ([\d.]+) \* s", _av)
+check("and the head lifts less than the eyes do",
+      _eye is not None and _hd is not None and float(_hd.group(1)) < float(_eye.group(1)))
+# Nothing else clears the head layer, so an infinite animation left on it would outlive the
+# mood that started it: a row that stopped waiting would carry on bouncing forever.
+check("and the bounce is torn down when the mood moves on",
+      re.search(r'head\.removeAnimation\(forKey: "bounce"\)', _av) is not None)
+# Same gate as every other loop here: hovering or reduced motion must not leave it running.
+check("and it is gated on reduce and hover like every other loop",
+      re.search(r"if mood == \.needsYou, !hovered \{", _av) is not None
+      and re.search(r'head\.removeAnimation\(forKey: "bounce"\)\s*\n\s*guard !reduce else \{ return \}', _av) is not None)
 # Idle dims rather than closing. A slit between two lids reads as squinting, which is a
 # stronger expression than a dormant row has any business wearing.
 _ip = re.search(r"case \.idle:\s+return Pose\(w: \d+, h: (\d+)", _av)
