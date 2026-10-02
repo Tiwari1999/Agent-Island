@@ -1630,10 +1630,14 @@ check("the card is capped by the panel it is drawn in, not the screen",
 check("number keys reset per question", "func bindKeys" in _is3 and "step: Int" in _is3)
 
 print("\n=== 24. the row's chevron opens the console ===")
-# An external display has no notch, so the island's strip is the menu bar itself. Sitting on
-# it blanked the window title and the clock and ate the reach to the top for them.
-check("the island clears the menu bar on a screen with no notch",
-      "notchWidth > 0 ? 0 : NSStatusBar.system.thickness" in _is3)
+# Dropping below the menu bar on a notchless screen read as the bar falling off the edge, and
+# the strip is click-through anyway. So: always the top edge, as tall as the menu bar there.
+check("the island starts at the top of every screen, notch or not",
+      "private var topEdge: CGFloat { screen?.frame.maxY ?? 0 }" in _is3
+      and "topInset" not in _is3 and "NSStatusBar.system.thickness" not in _is3)
+check("and on a notchless screen it is exactly as tall as the menu bar",
+      "notchHeight = inset > 0 ? inset : menuBar > 0 ? menuBar : 28" in _is3
+      and "let menuBar = screen.frame.maxY - screen.visibleFrame.maxY" in _is3)
 check("and every rect hangs off that edge, not off the raw top of the screen",
       "screen.frame.maxY - notchHeight" not in _is3
       and "screen.frame.maxY - h" not in _is3

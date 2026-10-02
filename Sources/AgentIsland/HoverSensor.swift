@@ -38,13 +38,11 @@ final class HoverSensor {
         (notchWidth > 0 ? notchWidth : 120) + 80
     }
 
-    func install(on screen: NSScreen, notchWidth: CGFloat, notchHeight: CGFloat,
-                 topInset: CGFloat) {
+    func install(on screen: NSScreen, notchWidth: CGFloat, notchHeight: CGFloat) {
         let width = Self.hotWidth(notchWidth: notchWidth)
         // +1 for the same reason as Island.hotRect: contains() excludes the max edge, and the
         // cursor parks exactly on screen.maxY when pushed to the top.
-        let top = screen.frame.maxY - topInset
-        fallback = NSRect(x: screen.frame.midX - width / 2, y: top - notchHeight,
+        fallback = NSRect(x: screen.frame.midX - width / 2, y: screen.frame.maxY - notchHeight,
                           width: width, height: notchHeight + 1)
         guard timer == nil else { return }
         let t = Timer(timeInterval: 0.08, repeats: true) { [weak self] _ in self?.sample() }
@@ -62,8 +60,4 @@ final class HoverSensor {
         inside = now
         if now { onEnter?() } else { onExit?() }
     }
-
-    /// Nothing to resize — the rect is read at every sample. Kept so callers need not care which
-    /// of the three designs is in place.
-    func resize() {}
 }

@@ -204,19 +204,9 @@ final class Island: NSObject, ObservableObject {
     }
     private var screen: NSScreen? { pinned ?? activeScreen }
 
-    /// How far below the top of the display the island starts.
-    ///
-    /// Zero on a notched screen: the bar lives in the notch, beside the menu bar, not over it.
-    /// A screen with no notch has the menu bar in that exact strip instead, and sitting on it
-    /// blanked the window title and the clock and swallowed the slam-to-the-top reach for them.
-    static func topInset(notchWidth: CGFloat) -> CGFloat {
-        notchWidth > 0 ? 0 : NSStatusBar.system.thickness
-    }
-
-    /// The island's own top edge — `screen.frame.maxY` only when that is not the menu bar.
-    private var topEdge: CGFloat {
-        (screen?.frame.maxY ?? 0) - Self.topInset(notchWidth: notchWidth)
-    }
+    /// Always the top of the display, notch or not. Dropping below the menu bar on a notchless
+    /// screen read as the bar falling off the edge; the strip is click-through, so it costs no reach.
+    private var topEdge: CGFloat { screen?.frame.maxY ?? 0 }
 
     /// Re-home the window on the active display. Safe to do while collapsed because nothing is
     /// drawn then, so the move cannot be seen.
@@ -232,9 +222,8 @@ final class Island: NSObject, ObservableObject {
                                width: size.width, height: size.height),
                         display: false)
         sensor.rect = { [weak self] in self?.hotRect ?? .zero }
-        sensor.install(on: target, notchWidth: notchWidth, notchHeight: notchHeight,
-                       topInset: Self.topInset(notchWidth: notchWidth))
-        Diagnostics.log("island moved to screen \(target.frame)")
+        sensor.install(on: target, notchWidth: notchWidth, notchHeight: notchHeight)
+        Diagnostics.log("island moved to screen \(target.frame) notch=\(notchWidth) height=\(notchHeight)")
         return true
     }
 
@@ -357,10 +346,8 @@ final class Island: NSObject, ObservableObject {
                 self.refreshHitRegion()
             }
         }
-
         sensor.rect = { [weak self] in self?.hotRect ?? .zero }
-        sensor.install(on: screen, notchWidth: notchWidth, notchHeight: notchHeight,
-                       topInset: Self.topInset(notchWidth: notchWidth))
+        sensor.install(on: screen, notchWidth: notchWidth, notchHeight: notchHeight)
         wake()
         sensor.onEnter = { [weak self] in
             guard let self else { return }
@@ -397,7 +384,9 @@ final class Island: NSObject, ObservableObject {
 
     private func measureNotch(_ screen: NSScreen) {
         let inset = screen.safeAreaInsets.top
-        notchHeight = inset > 0 ? inset : 28
+        // No notch: be exactly as tall as the menu bar the bar sits in, so it reads as one piece.
+        let menuBar = screen.frame.maxY - screen.visibleFrame.maxY
+        notchHeight = inset > 0 ? inset : menuBar > 0 ? menuBar : 28
         if inset > 0, let l = screen.auxiliaryTopLeftArea, let r = screen.auxiliaryTopRightArea {
             notchWidth = max(100, screen.frame.width - l.width - r.width)
         } else {
@@ -526,7 +515,6 @@ final class Island: NSObject, ObservableObject {
         // the pointer. Collapsed, it accepts nothing at all: the bar is a readout, and anything
         // it swallowed up there would be a click the menu bar or a fullscreen tab strip never
         // got. The sensor above it declines hit-testing for the same reason.
-        sensor.resize()   // the strip tracks the bar, whose width changes with what it says
         if state == .collapsed {
             window.ignoresMouseEvents = true
             return
