@@ -4030,6 +4030,25 @@ check("and the glance keeps the working pose rather than widening it",
 check("and perks up once on arrival, not continuously",
       "let justHovered = hovered && !context.coordinator.hovered" in _av
       and 'perk.duration = 0.28' in _av and 'head.add(perk, forKey: "perk")' in _av)
+# The row waiting on you moves its whole body, and both layers come from one builder so their
+# clocks cannot drift apart.
+check("needs-you bounces its head, not only its eyes",
+      re.search(r'head\.add\(Self\.bounce\(lift:', _av) is not None
+      and re.search(r'g\.add\(Self\.bounce\(lift:', _av) is not None)
+check("and both halves share one clock",
+      _av.count("static func bounce(lift:") == 1 and _av.count("Self.bounce(lift:") == 2)
+# Equal travel reads as a sticker sliding; the head lagging the eyes is what makes it a body.
+_eye = re.search(r"g\.add\(Self\.bounce\(lift: ([\d.]+) \* s", _av)
+_hd  = re.search(r"head\.add\(Self\.bounce\(lift: ([\d.]+) \* s", _av)
+check("and the head lifts less than the eyes do",
+      _eye is not None and _hd is not None and float(_hd.group(1)) < float(_eye.group(1)))
+# Nothing else clears the head layer, so a row that stopped waiting would bounce forever.
+check("and the bounce is torn down when the mood moves on",
+      re.search(r'head\.removeAnimation\(forKey: "bounce"\)', _av) is not None)
+# Same gate as every other loop here: hovering or reduced motion must not leave it running.
+check("and it is gated on reduce and hover like every other loop",
+      re.search(r"if mood == \.needsYou, !hovered \{", _av) is not None
+      and re.search(r'head\.removeAnimation\(forKey: "bounce"\)\s*\n\s*guard !reduce else \{ return \}', _av) is not None)
 # Idle dims rather than closing. A slit between two lids reads as squinting, which is a
 # stronger expression than a dormant row has any business wearing.
 _ip = re.search(r"case \.idle:\s+return Pose\(w: \d+, h: (\d+)", _av)

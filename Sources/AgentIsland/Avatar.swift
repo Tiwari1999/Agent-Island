@@ -102,6 +102,17 @@ struct FaceLayer: NSViewRepresentable {
     private static let eyeL: CGFloat = 86
     private static let eyeR: CGFloat = 154
 
+    /// Both halves of the needs-you bounce come from here, so head and eyes share one clock.
+    private static func bounce(lift: CGFloat, rebound: CGFloat) -> CAKeyframeAnimation {
+        let a = CAKeyframeAnimation(keyPath: "transform.translation.y")
+        a.values = [0, -lift, 0, -rebound, 0, 0]
+        a.keyTimes = [0, 0.09, 0.2, 0.29, 0.4, 1]
+        a.duration = 2.0
+        a.repeatCount = .infinity
+        a.calculationMode = .cubic
+        return a
+    }
+
     func makeNSView(context: Context) -> NSView {
         let v = NSView(frame: NSRect(x: 0, y: 0, width: size, height: size))
         v.wantsLayer = true
@@ -301,20 +312,23 @@ struct FaceLayer: NSViewRepresentable {
                 blink.timeOffset = phase * 4.2
                 white.add(blink, forKey: "blink")
             } else {
-                // Needs-you leans in and bobs: the eyes are already wide, so the motion only
-                // has to say "over here" without becoming an alarm.
-                let bob = CAKeyframeAnimation(keyPath: "transform.translation.y")
-                bob.values = [0, -1.6 * s * 10, 0, -1.0 * s * 10, 0, 0]
-                bob.keyTimes = [0, 0.09, 0.2, 0.29, 0.4, 1]
-                bob.duration = 2.0
-                bob.repeatCount = .infinity
-                bob.calculationMode = .cubic
-                g.add(bob, forKey: "bob")
+                // Wide eyes only have to say "over here", not raise an alarm; the head adds
+                // its smaller half below.
+                g.add(Self.bounce(lift: 1.6 * s * 10, rebound: 1.0 * s * 10), forKey: "bob")
             }
         }
 
-        guard !reduce,
-              let head = root.sublayers?.first(where: { $0.name == "head" }) else { return }
+        guard let head = root.sublayers?.first(where: { $0.name == "head" }) else { return }
+        // perk and hop expire on their own; the bounce loops, so without this a row that
+        // stopped waiting would keep bouncing.
+        head.removeAnimation(forKey: "bounce")
+        guard !reduce else { return }
+
+        // Less travel than the eyes: the lag reads as a body leaning out, not a sticker sliding.
+        if mood == .needsYou, !hovered {
+            head.add(Self.bounce(lift: 1.1 * s * 10, rebound: 0.66 * s * 10), forKey: "bounce")
+        }
+
         if justHovered {
             let perk = CAKeyframeAnimation(keyPath: "transform.scale")
             perk.values = [1.0, 1.12, 0.98, 1.0]
