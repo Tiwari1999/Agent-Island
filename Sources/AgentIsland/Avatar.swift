@@ -102,9 +102,16 @@ struct FaceLayer: NSViewRepresentable {
     private static let eyeL: CGFloat = 86
     private static let eyeR: CGFloat = 154
 
-    /// One period for both halves of the needs-you bounce. The head and the eyes run as two
-    /// animations on two layers, so they only read as one body if they share a clock.
-    private static let bounce: CFTimeInterval = 2.0
+    /// Both halves of the needs-you bounce come from here, so head and eyes share one clock.
+    private static func bounce(lift: CGFloat, rebound: CGFloat) -> CAKeyframeAnimation {
+        let a = CAKeyframeAnimation(keyPath: "transform.translation.y")
+        a.values = [0, -lift, 0, -rebound, 0, 0]
+        a.keyTimes = [0, 0.09, 0.2, 0.29, 0.4, 1]
+        a.duration = 2.0
+        a.repeatCount = .infinity
+        a.calculationMode = .cubic
+        return a
+    }
 
     func makeNSView(context: Context) -> NSView {
         let v = NSView(frame: NSRect(x: 0, y: 0, width: size, height: size))
@@ -305,39 +312,21 @@ struct FaceLayer: NSViewRepresentable {
                 blink.timeOffset = phase * 4.2
                 white.add(blink, forKey: "blink")
             } else {
-                // Needs-you bounces: the eyes are already wide, so the motion only has to
-                // say "over here" without becoming an alarm. The eyes lead by a fraction of
-                // the head's travel, which is what reads as a body moving rather than a
-                // sticker sliding — the head's half of this is added once, below.
-                let bob = CAKeyframeAnimation(keyPath: "transform.translation.y")
-                bob.values = [0, -1.6 * s * 10, 0, -1.0 * s * 10, 0, 0]
-                bob.keyTimes = [0, 0.09, 0.2, 0.29, 0.4, 1]
-                bob.duration = Self.bounce
-                bob.repeatCount = .infinity
-                bob.calculationMode = .cubic
-                g.add(bob, forKey: "bob")
+                // Wide eyes only have to say "over here", not raise an alarm; the head adds
+                // its smaller half below.
+                g.add(Self.bounce(lift: 1.6 * s * 10, rebound: 1.0 * s * 10), forKey: "bob")
             }
         }
 
         guard let head = root.sublayers?.first(where: { $0.name == "head" }) else { return }
-        // The head's only looping animation is the bounce, and nothing else clears it: perk
-        // and hop are one-shots that expire on their own. Dropping it here is what stops a
-        // row that has stopped waiting from carrying on bouncing.
+        // perk and hop expire on their own; the bounce loops, so without this a row that
+        // stopped waiting would keep bouncing.
         head.removeAnimation(forKey: "bounce")
         guard !reduce else { return }
 
-        // The other half of needs-you: the head travels less than the eyes, which is what
-        // makes the pair read as one body leaning out rather than two layers sliding. Gated
-        // exactly like the eye bob, so a hovered or settled row never starts it.
+        // Less travel than the eyes: the lag reads as a body leaning out, not a sticker sliding.
         if mood == .needsYou, !hovered {
-            let bounce = CAKeyframeAnimation(keyPath: "transform.translation.y")
-            let lift = 1.1 * s * 10
-            bounce.values = [0, -lift, 0, -lift * 0.6, 0, 0]
-            bounce.keyTimes = [0, 0.09, 0.2, 0.29, 0.4, 1]
-            bounce.duration = Self.bounce
-            bounce.repeatCount = .infinity
-            bounce.calculationMode = .cubic
-            head.add(bounce, forKey: "bounce")
+            head.add(Self.bounce(lift: 1.1 * s * 10, rebound: 0.66 * s * 10), forKey: "bounce")
         }
 
         if justHovered {
