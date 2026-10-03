@@ -14,10 +14,10 @@ struct ConsoleView: View {
     var onBeginType: (() -> Void)? = nil
     var onEndType: (() -> Void)? = nil
 
-    @State private var feed: [ConsoleEntry] = []
-    @State private var loaded = false
-    @State private var draft = ""
-    @State private var note: String?
+    @ViewState private var feed: [ConsoleEntry] = []
+    @ViewState private var loaded = false
+    @ViewState private var draft = ""
+    @ViewState private var note: String?
     @FocusState private var writing: Bool
     /// Console.recent is mtime-cached, so re-reading an unchanged transcript costs a stat.
     private let tick = Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()

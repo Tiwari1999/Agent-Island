@@ -209,9 +209,9 @@ struct AgentRowView: View {
     /// opens it — the console shows every call with what was sent, so nothing needs two doors.
     var onConsole: (() -> Void)? = nil
     let onJump: () -> Void
-    @State private var hover = false
-    @State private var glow: CGFloat = 0
-    @State private var played: Date?
+    @ViewState private var hover = false
+    @ViewState private var glow: CGFloat = 0
+    @ViewState private var played: Date?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// "Claude · Fable 5 · Warp", with a ⇅ host prefix when the session is remote.
@@ -437,9 +437,9 @@ struct PanelView: View {
         get { island.panelMode }
         nonmutating set { island.panelMode = newValue }
     }
-    @State private var hooksReady = Setup.hooksInstalled()
-    @State private var installing = false
-    @State private var showAllIdle = false
+    @ViewState private var hooksReady = Setup.hooksInstalled()
+    @ViewState private var installing = false
+    @ViewState private var showAllIdle = false
 
     /// A week of finished sessions buried the handful that are live: 44 rows on first open, 23
     /// of them with no process left. Everything that is running, blocked or wants an answer is
@@ -717,8 +717,8 @@ struct ApprovalCard: View {
     var onExpand: (() -> Void)? = nil
     let onAllow: () -> Void
     let onDeny: () -> Void
-    @State private var hoverAllow = false
-    @State private var hoverDeny = false
+    @ViewState private var hoverAllow = false
+    @ViewState private var hoverDeny = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -863,7 +863,7 @@ struct QuestionCard: View {
     let explanation: String?
     let explaining: Bool
     let onExplain: () -> Void
-    @State private var hot: String?
+    @ViewState private var hot: String?
     @FocusState private var writing: Bool
 
     private var item: QuestionItem { question.items[min(step, question.items.count - 1)] }
