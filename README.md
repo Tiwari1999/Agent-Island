@@ -227,6 +227,8 @@ The `statusLine` wrapper runs your **existing** statusline unchanged inside it, 
 
 `tool` and `cwd` are optional; `pattern` is a regex over the command or file path. Anything that doesn't match falls through and still asks. ✋
 
+**Always allow** (⌘⌥⇧A) on an approval card allows the request and appends a rule here, shown on the card before you press it. It is narrow by construction: a Bash rule names the program and subcommand (`^git status` plus plain arguments only, no `;` `|` `>` `$` or backticks) in that project; an edit rule covers files beside the edited one, never under a hidden directory. Destructive commands, interpreters and anything with shell metacharacters get no such button. Delete an entry from the file to take a rule back.
+
 ## 🏗️ Architecture
 
 ```

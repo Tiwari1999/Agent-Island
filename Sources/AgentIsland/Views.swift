@@ -716,13 +716,23 @@ struct ApprovalCard: View {
     var context: ApprovalContext? = nil
     var onExpand: (() -> Void)? = nil
     let onAllow: () -> Void
+    var onAlways: (() -> Void)? = nil
     let onDeny: () -> Void
     @ViewState private var hoverAllow = false
+    @ViewState private var hoverAlways = false
     @ViewState private var hoverDeny = false
 
     var body: some View {
         VStack(spacing: 0) {
             header
+            // The exact rule is on screen before the button is, so nobody saves one unseen.
+            if let rule = approval.rule, onAlways != nil {
+                Text("always allow saves: \(rule.preview)")
+                    .font(Theme.mono(Type.micro)).foregroundColor(hoverAlways ? Theme.text : Theme.faint)
+                    .lineLimit(1).truncationMode(.middle)
+                    .padding(.horizontal, 14).padding(.top, 5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             // A plan is reviewed where it is approved — switching to the terminal to read it
             // defeats the point of answering from the notch.
             if let plan = approval.plan {
@@ -813,6 +823,9 @@ struct ApprovalCard: View {
                     .onTapGesture(perform: onExpand)
             }
             button("Deny ⌘⌥D", Theme.failed, hoverDeny, onDeny) { hoverDeny = $0 }
+            if approval.rule != nil, let onAlways {
+                button("Always ⌘⌥⇧A", Theme.working, hoverAlways, onAlways) { hoverAlways = $0 }
+            }
             button(approval.plan != nil ? "Approve plan ⌘⌥A" : "Allow ⌘⌥A",
                    Theme.working, hoverAllow, onAllow) { hoverAllow = $0 }
         }

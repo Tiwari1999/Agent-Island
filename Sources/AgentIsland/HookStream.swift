@@ -15,6 +15,7 @@ struct Approval: Identifiable, Equatable {
     var plan: String?         // full Markdown when the ask is ExitPlanMode
     var cwd: String?          // where the session runs, for reading its transcript
     var fullInput: String?    // the complete ask, untruncated — a heredoc is unreviewable at one line
+    var rule: AlwaysRule?     // what "Always allow" would save; nil means the card offers no such thing
 }
 
 /// A multiple-choice question waiting on one click.
@@ -340,7 +341,9 @@ final class HookStream: ObservableObject {
                     deadline: Date().addingTimeInterval(plan != nil ? 50 : 19),
                     plan: plan,
                     cwd: payload["cwd"] as? String,
-                    fullInput: Self.fullText(tool: tool, input: payload["tool_input"]))
+                    fullInput: Self.fullText(tool: tool, input: payload["tool_input"]),
+                    rule: AlwaysAllow.rule(tool: tool, input: payload["tool_input"] as? [String: Any],
+                                           cwd: payload["cwd"] as? String))
                 approvals.append(approval)
                 obj = payload
             }
