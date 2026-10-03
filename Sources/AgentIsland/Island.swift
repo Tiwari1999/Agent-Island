@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import Combine
 import SwiftUI
 
 private final class Panel: NSPanel {
@@ -137,6 +138,11 @@ final class Island: NSObject, ObservableObject {
     private var stickyOpen = false
     private let store: AgentStore
     private let status: StatusStore
+    private var reminders = Reminders(interval: Prefs.shared.remindMinutes * 60)
+    /// One-shot, armed for the next due reminder and only while one is pending.
+    private var reminderTimer: Timer?
+    private var screenLocked = false
+    private var reminderBag = Set<AnyCancellable>()
 
     init(store: AgentStore, status: StatusStore) {
         self.store = store; self.status = status; super.init()
@@ -280,6 +286,7 @@ final class Island: NSObject, ObservableObject {
         store.hooks.onApproval = { [weak self] approval in
             guard let self else { return }
             self.present(approval)
+            self.track(.approval, session: approval.session, item: approval.id)
             let name = self.store.name(for: approval.session) ?? "agent"
             Notifier.notify(title: "\(name) needs permission",
                             body: "\(approval.tool): \(approval.detail)", key: approval.session,
@@ -298,6 +305,7 @@ final class Island: NSObject, ObservableObject {
         store.hooks.onQuestion = { [weak self] question in
             guard let self else { return }
             self.ask(question)
+            self.track(.question, session: question.session, item: question.id)
             let name = self.store.name(for: question.session)
                 ?? question.project ?? "agent"
             Notifier.notify(title: name, body: question.items[0].text, key: question.session)
@@ -317,8 +325,10 @@ final class Island: NSObject, ObservableObject {
                 Notifier.notify(title: name, body: message, key: session)
             } else {
                 Sounds.done(silenced: silenced)
+                self.track(.completion, session: session, item: "finished")
             }
         }
+        installReminders()
 
         // One chord summons the console for whoever needs you most; pressing it again closes it.
         Hotkeys.shared.bindLasting([
@@ -936,6 +946,7 @@ final class Island: NSObject, ObservableObject {
     func openConsole(_ session: String) {
         if case .console(let cur) = state, cur == session { closeConsole(); return }
         guard !session.isEmpty else { return }
+        forget(session)
         // A card owns teardown a glance must not skip — the approval hold file, the queue —
         // and something waiting on you outranks looking at something else anyway.
         switch state {
@@ -1028,7 +1039,8 @@ final class Island: NSObject, ObservableObject {
     /// Dismiss the card without answering. The hook falls through to the terminal, and the
     /// question stays pending so the row can bring it back.
     func dismissQuestion() {
-        guard case .question = state else { return }
+        guard case .question(let q) = state else { return }
+        forget(q.session, q.id)
         endTyping()
         // The card goes away; the question does not. The agent is still blocked on it, so the
         // hook keeps waiting and the row's answer button brings the card straight back.
@@ -1167,6 +1179,7 @@ final class Island: NSObject, ObservableObject {
     }
 
     func choose(_ question: Question, picks: [String: [String]]) {
+        forget(question.session, question.id)
         stopWatchingClicks()
         defer { releaseQuestion(question.id) }
         // An ask whose questions share wording cannot be answered as a map keyed by wording:
@@ -1199,6 +1212,7 @@ final class Island: NSObject, ObservableObject {
     }
 
     func answer(_ approval: Approval, allow: Bool) {
+        forget(approval.session, approval.id)
         approvalWork?.cancel()
         hold.end(); approvalContext = nil
         Hotkeys.shared.unbind()
@@ -1217,6 +1231,102 @@ final class Island: NSObject, ObservableObject {
                             key: approval.session)
         }
         presentNext()
+    }
+
+    // MARK: follow-up reminders
+
+    private func installReminders() {
+        store.onJumped = { [weak self] session in self?.forget(session) }
+        Prefs.shared.$remindMinutes.dropFirst().sink { [weak self] minutes in
+            self?.reminders.setInterval(minutes * 60)
+            self?.armReminder()
+        }.store(in: &reminderBag)
+        // The sink sees the new value before `live` holds it, so it is passed in, not re-read.
+        store.hooks.$live.sink { [weak self] live in
+            guard let self, !self.reminders.isEmpty else { return }
+            self.reminders.keep { key, kind, since in Self.waiting(kind, live[key.session], since: since) }
+            self.armReminder()
+        }.store(in: &reminderBag)
+        let center = DistributedNotificationCenter.default()
+        for (name, locked) in [("com.apple.screenIsLocked", true), ("com.apple.screenIsUnlocked", false)] {
+            center.addObserver(forName: .init(name), object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in
+                    self?.screenLocked = locked
+                    if !locked { self?.fireReminders() }
+                }
+            }
+        }
+    }
+
+    /// An ask lives until the agent moves on; state older than the ask cannot have answered it,
+    /// which matters because the question and its PreToolUse arrive from two hooks in either order.
+    private static func waiting(_ kind: Reminders.Kind, _ s: LiveState?, since: Date?) -> Bool {
+        if kind == .completion { return s?.active != true }
+        if s?.waiting == true { return true }
+        guard let since else { return false }
+        return (s?.at ?? .distantPast) < since
+    }
+
+    private func track(_ kind: Reminders.Kind, session: String, item: String) {
+        guard !session.isEmpty else { return }
+        reminders.track(kind, session: session, item: item, now: Date())
+        armReminder()
+    }
+
+    private func forget(_ session: String, _ item: String? = nil) {
+        guard !reminders.isEmpty else { return }
+        if let item { reminders.cancel(session: session, item: item) } else { reminders.cancel(session: session) }
+        armReminder()
+    }
+
+    private func armReminder() {
+        guard let at = reminders.nextDue else {
+            reminderTimer?.invalidate(); reminderTimer = nil
+            return
+        }
+        if let t = reminderTimer, t.isValid, t.fireDate == at { return }
+        reminderTimer?.invalidate()
+        reminderTimer = Timer.scheduledTimer(withTimeInterval: max(1, at.timeIntervalSinceNow),
+                                             repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.fireReminders() }
+        }
+    }
+
+    private func fireReminders() {
+        reminderTimer?.invalidate(); reminderTimer = nil
+        let live = store.hooks.live
+        reminders.keep { key, kind, _ in Self.waiting(kind, live[key.session], since: nil) }
+        for due in reminders.collect(now: Date(), locked: screenLocked,
+                                     looking: Notifier.userIsWatching) { remind(due) }
+        armReminder()
+    }
+
+    private func remind(_ due: Reminders.Due) {
+        let s = due.key.session
+        guard let name = store.name(for: s) else { return }
+        Diagnostics.log("reminder \(due.key.item) of \(String(s.prefix(8))): attempt \(due.attempt)"
+                        + (due.catchUp ? ", catch-up after unlock" : ""))
+        let silenced = hushed
+        if due.kind == .completion {
+            peek(PeekPayload(session: s, title: name, message: "finished, not looked at yet",
+                             needsInput: false))
+            Sounds.done(silenced: silenced)
+            return
+        }
+        let onScreen: Bool
+        switch state {
+        case .approval(let a): onScreen = a.id == due.key.item
+        case .question(let q): onScreen = q.id == due.key.item
+        default: onScreen = false
+        }
+        let what = due.kind == .approval ? "still needs permission"
+            : store.hooks.pendingQuestions[s]?.items.first?.text ?? "still waiting on your answer"
+        if !onScreen { peek(PeekPayload(session: s, title: name, message: what, needsInput: true)) }
+        Sounds.needsYou(silenced: silenced)
+        // Buttons only while the hook still listens; after it gave up, Allow would land nowhere.
+        let live = onScreen || queuedApprovals.contains { $0.id == due.key.item }
+        Notifier.notify(title: "\(name) is still waiting", body: what, key: "\(s)/\(due.key.item)",
+                        approval: due.kind == .approval && live ? due.key.item : nil)
     }
 
     /// Clicking a toast jumps straight to the agent that raised it.
