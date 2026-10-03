@@ -616,10 +616,13 @@ final class AgentStore: ObservableObject {
 
     /// Given a row, does something better than jumping exist? Returns true if it handled it.
     var onRowActivate: ((AgentRow) -> Bool)?
+    /// Told of every jump, whatever it lands on: going to a session ends its reminders.
+    var onJumped: ((String) -> Void)?
 
     /// Land in the session's terminal, skipping the "answer it here instead" shortcut — the
     /// point of this one is to leave the notch.
     func jumpToTerminal(_ row: AgentRow) {
+        onJumped?(row.agent.sessionId)
         if row.host.jump() { Diagnostics.log("jump -> focused \(row.host.name)"); return }
         jump(row)
     }
@@ -627,6 +630,7 @@ final class AgentStore: ObservableObject {
     func jump(_ row: AgentRow) {
         // One line per click: which row, what it resolved to, which branch fires. This outage
         // was undiagnosable from the outside — "opens Terminal sometimes" names no branch.
+        onJumped?(row.agent.sessionId)
         Diagnostics.log("jump \(String(row.agent.sessionId.prefix(8))) pid=\(row.agent.pid.map(String.init) ?? "nil") host=\(row.host.name)")
         if onRowActivate?(row) == true { return }
         // Whatever host it runs in — Warp, iTerm2, Terminal, an IDE — try that first.

@@ -4511,6 +4511,58 @@ check("the installer adds the extension per editor, skippable, only where that e
 check("and the uninstaller removes it",
       '[cli, "--uninstall-extension", "agentisland.ide-focus"]' in _ide_uh)
 
+print("\n=== 82. follow-up reminders ===")
+# RUN, not grepped: the shipped scheduler is compiled with tests/reminders.swift and driven by a
+# fake clock — caps, cancels, per-session keys, lock deferral, Off, and nothing left to wake for.
+_rm_src = open(os.path.join(REPO, "Sources/AgentIsland/Reminders.swift")).read()
+_rm_isl = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_rm_f = os.path.join(tempfile.gettempdir(), "agentisland-reminders.swift")
+with open(_rm_f, "w") as _h:
+    _h.write(_rm_src + "\n" + open(os.path.join(REPO, "tests/reminders.swift")).read())
+_r = subprocess.run(["swift", _rm_f], capture_output=True, text=True, timeout=300)
+if not _r.stdout.strip():   # an empty stdout is a compile that died on a loaded machine
+    _r = subprocess.run(["swift", _rm_f], capture_output=True, text=True, timeout=300)
+check("reminders: 3 per ask, 1 per finish, cancelled on answer/jump, per session, one catch-up",
+      _r.stdout.strip() == "ok", (_r.stdout + _r.stderr).strip()[:400])
+# Clock-injectable means the scheduler never reads the time or owns a timer itself.
+check("the scheduler reads no clock and owns no timer",
+      "Date()" not in _rm_src and "Timer" not in _rm_src and "import Foundation\n" in _rm_src
+      and "import AppKit" not in _rm_src)
+_rm_ctl = _rm_isl.split("// MARK: follow-up reminders")[1].split("func actOnPeek(")[0]
+check("one one-shot timer, set to the next due time",
+      "Timer.scheduledTimer(withTimeInterval: max(1, at.timeIntervalSinceNow),\n"
+      "                                             repeats: false)" in _rm_ctl
+      and "repeats: true" not in _rm_ctl and _rm_ctl.count("Timer.scheduledTimer(") == 1)
+check("and none at all when nothing is pending",
+      "guard let at = reminders.nextDue else {\n            reminderTimer?.invalidate(); reminderTimer = nil\n            return" in _rm_ctl)
+check("lock state comes from the system's notifications, not a poll",
+      '("com.apple.screenIsLocked", true), ("com.apple.screenIsUnlocked", false)' in _rm_ctl
+      and "if !locked { self?.fireReminders() }" in _rm_ctl
+      and "locked: screenLocked" in _rm_ctl and "Shell." not in _rm_ctl and "Process(" not in _rm_ctl)
+check("already looking reuses the notifier's rule",
+      "looking: Notifier.userIsWatching" in _rm_ctl)
+check("every reminder is keyed by session and item, down to the notification",
+      'key: "\\(s)/\\(due.key.item)"' in _rm_ctl
+      and "self.track(.approval, session: approval.session, item: approval.id)" in _rm_isl
+      and "self.track(.question, session: question.session, item: question.id)" in _rm_isl)
+check("answering, dismissing and jumping cancel on the spot",
+      "func answer(_ approval: Approval, allow: Bool) {\n        forget(approval.session, approval.id)" in _rm_isl
+      and "func choose(_ question: Question, picks: [String: [String]]) {\n        forget(question.session, question.id)" in _rm_isl
+      and "guard case .question(let q) = state else { return }\n        forget(q.session, q.id)" in _rm_isl
+      and 'store.onJumped = { [weak self] session in self?.forget(session) }' in _rm_ctl)
+_rm_ag = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
+check("both jump paths report the jump",
+      "func jumpToTerminal(_ row: AgentRow) {\n        onJumped?(row.agent.sessionId)" in _rm_ag
+      and "        onJumped?(row.agent.sessionId)\n        Diagnostics.log(\"jump " in _rm_ag)
+check("an ask answered in the terminal ends its reminders too",
+      "store.hooks.$live.sink" in _rm_ctl and "if s?.waiting == true { return true }" in _rm_ctl
+      and "if kind == .completion { return s?.active != true }" in _rm_ctl)
+_rm_set = open(os.path.join(REPO, "Sources/AgentIsland/Settings.swift")).read()
+check("settings offer Off / 2 / 5 / 10 min, default 5",
+      "ForEach([0.0, 2, 5, 10], id: \\.self)" in _rm_set
+      and "remindMinutes = d.object(forKey: Self.remindKey) as? Double ?? 5" in _rm_set
+      and "self?.reminders.setInterval(minutes * 60)" in _rm_ctl)
+
 # The README advertises a number of checks; it had drifted to 411 against a real 760. A floor
 # rather than an equality: opt-in sections add checks, and bulk deletion is the failure that
 # matters — deleted checks do not run, so the suite still says green while covering less.
