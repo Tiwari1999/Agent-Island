@@ -16,7 +16,8 @@ import re, os, shlex, shutil, sys, time
 REPO = sys.argv[1] if len(sys.argv) > 1 else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 SCRIPTS = ("agentisland-hook.sh", "agentisland-permission.sh", "agentisland-rules.py",
-           "agentisland-question.py", "agentisland-input.py", "agentisland-status.sh")
+           "agentisland-question.py", "agentisland-input.py", "agentisland-status.sh",
+           "agentisland-opencode.js")
 
 # Where the hooks to install are read FROM: a git checkout when run from one, the app bundle
 # when the app runs its own copy. Run from inside the bundle with no argument, REPO resolved to
@@ -49,6 +50,10 @@ def stage_hooks():
         dst = os.path.join(STAGE, name)
         shutil.copy2(os.path.join(SOURCE, name), dst)
         os.chmod(dst, 0o755)
+    # Beside the hooks, so `brew uninstall --zap` can still unregister them after the app is gone.
+    un = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uninstall-hooks.py")
+    if os.path.exists(un):
+        shutil.copy2(un, os.path.join(os.path.dirname(STAGE), "uninstall-hooks.py"))
     return True
 
 
@@ -272,6 +277,90 @@ if os.path.isdir(os.path.expanduser("~/.cursor")):
             print(f"  Cursor: already installed, nothing changed  ({foreign} other tools' hooks left alone)")
 else:
     print("  Cursor: not installed, skipped")
+
+# --- Gemini CLI --------------------------------------------------------------
+# settings.json takes Claude's hooks shape under Gemini's own event names (core hooks/types.d.ts).
+# Its BeforeTool hook can deny but never grant, so Gemini gets status, not approvals.
+if os.path.isdir(os.path.expanduser("~/.gemini")):
+    gemini_plan = [(e, HOOK, {}) for e in ["SessionStart", "SessionEnd", "BeforeAgent",
+                                            "AfterAgent", "BeforeTool", "AfterTool", "Notification"]]
+    install("Gemini CLI", os.path.expanduser("~/.gemini/settings.json"), gemini_plan)
+else:
+    print("  Gemini CLI: not installed, skipped")
+
+# --- OpenCode ----------------------------------------------------------------
+# No hooks file: OpenCode loads every plugins/*.js in its config dir, so ours is one file there.
+OPENCODE_PLUGIN = os.path.expanduser("~/.config/opencode/plugins/agentisland-opencode.js")
+if os.path.isdir(os.path.expanduser("~/.config/opencode")):
+    src = os.path.join(STAGE, "agentisland-opencode.js")
+    same = (os.path.exists(OPENCODE_PLUGIN)
+            and open(OPENCODE_PLUGIN, "rb").read() == open(src, "rb").read())
+    if same:
+        print("  OpenCode: already installed, nothing changed")
+    else:
+        os.makedirs(os.path.dirname(OPENCODE_PLUGIN), exist_ok=True)
+        shutil.copy2(src, OPENCODE_PLUGIN)
+        os.chmod(OPENCODE_PLUGIN, 0o644)
+        print(f"  OpenCode: plugin installed at {OPENCODE_PLUGIN}")
+else:
+    print("  OpenCode: not installed, skipped")
+
+IDE_EXT = "agentisland.ide-focus"
+# Each editor's own CLI by path: `code` on PATH is often Cursor's shim, which would miss VS Code.
+IDE_CLIS = (("VS Code", "~/.vscode/extensions",
+             ["/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"]),
+            ("Cursor", "~/.cursor/extensions",
+             ["/Applications/Cursor.app/Contents/Resources/app/bin/cursor"]))
+
+
+def ide_ext_version(ext_dir):
+    try:
+        for e in json.load(open(os.path.join(ext_dir, "extensions.json"))):
+            if e.get("identifier", {}).get("id") == IDE_EXT:
+                return e.get("version")
+    except Exception:
+        pass
+    return None
+
+
+def install_ide_extension():
+    """Install the terminal-focus extension into VS Code and Cursor, so a jump lands on the tab."""
+    if os.environ.get("AGENTISLAND_SKIP_IDE_EXTENSION"):
+        print("  IDE extension: skipped (AGENTISLAND_SKIP_IDE_EXTENSION)")
+        return
+    here = os.path.dirname(os.path.abspath(__file__))
+    vsix = next((p for p in (os.path.join(here, "agentisland-ide-focus.vsix"),
+                             os.path.join(REPO, ".build/agentisland-ide-focus.vsix"))
+                 if os.path.exists(p)), None)
+    try:
+        import zipfile
+        want = json.loads(zipfile.ZipFile(vsix).read("extension/package.json"))["version"]
+    except Exception:
+        want = None
+    for name, ext_dir, clis in IDE_CLIS:
+        ext_dir = os.path.expanduser(ext_dir)
+        cli = next((c for c in clis if os.access(c, os.X_OK)), None)
+        # No extensions dir under this HOME means the editor was never used here (or a test HOME).
+        if not cli or not os.path.isdir(ext_dir):
+            print(f"  {name} extension: {name} not found for this user, skipped")
+            continue
+        have = ide_ext_version(ext_dir)
+        if have and (want is None or have == want):
+            print(f"  {name} extension: already installed ({have}), nothing changed")
+            continue
+        if not vsix:
+            print(f"  {name} extension: package not built, skipped (scripts/make-app.sh builds it)")
+            continue
+        import subprocess
+        r = subprocess.run([cli, "--install-extension", vsix, "--force"],
+                           capture_output=True, text=True, timeout=120)
+        ok = r.returncode == 0 and ide_ext_version(ext_dir)
+        print(f"  {name} extension: {'installed ' + vsix if ok else 'install FAILED: ' + (r.stderr or r.stdout).strip()[:200]}")
+        if ok:
+            print(f"    the first jump asks 'Allow ... to open this URI?' once; tick 'Do not ask me again'")
+
+
+install_ide_extension()
 
 print("\n  Uninstall with: python3 scripts/uninstall-hooks.py")
 

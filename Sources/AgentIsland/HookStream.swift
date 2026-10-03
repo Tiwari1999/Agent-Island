@@ -536,6 +536,11 @@ final class HookStream: ObservableObject {
         case "sessionEnd", "subagentStop":            return "SessionEnd"
         case "beforeSubmitPrompt":                    return "UserPromptSubmit"
         case "afterAgentThought":                     return "PostToolUse"
+        // Gemini CLI (hooks/types.d.ts HookEventName)
+        case "BeforeTool":                            return "PreToolUse"
+        case "AfterTool":                             return "PostToolUse"
+        case "BeforeAgent":                           return "UserPromptSubmit"
+        case "AfterAgent":                            return "Stop"
         default:
             // Unknown spellings normalise to PascalCase rather than being dropped, so a vendor
             // adding an event degrades to "something happened" instead of silence.
@@ -561,9 +566,9 @@ final class HookStream: ObservableObject {
             return one.count > n ? String(one.prefix(n)) + "…" : one
         }
         switch tool {
-        case "Bash", "Shell", "run_terminal_cmd":
+        case "Bash", "Shell", "run_terminal_cmd", "run_shell_command":
             return short((d["command"] as? String) ?? (d["cmd"] as? String))
-        case "Read", "Edit", "Write":
+        case "Read", "Edit", "Write", "read_file", "write_file", "replace":
             let p = (d["file_path"] as? String) ?? ""
             return "\(tool) \((p as NSString).lastPathComponent)"
         case "Grep":  return "Grep \(short(d["pattern"] as? String, 28) ?? "")"

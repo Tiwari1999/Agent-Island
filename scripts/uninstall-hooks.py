@@ -21,7 +21,8 @@ MARK = "agentisland"
 # are these six files, wherever the repo happens to sit — so an install at an old path is still
 # recognised, and somebody else's tool is not.
 SCRIPTS = ("agentisland-hook.sh", "agentisland-permission.sh", "agentisland-rules.py",
-           "agentisland-question.py", "agentisland-input.py", "agentisland-status.sh")
+           "agentisland-question.py", "agentisland-input.py", "agentisland-status.sh",
+           "agentisland-opencode.js")
 
 
 def ours(obj):
@@ -124,6 +125,14 @@ def clean_cursor(path):
 
 
 clean_cursor(os.path.expanduser("~/.cursor/hooks.json"))
+clean("Gemini CLI", os.path.expanduser("~/.gemini/settings.json"))
+
+_oc = os.path.expanduser("~/.config/opencode/plugins/agentisland-opencode.js")
+if os.path.exists(_oc):
+    os.remove(_oc)
+    print("  OpenCode: removed the plugin")
+else:
+    print("  OpenCode: nothing of ours found")
 
 # The runtime files are shared, absolute paths — a sandboxed test uninstalling against its
 # own HOME must not wipe the spool the user's running app is built on.
@@ -173,6 +182,22 @@ else:
         os.system(f"launchctl bootout gui/{os.getuid()}/{label} 2>/dev/null")
         os.remove(path)
         print(f"  removed {what}, so a reboot no longer relaunches it")
+
+# The terminal-focus extension install-hooks.py put into VS Code and Cursor.
+for name, ext_dir, cli in (
+        ("VS Code", "~/.vscode/extensions",
+         "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"),
+        ("Cursor", "~/.cursor/extensions", "/Applications/Cursor.app/Contents/Resources/app/bin/cursor")):
+    try:
+        listed = open(os.path.join(os.path.expanduser(ext_dir), "extensions.json")).read()
+    except OSError:
+        continue
+    if '"agentisland.ide-focus"' not in listed or not os.access(cli, os.X_OK):
+        continue
+    import subprocess
+    r = subprocess.run([cli, "--uninstall-extension", "agentisland.ide-focus"],
+                       capture_output=True, text=True, timeout=120)
+    print(f"  {name}: {'removed the terminal-focus extension' if r.returncode == 0 else 'could not remove the extension: ' + r.stderr.strip()[:160]}")
 
 print("\n  Left in place (yours, not ours): ~/.agentisland/rules.json")
 print("  Remove the app with: rm -rf ~/Applications/AgentIsland.app")

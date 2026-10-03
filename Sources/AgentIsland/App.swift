@@ -19,10 +19,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                      accessibilityDescription: "AgentIsland")
         item.button?.target = self
         item.button?.action = #selector(toggle)
+        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         statusItem = item
+        _ = Updater.shared   // arms Sparkle's daily timer now, not when Settings first opens
     }
 
-    @objc private func toggle() { island.toggle() }
+    /// Right-click is where macOS users look for a status item's menu; left-click stays the island.
+    @objc private func toggle() {
+        guard NSApp.currentEvent?.type == .rightMouseUp, let button = statusItem?.button else {
+            island.toggle(); return
+        }
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let check = menu.addItem(withTitle: "Check for Updates\u{2026}",
+                                 action: #selector(checkForUpdates), keyEquivalent: "")
+        check.target = self
+        check.isEnabled = Updater.shared.available
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Quit AgentIsland",
+                     action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 4), in: button)
+    }
+
+    @objc private func checkForUpdates() { Updater.shared.check() }
 }
 
 @main
@@ -33,6 +52,7 @@ struct AgentIslandApp {
         if CommandLine.arguments.contains("--check-prompts") { exit(PromptCheck.run()) }
         if CommandLine.arguments.contains("--costs-json") { print(Costs.json()); exit(0) }
         if CommandLine.arguments.contains("--check-proc") { exit(ProcCheck.run()) }
+        if CommandLine.arguments.contains("--check-host") { exit(HostCheck.run()) }
         // The island's own half of the round trip, headlessly. Everything the suite proved
         // before this wrote the decision file from Python — so "clicking allow produces
         // something the hook accepts" was the one step never actually tested.
@@ -125,12 +145,25 @@ struct AgentIslandApp {
             }
             exit(agents.isEmpty ? 1 : 0)
         }
+        // One vendor's rows as the panel would get them, so a fixture HOME can be asserted on.
+        if let i = CommandLine.arguments.firstIndex(of: "--discover"),
+           let v = CommandLine.arguments.dropFirst(i + 1).first.flatMap(Vendor.init) {
+            let all: [AgentSource] = [ClaudeSource(), CodexSource(), CursorSource(),
+                                      GeminiSource(), OpenCodeSource()]
+            for a in all.filter({ $0.vendor == v && $0.isAvailable }).flatMap({ $0.discover() }) {
+                print("\(a.sessionId) | state=\(a.state ?? "-") | name=\(a.name ?? "-") "
+                      + "| title=\(a.titleOverride ?? "-") | prompt=\(a.promptOverride ?? "-") "
+                      + "| cwd=\(a.cwd ?? "-") | ctx=\(a.contextPctOverride.map(String.init) ?? "-") "
+                      + "| pid=\(a.pid.map(String.init) ?? "-")")
+            }
+            exit(0)
+        }
         // Discovery only, against whatever HOME points at, so a synthetic fleet can be measured
         // without a window and without touching the real panel.
         if let i = CommandLine.arguments.firstIndex(of: "--benchmark-discovery") {
             let runs = CommandLine.arguments.dropFirst(i + 1).first.flatMap(Int.init) ?? 3
             let sources: [AgentSource] = [ClaudeSource(), CodexSource(), CursorSource(),
-                                          RemoteSource()]
+                                          GeminiSource(), OpenCodeSource(), RemoteSource()]
             for run in 1...runs {
                 var line = "run \(run):"
                 var total = 0.0

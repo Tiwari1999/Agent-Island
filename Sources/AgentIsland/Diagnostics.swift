@@ -76,7 +76,7 @@ enum Diagnostics {
             "macOS:     \(ProcessInfo.processInfo.operatingSystemVersionString)",
             "hooks:     \(Setup.hooksInstalled() ? "installed" : "NOT installed")",
         ]
-        for v in [Vendor.claude, .codex, .cursor] {
+        for v in Capability.all {
             out.append("\(v.rawValue.padding(toLength: 10, withPad: " ", startingAt: 0)) "
                        + (Capability.installed(v) ? Capability.summary(v) : "not installed"))
         }
