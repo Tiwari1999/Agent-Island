@@ -289,6 +289,10 @@ def codex_truth():
         pay=o.get("payload",{})
         _cwd = pay.get("cwd") or ""
         if "agentisland-explain" in _cwd: continue   # ours, and deliberately never a row
+        # Subagents, `codex exec` runs and Codex embedded by another tool are never rows either.
+        _src = pay.get("source")
+        if isinstance(_src, dict) or pay.get("thread_source") == "subagent" or _src == "exec": continue
+        if "originator" in pay and "codex" not in str(pay["originator"]).lower(): continue
         if pay.get("id") and os.path.isdir(_cwd): out.add(pay["id"])
     return out
 
@@ -2577,6 +2581,24 @@ if _m_dbp and _m_hl and _m_tl:
 check("a background job is never filtered as headless",
       "if jobs[id] == nil, Self.isHeadless(path: path, id: id) { continue }" in _cls)
 
+# A menu-bar app has no Edit menu, so ⌘V never reached the question's free-text field. RUN: the
+# real Panel.editAction is lifted and every shortcut checked, plus the chords it must not take.
+_isl_ek = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_m_ek = re.search(r"(    static func editAction\(.*?\n    \})", _isl_ek, re.S)
+check("the panel routes editing shortcuts to the focused field",
+      _m_ek is not None and "override func performKeyEquivalent(with event: NSEvent) -> Bool" in _isl_ek
+      and "NSApp.sendAction(action, to: nil, from: self)" in _isl_ek)
+if _m_ek:
+    _f = os.path.join(tempfile.gettempdir(), "agentisland-editkeys.swift")
+    with open(_f, "w") as _h:
+        _h.write("import AppKit\nenum Q {\n" + _m_ek.group(1) + "\n}\n"
+                 + open(os.path.join(REPO, "tests/editkeys.swift")).read())
+    _r = subprocess.run(["swift", _f], capture_output=True, text=True, timeout=300)
+    if not _r.stdout.strip():   # an empty stdout is a compile that died on a loaded machine
+        _r = subprocess.run(["swift", _f], capture_output=True, text=True, timeout=300)
+    check("paste, copy, cut, select-all and undo work in notch fields; the ⌘⌥ hotkeys are untouched",
+          _r.stdout.strip() == "ok", (_r.stdout + _r.stderr).strip()[:400])
+
 print("\n=== 31. code-review fixes ===")
 _ag = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
 _cv = open(os.path.join(REPO, "Sources/AgentIsland/ConsoleView.swift")).read()
@@ -4601,8 +4623,13 @@ check("rows get a branch only for a local cwd, and the cache is bounded to live 
       "a.remoteHost == nil ? a.cwd.flatMap(Git.info(cwd:)) : nil" in _ag_g
       and "Git.retain(Set(agents.compactMap(\\.cwd)))" in _ag_g)
 _vw_g = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
-check("the row shows the chip, and the title truncates before it does",
-      "if let g = row.git { chip(g.chip, Theme.muted).layoutPriority(1) }" in _vw_g)
+# The name is what people scan for: it sits before the branch and keeps its width when tight.
+_row_name = _vw_g.find("Text(row.displayName)")
+_row_chip = _vw_g.find("if let g = row.git { chip(g.chip, Theme.muted) }")
+check("the branch chip follows the session name, and the name keeps priority",
+      -1 < _row_name < _row_chip
+      and ".layoutPriority(1)" in _vw_g[_row_name:_row_chip]
+      and "chip(g.chip, Theme.muted).layoutPriority" not in _vw_g)
 check("grouping is off by default and the flat list has no headers",
       "groupByProject = d.bool(forKey: Self.groupKey)" in open(
           os.path.join(REPO, "Sources/AgentIsland/Settings.swift")).read()

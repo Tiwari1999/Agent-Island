@@ -287,12 +287,13 @@ struct AgentRowView: View {
                     }
                     // project · title, the way the reference reads: context then subject.
                     Text(row.agent.project).font(Theme.label(Type.title)).foregroundColor(Theme.text)
-                    // Priority so the title truncates first: the branch is what tells twin rows apart.
-                    if let g = row.git { chip(g.chip, Theme.muted).layoutPriority(1) }
                     Text("·").foregroundColor(Theme.faint)
+                    // The name is what people scan for, so it comes first and the branch gives way.
                     Text(row.displayName)
                         .font(Theme.label(Type.title)).foregroundColor(Theme.text)
                         .lineLimit(1).truncationMode(.tail)
+                        .layoutPriority(1)
+                    if let g = row.git { chip(g.chip, Theme.muted) }
                     Spacer(minLength: 6)
                     // One quiet identity cluster instead of three capsules: what a row IS
                     // never demands action, so it never earns three separate shapes.
