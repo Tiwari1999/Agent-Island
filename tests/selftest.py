@@ -1117,7 +1117,7 @@ r=subprocess.run([rh],input=json.dumps({"tool_name":"Bash","tool_input":{"comman
                  env=dict(os.environ,AGENTISLAND_RULES="/tmp/does-not-exist.json"))
 check("a missing rules file is harmless", r.returncode==0 and not r.stdout.strip())
 
-print("\n=== 82. always allow: a narrow rule, saved only on click ===")
+print("\n=== 84. always allow: a narrow rule, saved only on click ===")
 # The real AlwaysAllow.swift plus tests/always.swift, against a temp rules file: never the user's.
 import importlib.util as _ilu
 _aa_src = open(os.path.join(REPO, "Sources/AgentIsland/AlwaysAllow.swift")).read()
