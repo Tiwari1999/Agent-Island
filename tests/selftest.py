@@ -2577,6 +2577,24 @@ if _m_dbp and _m_hl and _m_tl:
 check("a background job is never filtered as headless",
       "if jobs[id] == nil, Self.isHeadless(path: path, id: id) { continue }" in _cls)
 
+# A menu-bar app has no Edit menu, so ⌘V never reached the question's free-text field. RUN: the
+# real Panel.editAction is lifted and every shortcut checked, plus the chords it must not take.
+_isl_ek = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_m_ek = re.search(r"(    static func editAction\(.*?\n    \})", _isl_ek, re.S)
+check("the panel routes editing shortcuts to the focused field",
+      _m_ek is not None and "override func performKeyEquivalent(with event: NSEvent) -> Bool" in _isl_ek
+      and "NSApp.sendAction(action, to: nil, from: self)" in _isl_ek)
+if _m_ek:
+    _f = os.path.join(tempfile.gettempdir(), "agentisland-editkeys.swift")
+    with open(_f, "w") as _h:
+        _h.write("import AppKit\nenum Q {\n" + _m_ek.group(1) + "\n}\n"
+                 + open(os.path.join(REPO, "tests/editkeys.swift")).read())
+    _r = subprocess.run(["swift", _f], capture_output=True, text=True, timeout=300)
+    if not _r.stdout.strip():   # an empty stdout is a compile that died on a loaded machine
+        _r = subprocess.run(["swift", _f], capture_output=True, text=True, timeout=300)
+    check("paste, copy, cut, select-all and undo work in notch fields; the ⌘⌥ hotkeys are untouched",
+          _r.stdout.strip() == "ok", (_r.stdout + _r.stderr).strip()[:400])
+
 print("\n=== 31. code-review fixes ===")
 _ag = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
 _cv = open(os.path.join(REPO, "Sources/AgentIsland/ConsoleView.swift")).read()

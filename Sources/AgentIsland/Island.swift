@@ -9,6 +9,27 @@ private final class Panel: NSPanel {
     /// click twice" bug — and pulls focus out of the editor behind on every option click.
     var keyable = false
     override var canBecomeKey: Bool { keyable }
+
+    /// A menu-bar app has no Edit menu, and ⌘V/⌘C/⌘X/⌘A/⌘Z only reach a text field through one:
+    /// typing worked but paste silently did nothing. Route them to the field directly.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if let action = Self.editAction(mods, event.charactersIgnoringModifiers),
+           NSApp.sendAction(action, to: nil, from: self) { return true }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    static func editAction(_ mods: NSEvent.ModifierFlags, _ key: String?) -> Selector? {
+        switch (mods, key?.lowercased()) {
+        case (.command, "v"): return #selector(NSText.paste(_:))
+        case (.command, "c"): return #selector(NSText.copy(_:))
+        case (.command, "x"): return #selector(NSText.cut(_:))
+        case (.command, "a"): return #selector(NSText.selectAll(_:))
+        case (.command, "z"): return Selector(("undo:"))
+        case ([.command, .shift], "z"): return Selector(("redo:"))
+        default: return nil
+        }
+    }
 }
 
 /// A nonactivating panel is never the key window, so AppKit spends the first click activating it
