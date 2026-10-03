@@ -110,6 +110,7 @@ struct SettingsView: View {
     @ObservedObject private var prefs = Prefs.shared
     @ObservedObject private var surfaces = Surfaces.shared
     @ObservedObject private var typefaces = Typefaces.shared
+    @ObservedObject private var updater = Updater.shared
     var onBack: () -> Void
     @ViewState private var exported = false
 
@@ -188,6 +189,15 @@ struct SettingsView: View {
                         choice("Show", on: false, tint: Theme.amber) {
                             Prefs.shared.seenWelcome = false
                             onBack()
+                        }
+                    }
+                    row("Check for updates",
+                        note: updater.available ? "At most once a day, from agentisland.in"
+                                                : "Off in this build \u{2014} it carries no update key") {
+                        if updater.available {
+                            choice("Daily", on: updater.automatic) { updater.automatic = true }
+                            choice("Off", on: !updater.automatic) { updater.automatic = false }
+                            choice("Now", on: false) { updater.check() }
                         }
                     }
                     row("AgentIsland \(version)", note: nil) {
