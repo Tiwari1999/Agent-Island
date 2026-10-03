@@ -2599,6 +2599,16 @@ if _m_ek:
     check("paste, copy, cut, select-all and undo work in notch fields; the ⌘⌥ hotkeys are untouched",
           _r.stdout.strip() == "ok", (_r.stdout + _r.stderr).strip()[:400])
 
+# A prompt typed while a tool runs is queued, the tool still open; clearing inTool let a long
+# command's row go idle after the 180s live window (reproduced live: queued at 19:24, idle by 19:27).
+_hs_ups = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()
+_ups = _hs_ups[_hs_ups.find('case "UserPromptSubmit":'):]
+_ups = _ups[:_ups.find("default:")]
+check("a prompt queued during a running tool keeps the row working",
+      'case "UserPromptSubmit":' in _hs_ups and "state.active = true" in _ups
+      and "state.inTool = false" not in _ups
+      and "state.inTool = false        // however it stopped" in _hs_ups)
+
 print("\n=== 31. code-review fixes ===")
 _ag = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
 _cv = open(os.path.join(REPO, "Sources/AgentIsland/ConsoleView.swift")).read()

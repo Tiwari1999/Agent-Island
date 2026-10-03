@@ -426,9 +426,10 @@ final class HookStream: ObservableObject {
             case "UserPromptSubmit":
                 revived.insert(session)
                 state.active = true
-                state.inTool = false        // a new turn begins with no tool open
+                // Typed while a tool runs, the prompt is only queued and the tool is still open;
+                // clearing it let a long command's row go idle. Esc ends a tool via StopFailure.
+                if !state.inTool { state.detail = "thinking" }
                 state.waiting = false
-                state.detail = "thinking"
             default: break
             }
             updates[session] = state
