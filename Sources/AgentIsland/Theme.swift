@@ -1,5 +1,9 @@
 import SwiftUI
 
+/// CLT 27's SDK turns `@State` into a macro whose plugin ships only with Xcode; the macro binds to
+/// that exact name, so this alias builds from Command Line Tools alone.
+typealias ViewState = SwiftUI.State
+
 /// Three semantic hues only — working, waiting, failed — plus amber reserved solely for quota
 /// pressure. A preattentive channel only works while it is rare, so everything else is neutral
 /// and differentiated by weight and size instead.
@@ -163,7 +167,7 @@ struct ActivityBars: View {
     var color: Color
     var height: CGFloat = 12
     var active: Bool = true
-    @State private var phase = false
+    @ViewState private var phase = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -194,7 +198,7 @@ struct Dot: View {
     let color: Color
     var size: CGFloat = 6
     var pulse = false
-    @State private var up = false
+    @ViewState private var up = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         Circle().fill(color).frame(width: size, height: size)

@@ -771,12 +771,17 @@ _ins = open(os.path.join(REPO, "install.sh")).read()
 # The probe lives with the build now, in the one script that assembles a bundle — so a DMG
 # built on a machine with only CLT gets the same treatment as a developer's own install.
 _mka = open(os.path.join(REPO, "scripts/make-app.sh")).read()
-check("the build probes whether SwiftUI @State compiles first",
-      "@State var n = 0" in _mka and "swiftc -typecheck" in _mka)
+check("the build probes whether SwiftUI state compiles first, via the same alias",
+      "@ViewState var n = 0" in _mka and "swiftc -typecheck" in _mka)
+# The alias is what lets CLT alone build it; one bare @State brings the Xcode requirement back.
+_src_all = "".join(open(os.path.join(REPO, "Sources/AgentIsland", f)).read()
+                   for f in os.listdir(os.path.join(REPO, "Sources/AgentIsland")) if f.endswith(".swift"))
+check("no source uses the bare @State macro, so Command Line Tools alone can build it",
+      re.search(r"(?m)^\s*@State\b", _src_all) is None and "typealias ViewState = SwiftUI.State" in _src_all)
 check("and falls back to the newest SDK that works, rather than pinning one",
       'SDKs/MacOSX*.sdk' in _mka and "sort -rV" in _mka and 'export SDKROOT="$sdk"' in _mka)
 check("and fails loudly when no installed SDK can build SwiftUI",
-      "no installed SDK compiles SwiftUI @State" in _mka)
+      "no installed SDK compiles SwiftUI" in _mka)
 # The same layout breaks the exact comm scan discovery uses, which is a separate call site from
 # the match above: with sessions live it returned none, so only the hook fallback bound a pid.
 check("discovery asks for a process by name, not by an exact p_comm",

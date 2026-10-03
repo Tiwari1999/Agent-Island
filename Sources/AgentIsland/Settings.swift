@@ -111,7 +111,7 @@ struct SettingsView: View {
     @ObservedObject private var surfaces = Surfaces.shared
     @ObservedObject private var typefaces = Typefaces.shared
     var onBack: () -> Void
-    @State private var exported = false
+    @ViewState private var exported = false
 
     private var version: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"

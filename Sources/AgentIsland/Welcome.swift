@@ -8,11 +8,11 @@ import SwiftUI
 /// panel that wants Accessibility" is not a first five minutes anyone stays through.
 struct WelcomeView: View {
     var onDone: () -> Void
-    @State private var hooksReady = Setup.hooksInstalled()
-    @State private var installing = false
+    @ViewState private var hooksReady = Setup.hooksInstalled()
+    @ViewState private var installing = false
     /// The live grant, not "we asked once" — the old flag greyed the button out on tap
     /// whatever the answer, so a denial read as success and every alert vanished silently.
-    @State private var notifications: Notifier.Grant = .unasked
+    @ViewState private var notifications: Notifier.Grant = .unasked
 
     private var version: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"

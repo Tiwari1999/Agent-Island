@@ -9,18 +9,16 @@ APP="${1:?usage: make-app.sh <destination.app>}"
 VERSION="$(cat "$REPO/VERSION" 2>/dev/null || echo 0.0.0)"
 BUNDLE_ID="io.github.tiwari1999.agentisland"
 
-# Command Line Tools 27 ships a macOS 27 SDK that redeclares SwiftUI's @State as a macro, but the
-# plugin backing it lives only inside Xcode — so with CLT alone every @State fails to compile, and
-# a warm .build hides it until the first real recompile. Probe, and fall back to the newest SDK
-# that still declares the plain property wrapper. Full Xcode makes the probe pass and changes nothing.
+# The sources use a ViewState alias because CLT 27's @State macro needs an Xcode-only plugin.
+# Probe the same alias so any other SDK breakage still falls back to the newest SDK that builds.
 probe="$(mktemp -t aiprobe)".swift
-printf 'import SwiftUI\nstruct _P: View { @State var n = 0\n  var body: some View { Text("\\(n)") } }\n' > "$probe"
+printf 'import SwiftUI\ntypealias ViewState = SwiftUI.State\nstruct _P: View { @ViewState var n = 0\n  var body: some View { Text("\\(n)") } }\n' > "$probe"
 if ! swiftc -typecheck "$probe" >/dev/null 2>&1; then
   for sdk in $(ls -d /Library/Developer/CommandLineTools/SDKs/MacOSX*.sdk 2>/dev/null | sort -rV); do
     if swiftc -typecheck -sdk "$sdk" "$probe" >/dev/null 2>&1; then export SDKROOT="$sdk"; break; fi
   done
-  [ -n "${SDKROOT:-}" ] || { echo "!! no installed SDK compiles SwiftUI @State — install Xcode"; rm -f "$probe"; exit 1; }
-  echo "==> using SDK $(basename "$SDKROOT") (the default SDK's @State needs an Xcode-only plugin)"
+  [ -n "${SDKROOT:-}" ] || { echo "!! no installed SDK compiles SwiftUI — update Command Line Tools: xcode-select --install"; rm -f "$probe"; exit 1; }
+  echo "==> using SDK $(basename "$SDKROOT") (the default SDK does not build SwiftUI)"
 fi
 rm -f "$probe"
 
