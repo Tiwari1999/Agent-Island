@@ -16,7 +16,8 @@ import re, os, shlex, shutil, sys, time
 REPO = sys.argv[1] if len(sys.argv) > 1 else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 SCRIPTS = ("agentisland-hook.sh", "agentisland-permission.sh", "agentisland-rules.py",
-           "agentisland-question.py", "agentisland-input.py", "agentisland-status.sh")
+           "agentisland-question.py", "agentisland-input.py", "agentisland-status.sh",
+           "agentisland-opencode.js")
 
 # Where the hooks to install are read FROM: a git checkout when run from one, the app bundle
 # when the app runs its own copy. Run from inside the bundle with no argument, REPO resolved to
@@ -272,6 +273,33 @@ if os.path.isdir(os.path.expanduser("~/.cursor")):
             print(f"  Cursor: already installed, nothing changed  ({foreign} other tools' hooks left alone)")
 else:
     print("  Cursor: not installed, skipped")
+
+# --- Gemini CLI --------------------------------------------------------------
+# settings.json takes Claude's hooks shape under Gemini's own event names (core hooks/types.d.ts).
+# Its BeforeTool hook can deny but never grant, so Gemini gets status, not approvals.
+if os.path.isdir(os.path.expanduser("~/.gemini")):
+    gemini_plan = [(e, HOOK, {}) for e in ["SessionStart", "SessionEnd", "BeforeAgent",
+                                            "AfterAgent", "BeforeTool", "AfterTool", "Notification"]]
+    install("Gemini CLI", os.path.expanduser("~/.gemini/settings.json"), gemini_plan)
+else:
+    print("  Gemini CLI: not installed, skipped")
+
+# --- OpenCode ----------------------------------------------------------------
+# No hooks file: OpenCode loads every plugins/*.js in its config dir, so ours is one file there.
+OPENCODE_PLUGIN = os.path.expanduser("~/.config/opencode/plugins/agentisland-opencode.js")
+if os.path.isdir(os.path.expanduser("~/.config/opencode")):
+    src = os.path.join(STAGE, "agentisland-opencode.js")
+    same = (os.path.exists(OPENCODE_PLUGIN)
+            and open(OPENCODE_PLUGIN, "rb").read() == open(src, "rb").read())
+    if same:
+        print("  OpenCode: already installed, nothing changed")
+    else:
+        os.makedirs(os.path.dirname(OPENCODE_PLUGIN), exist_ok=True)
+        shutil.copy2(src, OPENCODE_PLUGIN)
+        os.chmod(OPENCODE_PLUGIN, 0o644)
+        print(f"  OpenCode: plugin installed at {OPENCODE_PLUGIN}")
+else:
+    print("  OpenCode: not installed, skipped")
 
 print("\n  Uninstall with: python3 scripts/uninstall-hooks.py")
 

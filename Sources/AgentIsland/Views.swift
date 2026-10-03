@@ -671,7 +671,7 @@ struct PanelView: View {
         switch v {
         case .claude: return status.quota
         case .codex:  return CodexSource.quota
-        case .cursor: return Quota()
+        case .cursor, .gemini, .opencode: return Quota()
         }
     }
 

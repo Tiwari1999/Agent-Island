@@ -23,7 +23,8 @@ enum Proc {
 
     /// The names an agent CLI is invoked as. Kept in one place because binding a hook to its
     /// agent process needs the same set everywhere.
-    static let agentNames: Set<String> = ["claude", "codex", "cursor-agent", "agent"]
+    static let agentNames: Set<String> = ["claude", "codex", "cursor-agent", "agent", "gemini",
+                                          "opencode"]
 
     /// Was the process at `pid` invoked as one of `names`? p_comm is the basename of the
     /// *resolved* executable, so a versioned-symlink install (~/.local/share/claude/versions/
@@ -52,11 +53,29 @@ enum Proc {
         invokedLock.unlock()
         // Cached even when unreadable, so a kernel task is not re-asked every refresh.
         var name = ""
-        if let argv0 = argsEnv(pid: Int(pid))?.argv.first {
-            name = (argv0 as NSString).lastPathComponent
+        if let argv = argsEnv(pid: Int(pid))?.argv, let argv0 = argv.first {
+            name = scriptName(argv) ?? (argv0 as NSString).lastPathComponent
         }
         invokedLock.lock(); invoked[pid] = name; invokedLock.unlock()
         return name.isEmpty ? nil : name
+    }
+
+    /// A Node CLI (gemini) runs as `node <script>`, so its comm and argv[0] both say "node";
+    /// the script it runs is the name it was invoked as.
+    static func scriptName(_ argv: [String]) -> String? {
+        guard let first = argv.first,
+              ["node", "bun"].contains((first as NSString).lastPathComponent),
+              let script = argv.dropFirst().first(where: { !$0.hasPrefix("-") }) else { return nil }
+        let base = (script as NSString).lastPathComponent
+        return base.hasSuffix(".js") ? String(base.dropLast(3)) : base
+    }
+
+    /// Drop any pid whose child is also in the set. Gemini relaunches itself as a child and the
+    /// npm opencode shim spawns the binary, so one session is two processes in one directory.
+    static func leaves(_ pids: [Int]) -> [Int] {
+        let set = Set(pids), parent = parents()
+        let wrappers = Set(pids.compactMap { parent[Int32($0)].map(Int.init) }.filter(set.contains))
+        return pids.filter { !wrappers.contains($0) }
     }
 
     /// The nearest ancestor whose name matches, walking up from `pid`.

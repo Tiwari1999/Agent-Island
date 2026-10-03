@@ -63,14 +63,14 @@ struct WelcomeView: View {
             Text(present.isEmpty ? "no agents found yet" : "what it can do for yours")
                 .font(Theme.mono(Type.micro)).foregroundColor(Theme.faint)
             if present.isEmpty {
-                Text("Start one with `claude`, `codex` or `cursor-agent` and it appears here.")
+                Text("Start one with `claude`, `codex`, `cursor-agent`, `gemini` or `opencode` and it appears here.")
                     .font(Theme.mono(Type.small)).foregroundColor(Theme.muted)
             }
             ForEach(present, id: \.rawValue) { v in
                 HStack(alignment: .top, spacing: 8) {
                     Text(v.label)
                         .font(Theme.label(Type.body)).foregroundColor(Theme.text)
-                        .frame(width: 52, alignment: .leading)
+                        .frame(width: 64, alignment: .leading)   // fits "OpenCode"
                     Text(Capability.summary(v))
                         .font(Theme.mono(Type.small))
                         .foregroundColor(Capability.approvals(v) ? Theme.muted : Theme.faint)

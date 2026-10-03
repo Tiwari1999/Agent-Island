@@ -8,7 +8,7 @@ processes are alive, and prints one JSON array on stdout.
 
 Tunables come in as env vars (AGENTISLAND_PROBE_ROOT / _DAYS / _MAX) since stdin is the script.
 """
-import glob, json, os, re, subprocess, sys, time
+import glob, json, os, re, sqlite3, subprocess, sys, time
 
 ROOT = os.environ.get("AGENTISLAND_PROBE_ROOT", os.path.expanduser("~"))
 DAYS = float(os.environ.get("AGENTISLAND_PROBE_DAYS", "10"))
@@ -33,12 +33,12 @@ def last_value(key, text):
     return hits[-1] if hits else None
 
 
-def running(names):
+def running(names, flag="-x"):
     """pid -> cwd for the given process names; /proc on Linux, lsof elsewhere."""
     out = {}
     all_pids = []
     for name in names:
-        r = subprocess.run(["pgrep", "-x", name], capture_output=True, text=True).stdout
+        r = subprocess.run(["pgrep", flag, name], capture_output=True, text=True).stdout
         all_pids += [p for p in r.split() if p.isdigit()]
     for p in all_pids:
         cwd = None
@@ -56,6 +56,8 @@ def running(names):
                     cwd = line[1:]
         if cwd:
             out[int(p)] = cwd
+    if flag == "-f":   # a command-line match also finds a relaunching CLI's wrapper; one per cwd
+        out = {p: c for c, p in {c: p for p, c in sorted(out.items())}.items()}
     return out
 
 
@@ -122,16 +124,59 @@ def codex_sessions():
     return out
 
 
+def gemini_sessions():
+    # ~/.gemini/tmp/<project>/chats/session-*.jsonl; the project's directory is in .project_root.
+    out = []
+    for path in glob.glob(os.path.join(ROOT, ".gemini/tmp/*/chats/session-*.jsonl")):
+        mtime = os.path.getmtime(path)
+        if NOW - mtime > DAYS * 86400:
+            continue
+        try:
+            with open(path, errors="replace") as f:
+                meta = json.loads(f.readline())
+            cwd = open(os.path.join(os.path.dirname(os.path.dirname(path)), ".project_root")).read().strip()
+        except (OSError, ValueError):
+            continue
+        if meta.get("kind") == "subagent":
+            continue
+        typed = [t.split("\\n")[0] for t in
+                 re.findall(r'"type":"user","content":\[\{"text":"([^"]{1,200})"', tail(path))]
+        out.append({"vendor": "gemini", "sessionId": meta.get("sessionId"), "cwd": cwd,
+                    "title": typed[0][:120] if typed else None,
+                    "prompt": typed[-1][:120] if typed else None,
+                    "lastActive": iso(mtime), "mtime": mtime})
+    return out
+
+
+def opencode_sessions():
+    db = os.path.join(ROOT, ".local/share/opencode/opencode.db")
+    if not os.path.exists(db):
+        return []
+    try:
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=0.2)
+        rows = con.execute("SELECT id, directory, title, time_updated FROM session "
+                           "WHERE parent_id IS NULL AND time_archived IS NULL AND time_updated > ?",
+                           (int((NOW - DAYS * 86400) * 1000),)).fetchall()
+        con.close()
+    except sqlite3.Error:
+        return []
+    return [{"vendor": "opencode", "sessionId": i, "cwd": d,
+             "title": None if t.startswith("New session - ") else t, "prompt": None,
+             "lastActive": iso(u / 1000), "mtime": u / 1000} for i, d, t, u in rows]
+
+
 def iso(ts):
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts))
 
 
 def main():
-    sessions = claude_sessions() + codex_sessions()
+    sessions = claude_sessions() + codex_sessions() + gemini_sessions() + opencode_sessions()
     sessions.sort(key=lambda s: s["mtime"], reverse=True)
     sessions = sessions[:MAX]
 
-    live = {"claude": running(["claude"]), "codex": running(["codex"])}
+    # Gemini is a Node script, so its process is only findable by command line.
+    live = {"claude": running(["claude"]), "codex": running(["codex"]),
+            "gemini": running(["/gemini( |$)"], "-f"), "opencode": running(["opencode"])}
     # A pid can only be claimed once, by the freshest session in its directory — several
     # sessions sharing a cwd cannot be told apart, and the local app refuses to guess too.
     for s in sessions:
