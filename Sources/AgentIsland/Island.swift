@@ -461,6 +461,8 @@ final class Island: NSObject, ObservableObject {
     /// buttons went off-screen and the only way left to answer was the terminal.
     func approvalSize(_ a: Approval) -> CGSize {
         let big = a.plan != nil || approvalContext != nil
+        // A savable rule brings a third button and its preview line, so the small card grows.
+        if !big, a.rule != nil { return CGSize(width: 680, height: 66) }
         return CGSize(width: big ? 640 : 560, height: big ? 300 : 46)
     }
 
@@ -791,11 +793,15 @@ final class Island: NSObject, ObservableObject {
         // had already gone — the allow went nowhere and nothing said so. Holding it open costs
         // nothing: the hook has its own 5 minute ceiling, and the drop below releases the mark.
         hold.begin(id: approval.id)
-        Hotkeys.shared.bind([
+        var keys: [(key: Int, mods: Int, action: () -> Void)] = [
             (kVK_ANSI_A, Hotkeys.cmdOpt, { [weak self] in self?.answer(approval, allow: true) }),
             (kVK_ANSI_D, Hotkeys.cmdOpt, { [weak self] in self?.answer(approval, allow: false) }),
             (kVK_ANSI_E, Hotkeys.cmdOpt, { [weak self] in self?.expandApproval() }),
-        ])
+        ]
+        if approval.rule != nil {
+            keys.append((kVK_ANSI_A, Hotkeys.cmdOptShift, { [weak self] in self?.alwaysAllow(approval) }))
+        }
+        Hotkeys.shared.bind(keys)
         // Read before the state write: hushed is false the moment a card is on screen.
         let silenced = hushed
         withAnimation(Motion.shell) { state = .approval(approval) }
@@ -1211,6 +1217,18 @@ final class Island: NSObject, ObservableObject {
         presentNext()
     }
 
+    /// Allows this request and saves its rule, so the next one like it never reaches the card.
+    func alwaysAllow(_ approval: Approval) {
+        if let rule = approval.rule {
+            let saved = AlwaysAllow.save(rule)
+            Diagnostics.log("approval \(approval.id): always allow \(rule.preview) — \(saved)")
+            if case .refused(let why) = saved {
+                Notifier.notify(title: "Rule not saved", body: why, key: approval.session)
+            }
+        }
+        answer(approval, allow: true)
+    }
+
     func answer(_ approval: Approval, allow: Bool) {
         forget(approval.session, approval.id)
         approvalWork?.cancel()
@@ -1457,6 +1475,7 @@ private struct RootView: View {
                         context: island.approvalContext,
                         onExpand: { island.expandApproval() },
                         onAllow: { island.answer(a, allow: true) },
+                        onAlways: { island.alwaysAllow(a) },
                         onDeny:  { island.answer(a, allow: false) })
                         .frame(maxHeight: island.approvalSize(a).height, alignment: .bottom)
                         .padding(.bottom, 6)

@@ -1117,6 +1117,55 @@ r=subprocess.run([rh],input=json.dumps({"tool_name":"Bash","tool_input":{"comman
                  env=dict(os.environ,AGENTISLAND_RULES="/tmp/does-not-exist.json"))
 check("a missing rules file is harmless", r.returncode==0 and not r.stdout.strip())
 
+print("\n=== 82. always allow: a narrow rule, saved only on click ===")
+# The real AlwaysAllow.swift plus tests/always.swift, against a temp rules file: never the user's.
+import importlib.util as _ilu
+_aa_src = open(os.path.join(REPO, "Sources/AgentIsland/AlwaysAllow.swift")).read()
+_aa_dir = tempfile.mkdtemp(prefix="agentisland-always-")
+_aa_env = dict(os.environ, AGENTISLAND_RULES=os.path.join(_aa_dir, "rules.json"),
+               AGENTISLAND_LOG=os.path.join(_aa_dir, "log"))
+_aa_f = os.path.join(_aa_dir, "always.swift")
+with open(_aa_f, "w") as _h:
+    _h.write(_aa_src + "\n" + open(os.path.join(REPO, "tests/always.swift")).read())
+_r = subprocess.run(["swift", _aa_f], capture_output=True, text=True, timeout=300, env=_aa_env)
+if not _r.stdout.strip():   # an empty stdout is a compile that died on a loaded machine
+    _r = subprocess.run(["swift", _aa_f], capture_output=True, text=True, timeout=300, env=_aa_env)
+check("always-allow rules are narrow, escaped, deduped, and refuse every dangerous shape",
+      _r.stdout.strip() == "ok", (_r.stdout + _r.stderr).strip()[:400])
+_aa_rh = os.path.join(REPO, "hooks/agentisland-rules.py")
+def _aa_hook(tool, field, val, cwd="/tmp/proj"):
+    _o = subprocess.run([_aa_rh], input=json.dumps({"tool_name": tool, "cwd": cwd, "tool_input": {field: val}}),
+                        capture_output=True, text=True, timeout=10, env=_aa_env).stdout
+    return json.loads(_o)["hookSpecificOutput"]["permissionDecision"] if _o.strip() else "ask"
+check("the real hook accepts each saved rule for the request it came from",
+      _aa_hook("Bash", "command", "git status") == "allow"
+      and _aa_hook("Bash", "command", "git status -s") == "allow"
+      and _aa_hook("Edit", "file_path", "/tmp/proj/src/a.swift") == "allow")
+check("and for nothing else: another command, a chain, another project, another tool",
+      all(_aa_hook("Bash", "command", c) == "ask"
+          for c in ["git stash", "git status; ls", "git status ;ls", "git status && rm x", "git push", "ls", "git statusx"])
+      and _aa_hook("Bash", "command", "git status", cwd="/tmp/other") == "ask"
+      and _aa_hook("Edit", "file_path", "/tmp/proj/a.swift") == "ask"
+      and _aa_hook("Write", "file_path", "/tmp/proj/src/a.swift") == "ask")
+_aa_spec = _ilu.spec_from_file_location("_aa_rules_mod", _aa_rh)
+_aa_mod = _ilu.module_from_spec(_aa_spec); _aa_spec.loader.exec_module(_aa_mod)
+check("the Swift refusal list carries every pattern the hook refuses",
+      all('#"' + _p + '"#' in _aa_src for _p in _aa_mod.NEVER_AUTO))
+_aa_isl = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_aa_vw = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
+_aa_hs = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()
+check("the rule is written only by the click, and the click still allows",
+      _aa_isl.count("AlwaysAllow.save(") == 1 and "AlwaysAllow.save(" not in _aa_hs
+      and _aa_isl.split("func alwaysAllow")[1].split("func answer")[0].count("answer(approval, allow: true)") == 1)
+check("the shifted chord exists only when there is a rule to save",
+      "if approval.rule != nil {\n            keys.append((kVK_ANSI_A, Hotkeys.cmdOptShift" in _aa_isl)
+check("the card shows the exact rule beside the button",
+      "Always ⌘⌥⇧A" in _aa_vw and "always allow saves: \\(rule.preview)" in _aa_vw
+      and "if approval.rule != nil, let onAlways {" in _aa_vw)
+check("deriving a rule spawns nothing and schedules nothing",
+      not any(_t in _aa_src for _t in ("Process(", "Shell.", "posix_spawn", "Timer", "asyncAfter")))
+_sh.rmtree(_aa_dir, ignore_errors=True)
+
 print("\n=== 14. notifications ===")
 src=open(os.path.join(REPO,"Sources/AgentIsland/Notifier.swift")).read()
 check("suppressed while the user is watching Warp", "userIsWatching" in src and "dev.warp.Warp" in src)
