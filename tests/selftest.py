@@ -289,6 +289,10 @@ def codex_truth():
         pay=o.get("payload",{})
         _cwd = pay.get("cwd") or ""
         if "agentisland-explain" in _cwd: continue   # ours, and deliberately never a row
+        # Subagents, `codex exec` runs and Codex embedded by another tool are never rows either.
+        _src = pay.get("source")
+        if isinstance(_src, dict) or pay.get("thread_source") == "subagent" or _src == "exec": continue
+        if "originator" in pay and "codex" not in str(pay["originator"]).lower(): continue
         if pay.get("id") and os.path.isdir(_cwd): out.add(pay["id"])
     return out
 
