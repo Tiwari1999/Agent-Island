@@ -71,7 +71,12 @@ struct AgentRow: Identifiable {
     var finishedAt: Date?
     /// The agent's own last sentence, shown while it is thinking rather than calling a tool.
     var narration: String?
+    var git: GitInfo?
     var id: String { agent.sessionId }
+    /// The main repo for a git checkout (worktrees included), else the directory itself.
+    var projectKey: String {
+        git?.root ?? ((agent.remoteHost.map { $0 + ":" } ?? "") + (agent.cwd ?? ""))
+    }
 
     /// A session with no reachable host is attached to, not jumped to.
     var isBackground: Bool { agent.pid != nil && !host.canReach }
@@ -471,6 +476,7 @@ final class AgentStore: ObservableObject {
             Narration.retain(ids)
             ToolCalls.retain(ids)      // parsed calls outlive the row that asked for them
             Console.retain(ids)
+            Git.retain(Set(agents.compactMap(\.cwd)))
             // A session started without `--resume` carries its id nowhere in argv, so discovery
             // cannot bind it. Its own hooks can: they report the process that ran them.
             let comms = Proc.all()
@@ -496,15 +502,16 @@ final class AgentStore: ObservableObject {
                 b.pid = p
                 return b
             }
-            let resolved: [(Agent, String?, Date?, HostTerminal)] = bound.map { a in
+            let resolved: [(Agent, String?, Date?, HostTerminal, GitInfo?)] = bound.map { a in
                 (a, a.pid.flatMap { WarpJump.focusURL(pid: $0) },
                  a.lastActiveOverride ?? Transcript.lastActive(a),
-                 a.pid.map { HostTerminal.resolve(pid: $0) } ?? .unknown)
+                 a.pid.map { HostTerminal.resolve(pid: $0) } ?? .unknown,
+                 a.remoteHost == nil ? a.cwd.flatMap(Git.info(cwd:)) : nil)   // a remote cwd is not on this disk
             }
             Task { @MainActor in
                 let now = Date()
                 var built = resolved
-                    .filter { agent, _, lastActive, _ in
+                    .filter { agent, _, lastActive, _, _ in
                         // The explain button runs a throwaway agent of its own. Whichever CLI
                         // answers, its session must never become a row: nobody started it.
                         if let c = agent.cwd, Explain.isOwn(c) { return false }
@@ -537,7 +544,8 @@ final class AgentStore: ObservableObject {
                                     narration: (self.hooks.live[$0.0.sessionId]?.tool == nil
                                                 && $0.0.isWorking)
                                         ? Narration.line(session: $0.0.sessionId, cwd: $0.0.cwd)
-                                        : nil) }
+                                        : nil,
+                                    git: $0.4) }
                 // Recency by default; frozen to the opening order while the panel is visible.
                 self.noteFinishes(&built)
                 self.rows = self.applyOrder(built)
@@ -559,7 +567,7 @@ final class AgentStore: ObservableObject {
              "lastActive": r.lastActive.map { ISO8601DateFormatter().string(from: $0) } ?? "",
              "blocked": r.dormantBlocked, "working": r.isWorking, "waiting": r.waiting,
              "context": r.contextPct ?? -1, "remote": r.agent.remoteHost ?? "",
-             "pid": r.agent.pid ?? -1,
+             "pid": r.agent.pid ?? -1, "git": r.git?.chip ?? "",
              // The working->idle edge, so a completion beat can be asserted off disk instead of
              // by watching the screen.
              "finished": r.finishedAt.map { ISO8601DateFormatter().string(from: $0) } ?? "",
@@ -616,10 +624,13 @@ final class AgentStore: ObservableObject {
 
     /// Given a row, does something better than jumping exist? Returns true if it handled it.
     var onRowActivate: ((AgentRow) -> Bool)?
+    /// Told of every jump, whatever it lands on: going to a session ends its reminders.
+    var onJumped: ((String) -> Void)?
 
     /// Land in the session's terminal, skipping the "answer it here instead" shortcut — the
     /// point of this one is to leave the notch.
     func jumpToTerminal(_ row: AgentRow) {
+        onJumped?(row.agent.sessionId)
         if row.host.jump() { Diagnostics.log("jump -> focused \(row.host.name)"); return }
         jump(row)
     }
@@ -627,6 +638,7 @@ final class AgentStore: ObservableObject {
     func jump(_ row: AgentRow) {
         // One line per click: which row, what it resolved to, which branch fires. This outage
         // was undiagnosable from the outside — "opens Terminal sometimes" names no branch.
+        onJumped?(row.agent.sessionId)
         Diagnostics.log("jump \(String(row.agent.sessionId.prefix(8))) pid=\(row.agent.pid.map(String.init) ?? "nil") host=\(row.host.name)")
         if onRowActivate?(row) == true { return }
         // Whatever host it runs in — Warp, iTerm2, Terminal, an IDE — try that first.

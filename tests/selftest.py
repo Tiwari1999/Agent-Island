@@ -1117,6 +1117,55 @@ r=subprocess.run([rh],input=json.dumps({"tool_name":"Bash","tool_input":{"comman
                  env=dict(os.environ,AGENTISLAND_RULES="/tmp/does-not-exist.json"))
 check("a missing rules file is harmless", r.returncode==0 and not r.stdout.strip())
 
+print("\n=== 84. always allow: a narrow rule, saved only on click ===")
+# The real AlwaysAllow.swift plus tests/always.swift, against a temp rules file: never the user's.
+import importlib.util as _ilu
+_aa_src = open(os.path.join(REPO, "Sources/AgentIsland/AlwaysAllow.swift")).read()
+_aa_dir = tempfile.mkdtemp(prefix="agentisland-always-")
+_aa_env = dict(os.environ, AGENTISLAND_RULES=os.path.join(_aa_dir, "rules.json"),
+               AGENTISLAND_LOG=os.path.join(_aa_dir, "log"))
+_aa_f = os.path.join(_aa_dir, "always.swift")
+with open(_aa_f, "w") as _h:
+    _h.write(_aa_src + "\n" + open(os.path.join(REPO, "tests/always.swift")).read())
+_r = subprocess.run(["swift", _aa_f], capture_output=True, text=True, timeout=300, env=_aa_env)
+if not _r.stdout.strip():   # an empty stdout is a compile that died on a loaded machine
+    _r = subprocess.run(["swift", _aa_f], capture_output=True, text=True, timeout=300, env=_aa_env)
+check("always-allow rules are narrow, escaped, deduped, and refuse every dangerous shape",
+      _r.stdout.strip() == "ok", (_r.stdout + _r.stderr).strip()[:400])
+_aa_rh = os.path.join(REPO, "hooks/agentisland-rules.py")
+def _aa_hook(tool, field, val, cwd="/tmp/proj"):
+    _o = subprocess.run([_aa_rh], input=json.dumps({"tool_name": tool, "cwd": cwd, "tool_input": {field: val}}),
+                        capture_output=True, text=True, timeout=10, env=_aa_env).stdout
+    return json.loads(_o)["hookSpecificOutput"]["permissionDecision"] if _o.strip() else "ask"
+check("the real hook accepts each saved rule for the request it came from",
+      _aa_hook("Bash", "command", "git status") == "allow"
+      and _aa_hook("Bash", "command", "git status -s") == "allow"
+      and _aa_hook("Edit", "file_path", "/tmp/proj/src/a.swift") == "allow")
+check("and for nothing else: another command, a chain, another project, another tool",
+      all(_aa_hook("Bash", "command", c) == "ask"
+          for c in ["git stash", "git status; ls", "git status ;ls", "git status && rm x", "git push", "ls", "git statusx"])
+      and _aa_hook("Bash", "command", "git status", cwd="/tmp/other") == "ask"
+      and _aa_hook("Edit", "file_path", "/tmp/proj/a.swift") == "ask"
+      and _aa_hook("Write", "file_path", "/tmp/proj/src/a.swift") == "ask")
+_aa_spec = _ilu.spec_from_file_location("_aa_rules_mod", _aa_rh)
+_aa_mod = _ilu.module_from_spec(_aa_spec); _aa_spec.loader.exec_module(_aa_mod)
+check("the Swift refusal list carries every pattern the hook refuses",
+      all('#"' + _p + '"#' in _aa_src for _p in _aa_mod.NEVER_AUTO))
+_aa_isl = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_aa_vw = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
+_aa_hs = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()
+check("the rule is written only by the click, and the click still allows",
+      _aa_isl.count("AlwaysAllow.save(") == 1 and "AlwaysAllow.save(" not in _aa_hs
+      and _aa_isl.split("func alwaysAllow")[1].split("func answer")[0].count("answer(approval, allow: true)") == 1)
+check("the shifted chord exists only when there is a rule to save",
+      "if approval.rule != nil {\n            keys.append((kVK_ANSI_A, Hotkeys.cmdOptShift" in _aa_isl)
+check("the card shows the exact rule beside the button",
+      "Always ⌘⌥⇧A" in _aa_vw and "always allow saves: \\(rule.preview)" in _aa_vw
+      and "if approval.rule != nil, let onAlways {" in _aa_vw)
+check("deriving a rule spawns nothing and schedules nothing",
+      not any(_t in _aa_src for _t in ("Process(", "Shell.", "posix_spawn", "Timer", "asyncAfter")))
+_sh.rmtree(_aa_dir, ignore_errors=True)
+
 print("\n=== 14. notifications ===")
 src=open(os.path.join(REPO,"Sources/AgentIsland/Notifier.swift")).read()
 check("suppressed while the user is watching Warp", "userIsWatching" in src and "dev.warp.Warp" in src)
@@ -2505,6 +2554,29 @@ if _m_tail:
     check("a renamed Claude session shows its new name, generated title otherwise",
           _r.stdout.strip() == "ok", (_r.stdout + _r.stderr).strip()[:400])
 
+# Subagents, codex exec runs, Codex embedded in Claude Code and `claude -p` helpers wrote
+# sessions too and became rows. RUN: the real predicates are lifted and fed each real shape.
+_cxs = open(os.path.join(REPO, "Sources/AgentIsland/CodexSource.swift")).read()
+_cls = open(os.path.join(REPO, "Sources/AgentIsland/CursorSource.swift")).read()
+_m_dbp = re.search(r"(    static func drivenByPerson\(.*?\n    \})", _cxs, re.S)
+_m_hl = re.search(r"(    private static var headless.*?static func isHeadless\(.*?\n    \})", _cls, re.S)
+_m_tl = re.search(r"(enum Tail \{.*?\n\})", open(os.path.join(REPO, "Sources/AgentIsland/AgentSource.swift")).read(), re.S)
+check("the session filters are where the harness lifts them from",
+      _m_dbp is not None and _m_hl is not None and _m_tl is not None)
+if _m_dbp and _m_hl and _m_tl:
+    _f = os.path.join(tempfile.gettempdir(), "agentisland-subagents.swift")
+    with open(_f, "w") as _h:
+        _h.write("import Foundation\n" + _m_tl.group(1) + "\nenum Q {\n" + _m_dbp.group(1) + "\n"
+                 + _m_hl.group(1) + "\n}\n" + open(os.path.join(REPO, "tests/subagents.swift")).read())
+    _r = subprocess.run(["swift", _f], capture_output=True, text=True, timeout=300)
+    if not _r.stdout.strip():   # an empty stdout is a compile that died on a loaded machine
+        _r = subprocess.run(["swift", _f], capture_output=True, text=True, timeout=300)
+    check("subagents and automated runs never become rows; sessions people drive always do",
+          _r.stdout.strip() == "ok", (_r.stdout + _r.stderr).strip()[:400])
+# Background agents the user started are kept even if they record an SDK entrypoint.
+check("a background job is never filtered as headless",
+      "if jobs[id] == nil, Self.isHeadless(path: path, id: id) { continue }" in _cls)
+
 print("\n=== 31. code-review fixes ===")
 _ag = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
 _cv = open(os.path.join(REPO, "Sources/AgentIsland/ConsoleView.swift")).read()
@@ -2535,7 +2607,8 @@ check("and the row explains the jump it cannot offer",
 check("only stopped, processless rows can be folded away",
       "guard r.agent.pid == nil, AgentStore.tier(r) == 3 else { return true }" in _vw)
 check("and the list actually renders the folded set",
-      "ForEach(visibleRows) { row in" in _vw and "ForEach(store.rows) { row in" not in _vw)
+      "ForEach(Git.grouped(visibleRows) {" in _vw and "ForEach(store.rows) { row in" not in _vw
+      and "Git.grouped(store.rows" not in _vw)
 check("nothing folded is unreachable",
       "more stopped sessions" in _vw and "showAllIdle = true" in _vw)
 
@@ -4510,6 +4583,87 @@ check("the installer adds the extension per editor, skippable, only where that e
       and "Visual Studio Code.app/Contents/Resources/app/bin/code" in _ide_ih)
 check("and the uninstaller removes it",
       '[cli, "--uninstall-extension", "agentisland.ide-focus"]' in _ide_uh)
+
+print("\n=== 82. git branch per row and grouping by project ===")
+# RUN, not grepped: the real Git.swift against repos real git made — worktree, detached, packed.
+_gt = open(os.path.join(REPO, "Sources/AgentIsland/Git.swift")).read()
+_f = os.path.join(tempfile.gettempdir(), "agentisland-git.swift")
+with open(_f, "w") as _h:
+    _h.write(_gt + "\n" + open(os.path.join(REPO, "tests/git.swift")).read())
+_r = subprocess.run(["swift", _f], capture_output=True, text=True, timeout=300)
+if not _r.stdout.strip():   # an empty stdout is a compile that died on a loaded machine
+    _r = subprocess.run(["swift", _f], capture_output=True, text=True, timeout=300)
+check("branch, worktree, detached sha, packed refs and the mtime cache all hold",
+      _r.stdout.strip() == "ok", (_r.stdout + _r.stderr).strip()[:400])
+check("the branch read never runs git", not re.search(r"Process\(|Shell\.|/usr/bin/git", _gt))
+_ag_g = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
+check("rows get a branch only for a local cwd, and the cache is bounded to live cwds",
+      "a.remoteHost == nil ? a.cwd.flatMap(Git.info(cwd:)) : nil" in _ag_g
+      and "Git.retain(Set(agents.compactMap(\\.cwd)))" in _ag_g)
+_vw_g = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
+check("the row shows the chip, and the title truncates before it does",
+      "if let g = row.git { chip(g.chip, Theme.muted).layoutPriority(1) }" in _vw_g)
+check("grouping is off by default and the flat list has no headers",
+      "groupByProject = d.bool(forKey: Self.groupKey)" in open(
+          os.path.join(REPO, "Sources/AgentIsland/Settings.swift")).read()
+      and "Git.grouped(visibleRows) { prefs.groupByProject ? $0.projectKey : \"\" }" in _vw_g
+      and "if prefs.groupByProject {\n                                Text(\"\\(Self.projectName(group.key))" in _vw_g)
+_bd = subprocess.run([os.path.join(REPO, ".build/release/AgentIsland"), "--benchmark-discovery", "2"],
+                     capture_output=True, text=True, timeout=120).stdout.strip().splitlines()
+check("discovery plus every row's branch read spawns nothing",
+      bool(_bd) and " git " in _bd[-1] and "0 spawns" in _bd[-1], _bd[-1][-90:] if _bd else "no output")
+
+print("\n=== 83. follow-up reminders ===")
+# RUN, not grepped: the shipped scheduler is compiled with tests/reminders.swift and driven by a
+# fake clock — caps, cancels, per-session keys, lock deferral, Off, and nothing left to wake for.
+_rm_src = open(os.path.join(REPO, "Sources/AgentIsland/Reminders.swift")).read()
+_rm_isl = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_rm_f = os.path.join(tempfile.gettempdir(), "agentisland-reminders.swift")
+with open(_rm_f, "w") as _h:
+    _h.write(_rm_src + "\n" + open(os.path.join(REPO, "tests/reminders.swift")).read())
+_r = subprocess.run(["swift", _rm_f], capture_output=True, text=True, timeout=300)
+if not _r.stdout.strip():   # an empty stdout is a compile that died on a loaded machine
+    _r = subprocess.run(["swift", _rm_f], capture_output=True, text=True, timeout=300)
+check("reminders: 3 per ask, 1 per finish, cancelled on answer/jump, per session, one catch-up",
+      _r.stdout.strip() == "ok", (_r.stdout + _r.stderr).strip()[:400])
+# Clock-injectable means the scheduler never reads the time or owns a timer itself.
+check("the scheduler reads no clock and owns no timer",
+      "Date()" not in _rm_src and "Timer" not in _rm_src and "import Foundation\n" in _rm_src
+      and "import AppKit" not in _rm_src)
+_rm_ctl = _rm_isl.split("// MARK: follow-up reminders")[1].split("func actOnPeek(")[0]
+check("one one-shot timer, set to the next due time",
+      "Timer.scheduledTimer(withTimeInterval: max(1, at.timeIntervalSinceNow),\n"
+      "                                             repeats: false)" in _rm_ctl
+      and "repeats: true" not in _rm_ctl and _rm_ctl.count("Timer.scheduledTimer(") == 1)
+check("and none at all when nothing is pending",
+      "guard let at = reminders.nextDue else {\n            reminderTimer?.invalidate(); reminderTimer = nil\n            return" in _rm_ctl)
+check("lock state comes from the system's notifications, not a poll",
+      '("com.apple.screenIsLocked", true), ("com.apple.screenIsUnlocked", false)' in _rm_ctl
+      and "if !locked { self?.fireReminders() }" in _rm_ctl
+      and "locked: screenLocked" in _rm_ctl and "Shell." not in _rm_ctl and "Process(" not in _rm_ctl)
+check("already looking reuses the notifier's rule",
+      "looking: Notifier.userIsWatching" in _rm_ctl)
+check("every reminder is keyed by session and item, down to the notification",
+      'key: "\\(s)/\\(due.key.item)"' in _rm_ctl
+      and "self.track(.approval, session: approval.session, item: approval.id)" in _rm_isl
+      and "self.track(.question, session: question.session, item: question.id)" in _rm_isl)
+check("answering, dismissing and jumping cancel on the spot",
+      "func answer(_ approval: Approval, allow: Bool) {\n        forget(approval.session, approval.id)" in _rm_isl
+      and "func choose(_ question: Question, picks: [String: [String]]) {\n        forget(question.session, question.id)" in _rm_isl
+      and "guard case .question(let q) = state else { return }\n        forget(q.session, q.id)" in _rm_isl
+      and 'store.onJumped = { [weak self] session in self?.forget(session) }' in _rm_ctl)
+_rm_ag = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
+check("both jump paths report the jump",
+      "func jumpToTerminal(_ row: AgentRow) {\n        onJumped?(row.agent.sessionId)" in _rm_ag
+      and "        onJumped?(row.agent.sessionId)\n        Diagnostics.log(\"jump " in _rm_ag)
+check("an ask answered in the terminal ends its reminders too",
+      "store.hooks.$live.sink" in _rm_ctl and "if s?.waiting == true { return true }" in _rm_ctl
+      and "if kind == .completion { return s?.active != true }" in _rm_ctl)
+_rm_set = open(os.path.join(REPO, "Sources/AgentIsland/Settings.swift")).read()
+check("settings offer Off / 2 / 5 / 10 min, default 5",
+      "ForEach([0.0, 2, 5, 10], id: \\.self)" in _rm_set
+      and "remindMinutes = d.object(forKey: Self.remindKey) as? Double ?? 5" in _rm_set
+      and "self?.reminders.setInterval(minutes * 60)" in _rm_ctl)
 
 # The README advertises a number of checks; it had drifted to 411 against a real 760. A floor
 # rather than an equality: opt-in sections add checks, and bulk deletion is the failure that

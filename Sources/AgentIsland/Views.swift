@@ -287,6 +287,8 @@ struct AgentRowView: View {
                     }
                     // project · title, the way the reference reads: context then subject.
                     Text(row.agent.project).font(Theme.label(Type.title)).foregroundColor(Theme.text)
+                    // Priority so the title truncates first: the branch is what tells twin rows apart.
+                    if let g = row.git { chip(g.chip, Theme.muted).layoutPriority(1) }
                     Text("·").foregroundColor(Theme.faint)
                     Text(row.displayName)
                         .font(Theme.label(Type.title)).foregroundColor(Theme.text)
@@ -440,6 +442,7 @@ struct PanelView: View {
     @ViewState private var hooksReady = Setup.hooksInstalled()
     @ViewState private var installing = false
     @ViewState private var showAllIdle = false
+    @ObservedObject private var prefs = Prefs.shared
 
     /// A week of finished sessions buried the handful that are live: 44 rows on first open, 23
     /// of them with no process left. Everything that is running, blocked or wants an answer is
@@ -544,23 +547,15 @@ struct PanelView: View {
                     // Not lazy: measuring rows for the first time while the shell is mid-spring
                     // is a stutter, and the stopped-session fold already caps what is here.
                     VStack(spacing: PanelView.rowGap) {
-                        ForEach(visibleRows) { row in
-                            AgentRowView(row: row, model: row.status?.model ?? status.quota.model,
-                                         onPlan: store.hooks.plans[row.agent.sessionId].map { _ in
-                                             { withAnimation(Motion.shell) {
-                                                   mode = .plan(session: row.agent.sessionId,
-                                                                title: row.displayName)
-                                               } }
-                                         },
-                                         // A card that timed out is otherwise unreachable.
-                                         onAnswer: store.hooks.pendingQuestions[row.agent.sessionId]
-                                             .flatMap { q -> (() -> Void)? in
-                                                 guard q.deadline > Date() else { return nil }
-                                                 return { _ = store.onRowActivate?(row) }
-                                             },
-                                         onConsole: row.agent.vendor == .claude
-                                             ? { store.onOpenConsole?(row.agent.sessionId) } : nil)
-                                        { store.jump(row) }
+                        ForEach(Git.grouped(visibleRows) { prefs.groupByProject ? $0.projectKey : "" },
+                                id: \.key) { group in
+                            if prefs.groupByProject {
+                                Text("\(Self.projectName(group.key)) · \(group.items.count)")
+                                    .font(Theme.mono(Type.micro)).foregroundColor(Theme.faint)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.leading, 6).padding(.top, 2)
+                            }
+                            ForEach(group.items) { row in rowView(row) }
                         }
                         if !showAllIdle, store.rows.count > visibleRows.count {
                             Text("\(store.rows.count - visibleRows.count) more stopped sessions")
@@ -582,6 +577,30 @@ struct PanelView: View {
             limitsFooter
         }
         .frame(width: PanelView.width, height: PanelView.height)
+    }
+
+    private func rowView(_ row: AgentRow) -> some View {
+        AgentRowView(row: row, model: row.status?.model ?? status.quota.model,
+                     onPlan: store.hooks.plans[row.agent.sessionId].map { _ in
+                         { withAnimation(Motion.shell) {
+                               mode = .plan(session: row.agent.sessionId,
+                                            title: row.displayName)
+                           } }
+                     },
+                     // A card that timed out is otherwise unreachable.
+                     onAnswer: store.hooks.pendingQuestions[row.agent.sessionId]
+                         .flatMap { q -> (() -> Void)? in
+                             guard q.deadline > Date() else { return nil }
+                             return { _ = store.onRowActivate?(row) }
+                         },
+                     onConsole: row.agent.vendor == .claude
+                         ? { store.onOpenConsole?(row.agent.sessionId) } : nil)
+                     { store.jump(row) }
+    }
+
+    private static func projectName(_ key: String) -> String {
+        let name = (key as NSString).lastPathComponent
+        return name.isEmpty ? "—" : name
     }
 
     /// What is left, along the bottom. It used to be wedged into the header between the picker
@@ -716,13 +735,23 @@ struct ApprovalCard: View {
     var context: ApprovalContext? = nil
     var onExpand: (() -> Void)? = nil
     let onAllow: () -> Void
+    var onAlways: (() -> Void)? = nil
     let onDeny: () -> Void
     @ViewState private var hoverAllow = false
+    @ViewState private var hoverAlways = false
     @ViewState private var hoverDeny = false
 
     var body: some View {
         VStack(spacing: 0) {
             header
+            // The exact rule is on screen before the button is, so nobody saves one unseen.
+            if let rule = approval.rule, onAlways != nil {
+                Text("always allow saves: \(rule.preview)")
+                    .font(Theme.mono(Type.micro)).foregroundColor(hoverAlways ? Theme.text : Theme.faint)
+                    .lineLimit(1).truncationMode(.middle)
+                    .padding(.horizontal, 14).padding(.top, 5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             // A plan is reviewed where it is approved — switching to the terminal to read it
             // defeats the point of answering from the notch.
             if let plan = approval.plan {
@@ -813,6 +842,9 @@ struct ApprovalCard: View {
                     .onTapGesture(perform: onExpand)
             }
             button("Deny ⌘⌥D", Theme.failed, hoverDeny, onDeny) { hoverDeny = $0 }
+            if approval.rule != nil, let onAlways {
+                button("Always ⌘⌥⇧A", Theme.working, hoverAlways, onAlways) { hoverAlways = $0 }
+            }
             button(approval.plan != nil ? "Approve plan ⌘⌥A" : "Allow ⌘⌥A",
                    Theme.working, hoverAllow, onAllow) { hoverAllow = $0 }
         }

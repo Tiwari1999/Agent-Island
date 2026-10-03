@@ -11,6 +11,8 @@ final class Prefs: ObservableObject {
     private static let welcomeKey = "seenWelcome"
     private static let soundNeedsYouKey = "soundNeedsYou"
     private static let soundDoneKey = "soundDone"
+    private static let groupKey = "groupByProject"
+    private static let remindKey = "remindMinutes"
 
     /// Shown once. A returning user opening the panel to check on an agent does not want a
     /// greeting, and Settings has a way back to it for anyone who does.
@@ -64,6 +66,8 @@ final class Prefs: ObservableObject {
         // object(forKey:) so a deliberately stored false is not read back as the default.
         soundNeedsYou = d.object(forKey: Self.soundNeedsYouKey) as? Bool ?? true
         soundDone = d.object(forKey: Self.soundDoneKey) as? Bool ?? false
+        groupByProject = d.bool(forKey: Self.groupKey)
+        remindMinutes = d.object(forKey: Self.remindKey) as? Double ?? 5
         let t = d.double(forKey: Self.snoozeKey)
         snoozedUntil = t > 0 ? Date(timeIntervalSince1970: t) : nil
         armExpiry()
@@ -77,6 +81,16 @@ final class Prefs: ObservableObject {
     /// Off by default: finishes are frequent, so this one turns into noise fastest.
     @Published var soundDone: Bool {
         didSet { UserDefaults.standard.set(soundDone, forKey: Self.soundDoneKey) }
+    }
+
+    /// Off by default: the flat list sorts by what needs you, and grouping trades that away.
+    @Published var groupByProject: Bool {
+        didSet { UserDefaults.standard.set(groupByProject, forKey: Self.groupKey) }
+    }
+
+    /// Zero is Off. An unanswered ask is nudged up to three times, an unseen finish once.
+    @Published var remindMinutes: Double {
+        didSet { UserDefaults.standard.set(remindMinutes, forKey: Self.remindKey) }
     }
 
     var snoozing: Bool { (snoozedUntil ?? .distantPast) > Date() }
@@ -143,6 +157,13 @@ struct SettingsView: View {
                     }
                 }
 
+                group("list") {
+                    row("Group by project", note: "A worktree joins its main repo") {
+                        choice("Flat", on: !prefs.groupByProject) { prefs.groupByProject = false }
+                        choice("Project", on: prefs.groupByProject) { prefs.groupByProject = true }
+                    }
+                }
+
                 group("clicks") {
                     row("Reopen a closed chat in",
                         note: "A chat whose tab is still open is focused there") {
@@ -173,6 +194,14 @@ struct SettingsView: View {
                         note: "Silent while Quiet, or while the bar is stepped aside") {
                         choice("Needs you", on: prefs.soundNeedsYou) { prefs.soundNeedsYou.toggle() }
                         choice("Done", on: prefs.soundDone) { prefs.soundDone.toggle() }
+                    }
+                    row("Remind again after",
+                        note: "Up to 3 times while an agent waits \u{2014} not while locked or looking") {
+                        ForEach([0.0, 2, 5, 10], id: \.self) { m in
+                            choice(m == 0 ? "Off" : "\(Int(m)) min", on: prefs.remindMinutes == m) {
+                                prefs.remindMinutes = m
+                            }
+                        }
                     }
                 }
 

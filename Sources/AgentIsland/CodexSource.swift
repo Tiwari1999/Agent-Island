@@ -32,7 +32,7 @@ struct CodexSource: AgentSource {
         let paths = dated.sorted { $0.1 > $1.1 }.prefix(200).map(\.0)
 
         var agents: [Agent] = []
-        var skipStale = 0, skipMeta = 0, skipCwd = 0
+        var skipStale = 0, skipMeta = 0, skipCwd = 0, skipAuto = 0
         var claimed = Set<Int>()
         var newestSeen: Date?
         let running = Self.runningSessions()
@@ -42,6 +42,7 @@ struct CodexSource: AgentSource {
                   let mtime = attrs[.modificationDate] as? Date, mtime > cutoff
             else { skipStale += 1; continue }
             guard let meta = Self.sessionMeta(path: path) else { skipMeta += 1; continue }
+            guard meta.byPerson else { skipAuto += 1; continue }
 
             let cwd = meta.cwd
             if let c = cwd, !FileManager.default.fileExists(atPath: c) { skipCwd += 1; continue }
@@ -76,9 +77,9 @@ struct CodexSource: AgentSource {
         Self.trimCache(keeping: Set(paths))
         // Only worth a line when sessions were dropped: a vendor going quiet is the failure
         // that hides best, and this says which gate ate them.
-        if skipStale + skipMeta + skipCwd > 0 {
+        if skipStale + skipMeta + skipCwd + skipAuto > 0 {
             Diagnostics.log("codex: \(paths.count) paths -> \(agents.count) "
-                + "(\(skipStale) stale, \(skipMeta) unparsable, \(skipCwd) dead cwd)")
+                + "(\(skipStale) stale, \(skipMeta) unparsable, \(skipCwd) dead cwd, \(skipAuto) subagent or automated)")
         }
         return agents
     }
@@ -206,14 +207,26 @@ struct CodexSource: AgentSource {
         return buf.isEmpty ? nil : String(data: buf, encoding: .utf8)
     }
 
-    private static func sessionMeta(path: String) -> (id: String, cwd: String?)? {
+    private static func sessionMeta(path: String) -> (id: String, cwd: String?, byPerson: Bool)? {
         guard let line = firstLine(path: path),
               let data = line.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               obj["type"] as? String == "session_meta",
               let payload = obj["payload"] as? [String: Any],
               let id = payload["id"] as? String else { return nil }
-        return (id, payload["cwd"] as? String)
+        return (id, payload["cwd"] as? String, drivenByPerson(payload))
+    }
+
+    /// Subagents, `codex exec` runs and Codex embedded by another tool (originator "Claude Code")
+    /// all write rollouts too; a row each buried the sessions someone is actually driving.
+    static func drivenByPerson(_ meta: [String: Any]) -> Bool {
+        if meta["source"] is [String: Any] { return false }            // {"subagent": {...}}
+        if meta["thread_source"] as? String == "subagent" { return false }
+        if meta["source"] as? String == "exec" { return false }
+        // Codex's own clients (codex-tui, Codex Desktop, codex_vscode) name themselves; a host
+        // app that embeds Codex does not. Older rollouts carry no originator at all.
+        guard let origin = meta["originator"] as? String else { return true }
+        return origin.lowercased().contains("codex")
     }
 
     /// The human's own words from one entry, whatever shape Codex wrote it in.

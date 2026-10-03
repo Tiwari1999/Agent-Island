@@ -611,6 +611,29 @@ remaining question, not this one.
   installed app's `Contents/Resources/Ghostty.sdef` declaring `code="Gtty"`; any older Ghostty
   stays window-only `.app`. Ghostty is not installed here, so this path is untested live.
 
+## Branch chip and group-by-project (2026-10-03, feat/git-branch-grouping)
+
+- `Git.swift` reads `.git`/`gitdir:`/`commondir`/HEAD with FileManager — never `git`. A worktree is
+  a gitdir with `commondir`; a submodule's has none. Cached per cwd on the mtimes of HEAD and the
+  `gitdir:` file (NOT a `.git` dir: every `git status` touches it); `Git.retain` evicts dead cwds.
+- Settings › list › Group by project (default Flat). Groups keep first-seen order, so the flat
+  list's priority ordering survives inside them. Key: main repo root, else cwd.
+- Cost (`--benchmark-discovery` now prints `git N/t`): 51 cwds, ~1.2ms warm, ~5ms cold; 0 spawns.
+  Harness `tests/git.swift`, suite §82.
+
+## Follow-up reminders (2026-10-03, feat/follow-up-reminders)
+
+- `Reminders` (pure, clock injected) + a controller in `Island` ("MARK: follow-up reminders").
+  Settings: Off / 2 / 5 / 10 min, default 5. Asks get 3 nudges, an unseen finish 1. Keyed by
+  session + approval/question id; the notification key is `<session>/<item>`.
+- One one-shot `Timer` at `nextDue`, invalidated when nothing is pending. Lock state comes from
+  `com.apple.screenIsLocked/Unlocked`; owed nudges collapse into one catch-up on unlock.
+- Cancelled by answer, dismiss, any jump (`AgentStore.onJumped`), opening the session's console,
+  and by the agent moving on (`hooks.$live`: waiting false, or a new turn for a finish). The
+  hook's own idle hand-over does NOT cancel: the agent is still blocked in the terminal, and that
+  is exactly when a nudge is useful — cancelling there meant no ask ever lived to 2 minutes.
+- Selftest §82 runs `tests/reminders.swift` against the real file; every check mutation-tested.
+
 ## Working rules that bit us (obey them)
 
 - **Never drive synthetic clicks/hover to verify.** It steals the pointer and raises apps on the
