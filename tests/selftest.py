@@ -782,6 +782,9 @@ check("and falls back to the newest SDK that works, rather than pinning one",
       'SDKs/MacOSX*.sdk' in _mka and "sort -rV" in _mka and 'export SDKROOT="$sdk"' in _mka)
 check("and fails loudly when no installed SDK can build SwiftUI",
       "no installed SDK compiles SwiftUI" in _mka)
+# Swallowing the compiler's output once blamed Xcode for a half-upgraded CLT install.
+check("and shows the compiler's own error instead of guessing the cause",
+      'probe_err="$(swiftc -typecheck "$probe" 2>&1)"' in _mka and 'echo "$probe_err"' in _mka)
 # The same layout breaks the exact comm scan discovery uses, which is a separate call site from
 # the match above: with sessions live it returned none, so only the hook fallback bound a pid.
 check("discovery asks for a process by name, not by an exact p_comm",
@@ -2483,6 +2486,24 @@ if _m_stale and _m_rem:
 # The percentage beside it has to dim as well, or the footer still shows a confident figure.
 check("a stale window dims its own percentage",
       "Quota.isStale(resets) ? Theme.faint : Quota.tint(pct)" in _vw)
+
+# A /rename did not reach the row: only ai-title was read. RUN, not grepped: the real Titles
+# and Tail are compiled against a stubbed Transcript and fed real transcript files.
+_ttl = open(os.path.join(REPO, "Sources/AgentIsland/Titles.swift")).read()
+_m_tail = re.search(r"(enum Tail \{.*?\n\})", open(os.path.join(REPO, "Sources/AgentIsland/AgentSource.swift")).read(), re.S)
+check("Tail is where the title harness lifts it from", _m_tail is not None)
+if _m_tail:
+    _f = os.path.join(tempfile.gettempdir(), "agentisland-titles.swift")
+    with open(_f, "w") as _h:
+        _h.write(_ttl + "\n" + _m_tail.group(1) + "\n"
+                 + "enum Transcript { static var paths: [String: String] = [:]\n"
+                 + "  static func path(sessionId: String, cwd: String?) -> String? { paths[sessionId] } }\n"
+                 + open(os.path.join(REPO, "tests/titles.swift")).read())
+    _r = subprocess.run(["swift", _f], capture_output=True, text=True, timeout=300)
+    if not _r.stdout.strip():   # an empty stdout is a compile that died on a loaded machine
+        _r = subprocess.run(["swift", _f], capture_output=True, text=True, timeout=300)
+    check("a renamed Claude session shows its new name, generated title otherwise",
+          _r.stdout.strip() == "ok", (_r.stdout + _r.stderr).strip()[:400])
 
 print("\n=== 31. code-review fixes ===")
 _ag = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()

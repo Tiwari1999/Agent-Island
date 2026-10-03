@@ -13,11 +13,15 @@ BUNDLE_ID="io.github.tiwari1999.agentisland"
 # Probe the same alias so any other SDK breakage still falls back to the newest SDK that builds.
 probe="$(mktemp -t aiprobe)".swift
 printf 'import SwiftUI\ntypealias ViewState = SwiftUI.State\nstruct _P: View { @ViewState var n = 0\n  var body: some View { Text("\\(n)") } }\n' > "$probe"
-if ! swiftc -typecheck "$probe" >/dev/null 2>&1; then
+if ! probe_err="$(swiftc -typecheck "$probe" 2>&1)"; then
   for sdk in $(ls -d /Library/Developer/CommandLineTools/SDKs/MacOSX*.sdk 2>/dev/null | sort -rV); do
     if swiftc -typecheck -sdk "$sdk" "$probe" >/dev/null 2>&1; then export SDKROOT="$sdk"; break; fi
   done
-  [ -n "${SDKROOT:-}" ] || { echo "!! no installed SDK compiles SwiftUI — update Command Line Tools: xcode-select --install"; rm -f "$probe"; exit 1; }
+  # Show the compiler's own words: a guessed cause once sent someone after Xcode when the real
+  # fault was a half-upgraded Command Line Tools install.
+  [ -n "${SDKROOT:-}" ] || { echo "!! no installed SDK compiles SwiftUI. The compiler said:"
+    echo "$probe_err" | head -15
+    echo "!! try updating Command Line Tools: xcode-select --install"; rm -f "$probe"; exit 1; }
   echo "==> using SDK $(basename "$SDKROOT") (the default SDK does not build SwiftUI)"
 fi
 rm -f "$probe"

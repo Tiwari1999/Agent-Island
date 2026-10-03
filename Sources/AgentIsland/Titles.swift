@@ -9,7 +9,10 @@ import Foundation
 /// session spawned a `grep` on every cycle — eighteen processes a cycle here, and one per agent
 /// at any scale. A transcript is append-only, so unchanged bytes cannot hold a newer answer.
 enum Titles {
-    private struct Entry { var mtime: Date; var title: String?; var prompt: String? }
+    private struct Entry {
+        var mtime: Date; var custom: String?; var ai: String?; var prompt: String?
+        var title: String? { custom ?? ai }   // a /rename beats the generated title, as in Claude's own picker
+    }
     private static var cache: [String: Entry] = [:]
 
     static func retain(_ ids: Set<String>) { cache = cache.filter { ids.contains($0.key) } }
@@ -32,14 +35,27 @@ enum Titles {
         // of megabytes; reading the end is cheaper than any scan of the whole file.
         let tail = Tail.read(path: path, bytes: 512 * 1024)
         var e = Entry(mtime: mtime,
-                      title: value("aiTitle", marker: "\"ai-title\"", in: tail),
+                      custom: value("customTitle", marker: "\"custom-title\"", in: tail)
+                          ?? sidecarTitle(transcript: path, sessionId: sessionId),
+                      ai: value("aiTitle", marker: "\"ai-title\"", in: tail),
                       prompt: value("lastPrompt", marker: "\"last-prompt\"", in: tail))
         // A title is written once and may have scrolled out of the tail of a long session, so
         // keep the one we already had rather than letting the row fall back to its hash.
-        if e.title == nil { e.title = cache[sessionId]?.title }
+        if e.custom == nil { e.custom = cache[sessionId]?.custom }
+        if e.ai == nil { e.ai = cache[sessionId]?.ai }
         if e.prompt == nil { e.prompt = cache[sessionId]?.prompt }
         cache[sessionId] = e
         return e
+    }
+
+    /// Claude keeps the rename beside the transcript too, for when its line has scrolled out of the tail.
+    private static func sidecarTitle(transcript: String, sessionId: String) -> String? {
+        let url = URL(fileURLWithPath: transcript).deletingLastPathComponent()
+            .appendingPathComponent(sessionId).appendingPathComponent("custom-title.json")
+        guard let data = try? Data(contentsOf: url),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let v = obj["customTitle"] as? String, !v.isEmpty else { return nil }
+        return v
     }
 
     /// The last line carrying `marker`, decoded for `key`.
