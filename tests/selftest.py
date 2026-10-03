@@ -700,8 +700,8 @@ check("so the bar prints no percentage at all",
 check("the primary agent is chosen by how many rows are its own",
       "counts[r.agent.vendor, default: 0] += 1" in
       open(os.path.join(REPO,"Sources/AgentIsland/AgentStore.swift")).read())
-check("cursor is not given a limit it does not publish",
-      "case .cursor: return Quota()" in vw4 and "publishes no limits" in vw4)
+check("cursor, gemini and opencode are not given a limit they do not publish",
+      "case .cursor, .gemini, .opencode: return Quota()" in vw4 and "publishes no limits" in vw4)
 
 print("\n=== 9l. one click, and sessions that argv cannot name ===")
 isl5=open(os.path.join(REPO,"Sources/AgentIsland/Island.swift")).read()
@@ -3333,7 +3333,7 @@ check("the README asks for right-click Open, never an xattr command",
 
 # The README once promised approvals for all three vendors while one publishes the hook.
 check("what each agent can do is stated in one place",
-      "static func approvals(_ v: Vendor) -> Bool { v == .claude }" in _lr_cap
+      "static func approvals(_ v: Vendor) -> Bool { v == .claude || v == .opencode }" in _lr_cap
       and "static var present: [Vendor]" in _lr_cap)
 check("and the first run says it for the agents actually on the machine",
       "Capability.summary(v)" in open(os.path.join(REPO, "Sources/AgentIsland/Welcome.swift")).read())
@@ -3484,7 +3484,8 @@ check("the capability table does not promise approvals nobody can give",
       "| Approve from the notch | ✅ | — | — |" in _r2_rm
       and "only Claude Code publishes a permission hook today" in _r2_rm)
 check("and hooksInstalled asks about the agents the user actually has",
-      '["/.claude/settings.json", "/.codex/hooks.json", "/.cursor/hooks.json"]' in _r2_st)
+      '["/.claude/settings.json", "/.codex/hooks.json", "/.cursor/hooks.json",' in _r2_st
+      and '"/.gemini/settings.json"]' in _r2_st)
 
 # The bare word would take a third-party hook living under a path that merely contains it.
 check("install and uninstall recognise our own scripts, not a bare word",
@@ -3956,7 +3957,7 @@ try: _pv = {(r["vendor"], r["sessionId"]): r for r in json.loads(_pr.stdout)}
 except ValueError: _pv = {}
 for _p in _procs: _p.kill()
 for _k in _kids: subprocess.run(["kill",_k])
-_sh.rmtree(_gofx, ignore_errors=True)
+_shutil.rmtree(_gofx, ignore_errors=True)
 _gr = _g.get(_gid, {})
 check("gemini: a chat log becomes a row under its own session id", set(_g) == {_gid}, str(sorted(_g)))
 check("gemini: the title is what was typed, not the expanded command",
@@ -3991,7 +3992,7 @@ _pp = subprocess.run(["node", os.path.join(REPO, "tests/opencode-plugin.mjs")], 
                      AGENTISLAND_ALIVE=f"{_pd}/alive", AGENTISLAND_DECISIONS=f"{_pd}/dec",
                      PLUGIN=os.path.join(REPO, "hooks/agentisland-opencode.js"),
                      BIN=os.path.join(REPO, ".build/release/AgentIsland")))
-_sh.rmtree(_pd, ignore_errors=True)
+_shutil.rmtree(_pd, ignore_errors=True)
 try: _pj = json.loads(_pp.stdout)
 except ValueError: _pj = {"calls": [], "spool": []}
 _ev = [l.get("payload", {}).get("hook_event_name") for l in _pj["spool"]]
@@ -4033,7 +4034,7 @@ check("install: opencode gets the plugin, and a second run changes nothing",
 _inst("uninstall-hooks.py")
 check("uninstall: both are gone and the other tool's config is exactly as it was",
       json.load(open(f"{_ih}/.gemini/settings.json")) == _other and not os.path.exists(_plug))
-_sh.rmtree(_ih, ignore_errors=True)
+_shutil.rmtree(_ih, ignore_errors=True)
 
 print("\n=== 23. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")
