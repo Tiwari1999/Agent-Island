@@ -233,7 +233,6 @@ enum PromptCheck {
             (row(nil), .thinking, "between tool calls"),
             (row("Bash", waiting: true), .waiting, "waiting outranks any tool"),
             (row("Bash", working: false), .idle, "not working is idle"),
-            (row("run_shell_command"), .running, "gemini running a command"),
             (row("replace"), .writing, "gemini editing a file"),
         ]
         // Gemini's hook names, which fell through to "something happened" before.

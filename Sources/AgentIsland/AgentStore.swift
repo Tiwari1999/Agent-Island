@@ -149,7 +149,7 @@ struct AgentRow: Identifiable {
         case "Edit", "Write", "NotebookEdit", "MultiEdit", "str_replace_editor",
              "write_file", "replace":
             return .writing
-        case "Bash", "Shell", "run_terminal_cmd", "BashOutput", "run_shell_command":
+        case "Bash", "Shell", "run_terminal_cmd", "BashOutput":
             return .running
         case "Read", "Grep", "Glob", "LS", "read_file", "list_dir", "codebase_search",
              "glob", "grep_search", "list_directory", "read_many_files":

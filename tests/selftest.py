@@ -3872,9 +3872,10 @@ with open(f"{_gp}/chats/session-2026-10-03T10-00-aaaaaaaa.jsonl","w") as _h:
     for _o in [
         {"sessionId":_gid,"projectHash":"0"*64,"startTime":"2026-10-03T10:00:00.000Z",
          "lastUpdated":"2026-10-03T10:00:00.000Z","kind":"main"},
+        # A custom command: content is the expanded prompt, displayContent what was typed.
         {"id":"m1","timestamp":"2026-10-03T10:00:01.000Z","type":"user",
-         "content":[{"text":"fix the flaky login test @a.ts\n--- Content from referenced files ---\nx"}],
-         "displayContent":[{"text":"fix the flaky login test @a.ts"}]},
+         "content":[{"text":"You are reviewing code.\nFocus on the login test."}],
+         "displayContent":[{"text":"/review fix the flaky login test"}]},
         {"$set":{"lastUpdated":"2026-10-03T10:00:01.000Z"}},
         {"id":"m2","timestamp":"2026-10-03T10:00:02.000Z","type":"gemini","content":"Looking.",
          "thoughts":[],"tokens":{"input":262144,"output":10,"cached":0,"thoughts":0,"tool":0,
@@ -3958,8 +3959,8 @@ for _k in _kids: subprocess.run(["kill",_k])
 _sh.rmtree(_gofx, ignore_errors=True)
 _gr = _g.get(_gid, {})
 check("gemini: a chat log becomes a row under its own session id", set(_g) == {_gid}, str(sorted(_g)))
-check("gemini: the title is what was typed, not the @-file expansion",
-      _gr.get("title") == "fix the flaky login test @a.ts", _gr.get("title",""))
+check("gemini: the title is what was typed, not the expanded command",
+      _gr.get("title") == "/review fix the flaky login test", _gr.get("title",""))
 check("gemini: the last prompt skips tool results logged as user turns",
       _gr.get("prompt") == "now run the suite", _gr.get("prompt",""))
 check("gemini: a /chat summary names the row", _gr.get("name") == "Fix flaky login test")
@@ -3978,7 +3979,7 @@ check("opencode: first and last prompts, synthetic parts skipped",
 check("opencode: an assistant turn with no completion time is working",
       _or.get("state") == "busy" and _or.get("pid") == str(_procs[1].pid), f"{_or.get('state')} pid={_or.get('pid')}")
 check("remote probe: gemini and opencode rows, titled and live",
-      _pv.get(("gemini", _gid), {}).get("title") == "fix the flaky login test @a.ts"
+      _pv.get(("gemini", _gid), {}).get("title") == "/review fix the flaky login test"
       and _pv.get(("gemini", _gid), {}).get("pid") is not None
       and _pv.get(("opencode", "ses_named"), {}).get("title") == "Uploader retries"
       and ("opencode", "ses_child") not in _pv, _pr.stderr.strip()[-200:] or str(sorted(_pv)))

@@ -139,8 +139,20 @@ def gemini_sessions():
             continue
         if meta.get("kind") == "subagent":
             continue
-        typed = [t.split("\\n")[0] for t in
-                 re.findall(r'"type":"user","content":\[\{"text":"([^"]{1,200})"', tail(path))]
+        typed = []
+        for line in tail(path).splitlines():
+            if '"type":"user"' not in line:
+                continue
+            try:
+                o = json.loads(line)
+            except ValueError:
+                continue
+            # What was typed beats the expansion; tool results carry no text part at all.
+            parts = o.get("displayContent") or o.get("content")
+            text = parts if isinstance(parts, str) else "".join(
+                p.get("text", "") for p in parts or [] if isinstance(p, dict))
+            if text.strip():
+                typed.append(text.strip().split("\n")[0])
         out.append({"vendor": "gemini", "sessionId": meta.get("sessionId"), "cwd": cwd,
                     "title": typed[0][:120] if typed else None,
                     "prompt": typed[-1][:120] if typed else None,
