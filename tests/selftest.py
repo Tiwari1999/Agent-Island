@@ -3327,9 +3327,11 @@ check("notarize refuses rather than half-doing it",
       "No Developer ID Application certificate in this keychain" in
       open(os.path.join(REPO, "scripts/notarize.sh")).read())
 # Telling strangers to strip quarantine off downloaded binaries is a bad habit to hand out.
-check("the README asks for right-click Open, never an xattr command",
-      "right-click it and choose open" in _lr_rm.lower().replace("**", "")
-      and "xattr -d" not in _lr_rm)
+# Right-click > Open stopped bypassing Gatekeeper in macOS 15; Open Anyway works on every version.
+_lr_ig = open(os.path.join(REPO, "docs/INSTALL.md")).read()
+check("the install guide sends a blocked first launch to Open Anyway, never an xattr command",
+      "privacy & security" in _lr_ig.lower() and "open anyway" in _lr_ig.lower()
+      and "docs/INSTALL.md" in _lr_rm and "xattr -d" not in _lr_rm and "xattr -d" not in _lr_ig)
 
 # The README once promised approvals for all three vendors while one publishes the hook.
 check("what each agent can do is stated in one place",
