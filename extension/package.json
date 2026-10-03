@@ -1,0 +1,14 @@
+{
+  "name": "ide-focus",
+  "displayName": "AgentIsland terminal focus",
+  "description": "Lets AgentIsland bring the integrated terminal an agent runs in to the front.",
+  "publisher": "agentisland",
+  "version": "0.1.0",
+  "license": "MIT",
+  "repository": "https://github.com/Tiwari1999/Agent-Island",
+  "engines": { "vscode": "^1.70.0" },
+  "extensionKind": ["ui"],
+  "main": "./extension.js",
+  "activationEvents": ["onStartupFinished", "onUri"],
+  "contributes": {}
+}

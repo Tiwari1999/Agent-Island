@@ -52,6 +52,7 @@ struct AgentIslandApp {
         if CommandLine.arguments.contains("--check-prompts") { exit(PromptCheck.run()) }
         if CommandLine.arguments.contains("--costs-json") { print(Costs.json()); exit(0) }
         if CommandLine.arguments.contains("--check-proc") { exit(ProcCheck.run()) }
+        if CommandLine.arguments.contains("--check-host") { exit(HostCheck.run()) }
         // The island's own half of the round trip, headlessly. Everything the suite proved
         // before this wrote the decision file from Python — so "clicking allow produces
         // something the hook accepts" was the one step never actually tested.

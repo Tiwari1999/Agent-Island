@@ -3564,7 +3564,7 @@ check("the queued steer is only read from a file we own",
 # successful jump while the app had merely come forward on whatever was already selected.
 check("a jump believes what the script returns, not that it ran",
       'guard let answer = out?.stringValue, answer == "0" || answer == "1" else { return true }'
-      in _rv_ht and _rv_ht.count('return "0"') == 2 and _rv_ht.count('return "1"') == 2)
+      in _rv_ht and _rv_ht.count('return "0"') == 3 and _rv_ht.count('return "1"') == 3)   # iTerm, Terminal, Ghostty
 check("a queued steer nobody collected does not live for ever",
       "age > 24 * 3600" in open(
           os.path.join(REPO, "Sources/AgentIsland/TerminalWrite.swift")).read())
@@ -4283,6 +4283,51 @@ check("a collapsed island accepts no clicks at all",
 check("an open island never claims the notch strip",
       ".union(hotRect)" not in _hr and "let floor = topEdge - notchHeight" in _hr
       and "mouse.y < floor && hit.contains(mouse)" in _hr)
+
+print("\n=== 80. exact terminal in VS Code, Cursor and Ghostty ===")
+_ide_ht = open(os.path.join(REPO, "Sources/AgentIsland/HostTerminal.swift")).read()
+# The resolver is pure over env facts and a pid lineage, so the binary pins it on fixed inputs.
+_hc = subprocess.run([os.path.join(REPO, ".build/release/AgentIsland"), "--check-host"],
+                     capture_output=True, text=True, timeout=30)
+check("the IDE resolver maps VS Code and Cursor terminals to their focus URI",
+      _hc.returncode == 0 and "host checks: ok" in _hc.stdout, (_hc.stdout + _hc.stderr).strip()[:120])
+# An editor launched from a Warp tab inherits WARP_FOCUS_URL; the editor still owns the shell.
+check("an IDE or Ghostty terminal outranks an inherited Warp URL",
+      _ide_ht.index("if let h = ide(termProgram:") < _ide_ht.index("if let u = i.focusURL")
+      and _ide_ht.index("return .ghostty(tty: tty)") < _ide_ht.index("if let u = i.focusURL"))
+_ide_case = _ide_ht[_ide_ht.index("case .ide(_, let bundle, let name, _):"):]
+_ide_case = _ide_case[:_ide_case.index("case .app(let bundle, _):")]
+check("without the extension an IDE jump still raises the window",
+      "if isPrecise, let s = ideURL" in _ide_case and "return activate(bundleID: bundle)" in _ide_case)
+# Only Ghostty builds whose sdef declares `tty` can be matched; claiming precision on 1.3.1 lies.
+check("Ghostty is exact only where its AppleScript publishes the tty",
+      'sdef.contains("code=\\"Gtty\\"")' in _ide_ht and "let tty = i.tty, ghosttyHasTTY" in _ide_ht
+      and _ide_ht.count('if tty of t is "') == 2)
+_ide_js = open(os.path.join(REPO, "extension/extension.js")).read()
+check("the extension acts only in the window that owns the shell",
+      "if (p && pids.includes(p)) {" in _ide_js and "t.show(false);" in _ide_js)
+_ide_out = [RUN + "-vsix-a.vsix", RUN + "-vsix-b.vsix"]
+for _o in _ide_out:
+    subprocess.run([os.path.join(REPO, "extension/build-vsix.sh"), _o], capture_output=True, timeout=60)
+import zipfile as _zf
+_ide_ok = all(os.path.exists(o) for o in _ide_out) and open(_ide_out[0], "rb").read() == open(_ide_out[1], "rb").read()
+check("the .vsix builds offline and byte-identically", _ide_ok)
+check("and carries the manifest the editors require",
+      _ide_ok and {"[Content_Types].xml", "extension.vsixmanifest", "extension/package.json",
+                   "extension/extension.js"} <= set(_zf.ZipFile(_ide_out[0]).namelist())
+      and json.loads(_zf.ZipFile(_ide_out[0]).read("extension/package.json"))["publisher"] == "agentisland")
+check("the app bundle ships the .vsix",
+      'cp "$REPO/.build/agentisland-ide-focus.vsix" "$APP/Contents/Resources/' in
+      open(os.path.join(REPO, "scripts/make-app.sh")).read())
+_ide_ih = open(os.path.join(REPO, "scripts/install-hooks.py")).read()
+_ide_uh = open(os.path.join(REPO, "scripts/uninstall-hooks.py")).read()
+# `code` on PATH is Cursor's shim on some machines, so each editor's CLI is taken from its bundle.
+check("the installer adds the extension per editor, skippable, only where that editor is set up",
+      '[cli, "--install-extension", vsix, "--force"]' in _ide_ih and "AGENTISLAND_SKIP_IDE_EXTENSION" in _ide_ih
+      and "if not cli or not os.path.isdir(ext_dir):" in _ide_ih
+      and "Visual Studio Code.app/Contents/Resources/app/bin/code" in _ide_ih)
+check("and the uninstaller removes it",
+      '[cli, "--uninstall-extension", "agentisland.ide-focus"]' in _ide_uh)
 
 # The README advertises a number of checks; it had drifted to 411 against a real 760. A floor
 # rather than an equality: opt-in sections add checks, and bulk deletion is the failure that

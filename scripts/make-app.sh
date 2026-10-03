@@ -49,6 +49,9 @@ cp "$REPO/scripts/uninstall-hooks.py" "$APP/Contents/Resources/uninstall-hooks.p
 mkdir -p "$APP/Contents/Resources/hooks"
 cp "$REPO"/hooks/agentisland-* "$APP/Contents/Resources/hooks/"
 chmod +x "$APP/Contents/Resources/hooks/"*
+# The VS Code / Cursor extension that focuses the exact integrated terminal; install-hooks.py installs it.
+"$REPO/extension/build-vsix.sh" "$REPO/.build/agentisland-ide-focus.vsix" >/dev/null
+cp "$REPO/.build/agentisland-ide-focus.vsix" "$APP/Contents/Resources/agentisland-ide-focus.vsix"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

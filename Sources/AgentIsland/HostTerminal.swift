@@ -14,6 +14,11 @@ enum HostTerminal: Equatable {
     case appleTerminal(session: String)
     case kitty(window: String)
     case wezterm(pane: String)
+    /// Ghostty builds whose AppleScript `terminal` has a `tty` (after 1.3.1); older ones stay `.app`.
+    case ghostty(tty: String)
+    /// A VS Code or Cursor integrated terminal. `pids` is the agent and its ancestors, one of
+    /// which is the shell the editor reports as that terminal's processId.
+    case ide(scheme: String, bundleID: String, name: String, pids: [Int])
     case app(bundleID: String, name: String)   // best effort: raise the app
     /// The host is known to have per-session focus, but this session's handle is missing —
     /// a restored session, a re-parented shell, an ssh or tmux layer. Raising the app would
@@ -30,6 +35,7 @@ enum HostTerminal: Equatable {
         case .warp: return "dev.warp.Warp-Stable"
         // Only Warp. A bundle id names the app, not the session — pasting into Cursor, VS Code
         // or Ghostty lands in whatever document is frontmost, which is not where this belongs.
+        case .ghostty, .ide: return nil
         case .degraded, .app, .tmux, .iterm, .appleTerminal, .kitty, .wezterm, .unknown: return nil
         }
     }
@@ -42,6 +48,8 @@ enum HostTerminal: Equatable {
         case .appleTerminal: return "Terminal"
         case .kitty: return "kitty"
         case .wezterm: return "WezTerm"
+        case .ghostty: return "Ghostty"
+        case .ide(_, _, let n, _): return n
         case .app(_, let n): return n
         case .degraded(_, let n, _): return n
         case .unknown: return "background"
@@ -54,13 +62,15 @@ enum HostTerminal: Equatable {
         switch self {
         case .warp(let url):        return url
         case .iterm(let session):   return session
+        case .ide:                  return ideURL
         default:                    return nil
         }
     }
 
     var isPrecise: Bool {
         switch self {
-        case .tmux, .warp, .iterm, .appleTerminal, .kitty, .wezterm: return true
+        case .tmux, .warp, .iterm, .appleTerminal, .kitty, .wezterm, .ghostty: return true
+        case .ide(let scheme, _, _, _): return Self.ideExtensionInstalled(scheme: scheme)
         case .app, .degraded, .unknown: return false
         }
     }
@@ -69,6 +79,8 @@ enum HostTerminal: Equatable {
     var caveat: String? {
         switch self {
         case .app(_, let n): return "\(n) exposes no per-tab focus API"
+        case .ide(let scheme, _, let n, _) where !Self.ideExtensionInstalled(scheme: scheme):
+            return "window only \u{2014} install the AgentIsland extension in \(n) for the exact terminal"
         case .degraded(_, _, let r): return r
         case .unknown: return "not running under a known terminal"
         default: return nil
@@ -104,6 +116,10 @@ enum HostTerminal: Equatable {
                              reason: "background session \u{2014} no terminal anywhere above it")
         }
         if let w = i.kittyWindow, !w.isEmpty { return .kitty(window: w) }
+        if i.termProgram == "ghostty" || i.bundleID == "com.mitchellh.ghostty",
+           let tty = i.tty, ghosttyHasTTY { return .ghostty(tty: tty) }
+        // Before the Warp handle: an editor opened from a Warp tab inherits WARP_FOCUS_URL too.
+        if let h = ide(termProgram: i.termProgram, bundleID: i.bundleID, pids: lineage(pid)) { return h }
         if let p = i.weztermPane, !p.isEmpty { return .wezterm(pane: p) }
         if let u = i.focusURL { return .warp(focusURL: u) }
         if let s = i.itermSession { return .iterm(session: s) }
@@ -119,6 +135,49 @@ enum HostTerminal: Equatable {
         if i.jetbrains { return .app(bundleID: "com.jetbrains", name: "JetBrains") }
         return .unknown
     }
+
+    /// Pure, so `--check-host` can pin it without a live editor.
+    static func ide(termProgram: String?, bundleID: String?, pids: [Int]) -> HostTerminal? {
+        guard termProgram == "vscode", let b = bundleID, !pids.isEmpty else { return nil }
+        if b == "com.microsoft.VSCode" { return .ide(scheme: "vscode", bundleID: b, name: "VS Code", pids: pids) }
+        if b.contains("todesktop") { return .ide(scheme: "cursor", bundleID: b, name: "Cursor", pids: pids) }
+        return nil
+    }
+
+    /// The agent and up to five ancestors, by syscall. The editor knows only its shell's pid,
+    /// and an agent started through npx or a wrapper is not that shell's direct child.
+    static func lineage(_ pid: Int) -> [Int] {
+        var out = [pid]
+        while out.count < 6, let p = Proc.parent(pid: out[out.count - 1]) { out.append(p) }
+        return out
+    }
+
+    var ideURL: String? {
+        guard case .ide(let scheme, _, _, let pids) = self else { return nil }
+        return "\(scheme)://agentisland.ide-focus/focus?pid=" + pids.map(String.init).joined(separator: ",")
+    }
+
+    /// Read from the editor's own install list, re-read only when it changes; never spawns.
+    static func ideExtensionInstalled(scheme: String) -> Bool {
+        let path = NSHomeDirectory() + "/.\(scheme)/extensions/extensions.json"
+        let stamp = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
+        extLock.lock(); defer { extLock.unlock() }
+        if let hit = extCache[path], hit.stamp == stamp { return hit.ok }
+        let ok = stamp != nil && ((try? String(contentsOfFile: path, encoding: .utf8))?
+            .contains("\"agentisland.ide-focus\"") ?? false)
+        extCache[path] = (stamp, ok)
+        return ok
+    }
+    private static var extCache: [String: (stamp: Date?, ok: Bool)] = [:]
+    private static let extLock = NSLock()
+
+    /// Only Ghostty builds after 1.3.1 publish a terminal's tty to AppleScript; the sdef says which.
+    static let ghosttyHasTTY: Bool = {
+        guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.mitchellh.ghostty"),
+              let sdef = try? String(contentsOf: app.appendingPathComponent("Contents/Resources/Ghostty.sdef"),
+                                     encoding: .utf8) else { return false }
+        return sdef.contains("code=\"Gtty\"")
+    }()
 
     /// Bundle ids are stable; product names are not, so map the ones worth naming and fall back
     /// to the last path component of the id.
@@ -229,6 +288,30 @@ enum HostTerminal: Equatable {
             guard Self.succeeded("wezterm cli activate-pane --pane-id \(id)") else { return false }
             return activate(bundleID: "com.github.wez.wezterm")
 
+        case .ghostty(let tty):
+            let t = Self.appleSafe(tty)
+            guard !t.isEmpty else { return false }
+            return osascript("""
+            tell application id "com.mitchellh.ghostty"
+              repeat with t in terminals
+                if tty of t is "\(t)" then
+                  focus t
+                  activate
+                  return "1"
+                end if
+              end repeat
+              return "0"
+            end tell
+            """)
+
+        case .ide(_, let bundle, let name, _):
+            // Without the extension the URI would only raise an "unknown handler" prompt.
+            if isPrecise, let s = ideURL, let u = URL(string: s), NSWorkspace.shared.open(u) {
+                Diagnostics.log("jump -> \(name) terminal via \(s)")
+                return true
+            }
+            return activate(bundleID: bundle)
+
         case .app(let bundle, _):
             // No tab-level API — raising the app is the honest ceiling here.
             return activate(bundleID: bundle)
@@ -296,5 +379,32 @@ enum HostTerminal: Equatable {
         guard let answer = out?.stringValue, answer == "0" || answer == "1" else { return true }
         if answer == "0" { Diagnostics.log("jump: no matching tab") }
         return answer == "1"
+    }
+}
+
+/// `--check-host`: pins the IDE resolver to fixed inputs, since a live editor is not always open.
+enum HostCheck {
+    static func run() -> Int32 {
+        var failed = 0
+        func expect(_ ok: Bool, _ m: String) {
+            if !ok { failed += 1; FileHandle.standardError.write("FAIL \(m)\n".data(using: .utf8)!) }
+        }
+        let code = HostTerminal.ide(termProgram: "vscode", bundleID: "com.microsoft.VSCode", pids: [92173, 91877])
+        expect(code?.ideURL == "vscode://agentisland.ide-focus/focus?pid=92173,91877", "VS Code URL: \(String(describing: code?.ideURL))")
+        expect(code?.name == "VS Code", "VS Code name")
+        let cur = HostTerminal.ide(termProgram: "vscode", bundleID: "com.todesktop.230313mzl4w4u92", pids: [7])
+        expect(cur?.ideURL == "cursor://agentisland.ide-focus/focus?pid=7" && cur?.name == "Cursor", "Cursor")
+        expect(HostTerminal.ide(termProgram: nil, bundleID: "com.microsoft.VSCode", pids: [7]) == nil,
+               "no TERM_PROGRAM=vscode is not an IDE terminal")
+        expect(HostTerminal.ide(termProgram: "vscode", bundleID: "com.example.fork", pids: [7]) == nil,
+               "an unknown fork has no known URI scheme")
+        expect(HostTerminal.ide(termProgram: "vscode", bundleID: "com.microsoft.VSCode", pids: []) == nil,
+               "no pids, nothing to match")
+        let none = HostTerminal.ide(scheme: "no-such-editor", bundleID: "x", name: "X", pids: [7])
+        expect(!none.isPrecise && none.caveat != nil, "without the extension the jump is window-only and says so")
+        let me = Int(getpid())
+        expect(Array(HostTerminal.lineage(me).prefix(2)) == [me, Int(getppid())], "lineage starts self, parent")
+        print("host checks: \(failed == 0 ? "ok" : "\(failed) failed")")
+        return failed == 0 ? 0 : 1
     }
 }
