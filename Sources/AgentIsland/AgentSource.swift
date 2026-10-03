@@ -125,6 +125,9 @@ enum PromptCheck {
             (["hook_event_name": "PreToolUse", "tool_name": "Read",
               "tool_input": ["file_path": "/a/b/Views.swift"]],
              "Read Views.swift", "claude read"),
+            (["hook_event_name": "BeforeTool", "tool_name": "run_shell_command",
+              "tool_input": ["command": "npm test", "dir_path": "."]],
+             "npm test", "gemini shell tool: the command, not the tool's name"),
         ]
         // The model's own summary beats the raw parameters: three identical `python3 - <<'PY'`
         // lines are indistinguishable in a notch, three descriptions are not.
