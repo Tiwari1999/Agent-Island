@@ -167,13 +167,21 @@ struct AgentIslandApp {
             for run in 1...runs {
                 var line = "run \(run):"
                 var total = 0.0
+                var cwds: [String] = []
                 for src in sources where src.isAvailable {
                     let t = Date()
-                    let n = src.discover().count
+                    let found = src.discover()
                     let dt = Date().timeIntervalSince(t)
                     total += dt
-                    line += String(format: " %@ %d/%.3fs", src.vendor.rawValue, n, dt)
+                    cwds += found.filter { $0.remoteHost == nil }.compactMap(\.cwd)
+                    line += String(format: " %@ %d/%.3fs", src.vendor.rawValue, found.count, dt)
                 }
+                // The rebuild's per-row branch read, so its cost shows beside discovery's.
+                let t = Date()
+                let branches = cwds.compactMap(Git.info(cwd:)).count
+                let dt = Date().timeIntervalSince(t)
+                total += dt
+                line += String(format: " git %d/%.4fs", branches, dt)
                 print(line + String(format: "  total %.3fs  %@", total, Shell.spawnsSinceLastCheck()))
             }
             exit(0)

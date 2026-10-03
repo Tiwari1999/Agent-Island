@@ -2535,7 +2535,8 @@ check("and the row explains the jump it cannot offer",
 check("only stopped, processless rows can be folded away",
       "guard r.agent.pid == nil, AgentStore.tier(r) == 3 else { return true }" in _vw)
 check("and the list actually renders the folded set",
-      "ForEach(visibleRows) { row in" in _vw and "ForEach(store.rows) { row in" not in _vw)
+      "ForEach(Git.grouped(visibleRows) {" in _vw and "ForEach(store.rows) { row in" not in _vw
+      and "Git.grouped(store.rows" not in _vw)
 check("nothing folded is unreachable",
       "more stopped sessions" in _vw and "showAllIdle = true" in _vw)
 
@@ -4510,6 +4511,35 @@ check("the installer adds the extension per editor, skippable, only where that e
       and "Visual Studio Code.app/Contents/Resources/app/bin/code" in _ide_ih)
 check("and the uninstaller removes it",
       '[cli, "--uninstall-extension", "agentisland.ide-focus"]' in _ide_uh)
+
+print("\n=== 82. git branch per row and grouping by project ===")
+# RUN, not grepped: the real Git.swift against repos real git made — worktree, detached, packed.
+_gt = open(os.path.join(REPO, "Sources/AgentIsland/Git.swift")).read()
+_f = os.path.join(tempfile.gettempdir(), "agentisland-git.swift")
+with open(_f, "w") as _h:
+    _h.write(_gt + "\n" + open(os.path.join(REPO, "tests/git.swift")).read())
+_r = subprocess.run(["swift", _f], capture_output=True, text=True, timeout=300)
+if not _r.stdout.strip():   # an empty stdout is a compile that died on a loaded machine
+    _r = subprocess.run(["swift", _f], capture_output=True, text=True, timeout=300)
+check("branch, worktree, detached sha, packed refs and the mtime cache all hold",
+      _r.stdout.strip() == "ok", (_r.stdout + _r.stderr).strip()[:400])
+check("the branch read never runs git", not re.search(r"Process\(|Shell\.|/usr/bin/git", _gt))
+_ag_g = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
+check("rows get a branch only for a local cwd, and the cache is bounded to live cwds",
+      "a.remoteHost == nil ? a.cwd.flatMap(Git.info(cwd:)) : nil" in _ag_g
+      and "Git.retain(Set(agents.compactMap(\\.cwd)))" in _ag_g)
+_vw_g = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
+check("the row shows the chip, and the title truncates before it does",
+      "if let g = row.git { chip(g.chip, Theme.muted).layoutPriority(1) }" in _vw_g)
+check("grouping is off by default and the flat list has no headers",
+      "groupByProject = d.bool(forKey: Self.groupKey)" in open(
+          os.path.join(REPO, "Sources/AgentIsland/Settings.swift")).read()
+      and "Git.grouped(visibleRows) { prefs.groupByProject ? $0.projectKey : \"\" }" in _vw_g
+      and "if prefs.groupByProject {\n                                Text(\"\\(Self.projectName(group.key))" in _vw_g)
+_bd = subprocess.run([os.path.join(REPO, ".build/release/AgentIsland"), "--benchmark-discovery", "2"],
+                     capture_output=True, text=True, timeout=120).stdout.strip().splitlines()
+check("discovery plus every row's branch read spawns nothing",
+      bool(_bd) and " git " in _bd[-1] and "0 spawns" in _bd[-1], _bd[-1][-90:] if _bd else "no output")
 
 # The README advertises a number of checks; it had drifted to 411 against a real 760. A floor
 # rather than an equality: opt-in sections add checks, and bulk deletion is the failure that

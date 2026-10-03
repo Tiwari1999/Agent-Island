@@ -11,6 +11,7 @@ final class Prefs: ObservableObject {
     private static let welcomeKey = "seenWelcome"
     private static let soundNeedsYouKey = "soundNeedsYou"
     private static let soundDoneKey = "soundDone"
+    private static let groupKey = "groupByProject"
 
     /// Shown once. A returning user opening the panel to check on an agent does not want a
     /// greeting, and Settings has a way back to it for anyone who does.
@@ -64,6 +65,7 @@ final class Prefs: ObservableObject {
         // object(forKey:) so a deliberately stored false is not read back as the default.
         soundNeedsYou = d.object(forKey: Self.soundNeedsYouKey) as? Bool ?? true
         soundDone = d.object(forKey: Self.soundDoneKey) as? Bool ?? false
+        groupByProject = d.bool(forKey: Self.groupKey)
         let t = d.double(forKey: Self.snoozeKey)
         snoozedUntil = t > 0 ? Date(timeIntervalSince1970: t) : nil
         armExpiry()
@@ -77,6 +79,11 @@ final class Prefs: ObservableObject {
     /// Off by default: finishes are frequent, so this one turns into noise fastest.
     @Published var soundDone: Bool {
         didSet { UserDefaults.standard.set(soundDone, forKey: Self.soundDoneKey) }
+    }
+
+    /// Off by default: the flat list sorts by what needs you, and grouping trades that away.
+    @Published var groupByProject: Bool {
+        didSet { UserDefaults.standard.set(groupByProject, forKey: Self.groupKey) }
     }
 
     var snoozing: Bool { (snoozedUntil ?? .distantPast) > Date() }
@@ -140,6 +147,13 @@ struct SettingsView: View {
                         choice("2s", on: prefs.autoHideSeconds == 2) { prefs.autoHideSeconds = 2 }
                         choice("4s", on: prefs.autoHideSeconds == 4) { prefs.autoHideSeconds = 4 }
                         choice("8s", on: prefs.autoHideSeconds == 8) { prefs.autoHideSeconds = 8 }
+                    }
+                }
+
+                group("list") {
+                    row("Group by project", note: "A worktree joins its main repo") {
+                        choice("Flat", on: !prefs.groupByProject) { prefs.groupByProject = false }
+                        choice("Project", on: prefs.groupByProject) { prefs.groupByProject = true }
                     }
                 }
 

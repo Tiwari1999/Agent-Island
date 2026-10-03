@@ -611,6 +611,16 @@ remaining question, not this one.
   installed app's `Contents/Resources/Ghostty.sdef` declaring `code="Gtty"`; any older Ghostty
   stays window-only `.app`. Ghostty is not installed here, so this path is untested live.
 
+## Branch chip and group-by-project (2026-10-03, feat/git-branch-grouping)
+
+- `Git.swift` reads `.git`/`gitdir:`/`commondir`/HEAD with FileManager — never `git`. A worktree is
+  a gitdir with `commondir`; a submodule's has none. Cached per cwd on the mtimes of HEAD and the
+  `gitdir:` file (NOT a `.git` dir: every `git status` touches it); `Git.retain` evicts dead cwds.
+- Settings › list › Group by project (default Flat). Groups keep first-seen order, so the flat
+  list's priority ordering survives inside them. Key: main repo root, else cwd.
+- Cost (`--benchmark-discovery` now prints `git N/t`): 51 cwds, ~1.2ms warm, ~5ms cold; 0 spawns.
+  Harness `tests/git.swift`, suite §82.
+
 ## Working rules that bit us (obey them)
 
 - **Never drive synthetic clicks/hover to verify.** It steals the pointer and raises apps on the
