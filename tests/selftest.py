@@ -2505,6 +2505,29 @@ if _m_tail:
     check("a renamed Claude session shows its new name, generated title otherwise",
           _r.stdout.strip() == "ok", (_r.stdout + _r.stderr).strip()[:400])
 
+# Subagents, codex exec runs, Codex embedded in Claude Code and `claude -p` helpers wrote
+# sessions too and became rows. RUN: the real predicates are lifted and fed each real shape.
+_cxs = open(os.path.join(REPO, "Sources/AgentIsland/CodexSource.swift")).read()
+_cls = open(os.path.join(REPO, "Sources/AgentIsland/CursorSource.swift")).read()
+_m_dbp = re.search(r"(    static func drivenByPerson\(.*?\n    \})", _cxs, re.S)
+_m_hl = re.search(r"(    private static var headless.*?static func isHeadless\(.*?\n    \})", _cls, re.S)
+_m_tl = re.search(r"(enum Tail \{.*?\n\})", open(os.path.join(REPO, "Sources/AgentIsland/AgentSource.swift")).read(), re.S)
+check("the session filters are where the harness lifts them from",
+      _m_dbp is not None and _m_hl is not None and _m_tl is not None)
+if _m_dbp and _m_hl and _m_tl:
+    _f = os.path.join(tempfile.gettempdir(), "agentisland-subagents.swift")
+    with open(_f, "w") as _h:
+        _h.write("import Foundation\n" + _m_tl.group(1) + "\nenum Q {\n" + _m_dbp.group(1) + "\n"
+                 + _m_hl.group(1) + "\n}\n" + open(os.path.join(REPO, "tests/subagents.swift")).read())
+    _r = subprocess.run(["swift", _f], capture_output=True, text=True, timeout=300)
+    if not _r.stdout.strip():   # an empty stdout is a compile that died on a loaded machine
+        _r = subprocess.run(["swift", _f], capture_output=True, text=True, timeout=300)
+    check("subagents and automated runs never become rows; sessions people drive always do",
+          _r.stdout.strip() == "ok", (_r.stdout + _r.stderr).strip()[:400])
+# Background agents the user started are kept even if they record an SDK entrypoint.
+check("a background job is never filtered as headless",
+      "if jobs[id] == nil, Self.isHeadless(path: path, id: id) { continue }" in _cls)
+
 print("\n=== 31. code-review fixes ===")
 _ag = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
 _cv = open(os.path.join(REPO, "Sources/AgentIsland/ConsoleView.swift")).read()

@@ -303,6 +303,19 @@ struct ClaudeSource: AgentSource {
 
     private static var cwdCache: [String: (mtime: Date, cwd: String?)] = [:]
 
+    /// `claude -p` runs (Agent SDK, other tools' helpers, our own Explain) write transcripts too.
+    /// The entrypoint never changes, so it is read once per session and the answer kept.
+    private static var headless: [String: Bool] = [:]
+    static func isHeadless(path: String, id: String) -> Bool {
+        if let known = headless[id] { return known }
+        // The first entrypoint sits after the opening metadata lines, ~11 KB in on real files.
+        let head = Tail.head(path: path, bytes: 32 * 1024)
+        guard head.contains("\"entrypoint\":\"") else { return false }   // undecided: ask again later
+        let v = head.contains("\"entrypoint\":\"sdk-")
+        headless[id] = v
+        return v
+    }
+
     func discover() -> [Agent] {
         let fm = FileManager.default
         let cutoff = Date().addingTimeInterval(-10 * 24 * 3600)
@@ -337,7 +350,10 @@ struct ClaudeSource: AgentSource {
                 if Tail.head(path: path, bytes: 256).contains("\"type\":\"queue-operation\"") {
                     continue
                 }
-                found[String(f.dropLast(6))] = (path, mtime)
+                let id = String(f.dropLast(6))
+                // A background job is one the user started, however it records its entrypoint.
+                if jobs[id] == nil, Self.isHeadless(path: path, id: id) { continue }
+                found[id] = (path, mtime)
             }
         }
 
