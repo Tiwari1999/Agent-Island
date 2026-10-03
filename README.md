@@ -119,14 +119,26 @@ accident.
 
 ## 📦 Install
 
-**From a release** — download `AgentIsland-<version>.dmg`, drag it to Applications, then
-**right-click it and choose Open**, and Open again.
+**From a release**, either way (macOS 14 Sonoma or later):
 
-That second step is not optional and not a mistake: these builds are not notarized by Apple yet,
-so a double-click gives *"cannot be opened because the developer cannot be verified"*.
+```bash
+brew install --cask tiwari1999/tap/agent-island
+```
+
+or download `AgentIsland-<version>.dmg` from
+[GitHub Releases](https://github.com/Tiwari1999/Agent-Island/releases) and drag it to Applications.
+Then, the first time only, **right-click it and choose Open**, and Open again.
+
+That step is not optional and not a mistake, and Homebrew does not skip it: these builds are not
+notarized by Apple yet, so a double-click gives *"cannot be opened because the developer cannot be verified"*.
 Right-click → Open is macOS's own way of saying you trust it, and it is only needed the first
 time. There is no `xattr` command to run and you should be suspicious of any project that gives
 you one.
+
+After that the app keeps itself current: it checks `agentisland.in` at most once a day and asks
+before installing anything. Settings → *Check for updates* turns that off or checks now, and so
+does *Check for Updates…* on the menu-bar icon's right-click menu. `brew uninstall --cask agent-island` also removes the hooks;
+add `--zap` to clear preferences too.
 
 **From source:**
 

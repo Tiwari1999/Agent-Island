@@ -3856,6 +3856,34 @@ check("a second instance stands down instead of drawing a second bar",
 check("and the guard runs before any window exists",
       _app.index("flock(lock") < _app.index("let app = NSApplication.shared"))
 
+print("\n=== 59. updates and the release pipeline ===")
+_up_bin = os.path.join(REPO, ".build/debug/AgentIsland")
+_up_rp = subprocess.run(["otool", "-l", _up_bin], capture_output=True, text=True).stdout
+# SPM adds no rpath for a binary framework: without this the bundled app dies in dyld at launch.
+check("the binary looks for Sparkle in the bundle's Frameworks",
+      "path @executable_path/../Frameworks " in _up_rp)
+_up_ma = open(os.path.join(REPO, "scripts/make-app.sh")).read()
+_up_fw = _up_ma.find('codesign "${SIGN[@]}" "$APP/Contents/Frameworks/Sparkle.framework"')
+check("make-app embeds Sparkle and seals it before the app",
+      'cp -R "$REPO/.build/release/Sparkle.framework"' in _up_ma
+      and -1 < _up_fw < _up_ma.find('codesign "${SIGN[@]}" --identifier "$BUNDLE_ID" "$APP"'))
+# Sparkle runs on its own timer; reached from discovery it would put network on every refresh.
+_up_users = sorted(os.path.basename(f) for f in glob.glob(os.path.join(REPO, "Sources/AgentIsland/*.swift"))
+                   if re.search(r"Updater\.shared|import Sparkle|SPU", open(f).read()))
+check("only the app shell, Settings and Updater touch Sparkle",
+      _up_users == ["App.swift", "Settings.swift", "Updater.swift"], ", ".join(_up_users))
+# A release built with the placeholder key could never be auto-updated again.
+_up_env = {k: v for k, v in os.environ.items() if not k.startswith("SPARKLE_")}
+_up_rel = subprocess.run([os.path.join(REPO, "scripts/release.sh")], capture_output=True,
+                         text=True, env=_up_env, timeout=60)
+check("release.sh refuses the placeholder Sparkle key before building",
+      _up_rel.returncode == 1 and "still holds the placeholder" in _up_rel.stdout)
+# release.sh fills the cask by line pattern; a reformatted cask would silently keep a stale sha.
+_up_cask = open(os.path.join(REPO, "packaging/homebrew/Casks/agent-island.rb")).read()
+check("the cask has the exact lines release.sh rewrites",
+      len(re.findall(r'(?m)^  version ".*"$', _up_cask)) == 1
+      and len(re.findall(r'(?m)^  sha256 ".*"$', _up_cask)) == 1)
+
 print("\n=== 23. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")
 check("binary exists", os.path.exists(b))
