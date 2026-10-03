@@ -174,5 +174,21 @@ else:
         os.remove(path)
         print(f"  removed {what}, so a reboot no longer relaunches it")
 
+# The terminal-focus extension install-hooks.py put into VS Code and Cursor.
+for name, ext_dir, cli in (
+        ("VS Code", "~/.vscode/extensions",
+         "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"),
+        ("Cursor", "~/.cursor/extensions", "/Applications/Cursor.app/Contents/Resources/app/bin/cursor")):
+    try:
+        listed = open(os.path.join(os.path.expanduser(ext_dir), "extensions.json")).read()
+    except OSError:
+        continue
+    if '"agentisland.ide-focus"' not in listed or not os.access(cli, os.X_OK):
+        continue
+    import subprocess
+    r = subprocess.run([cli, "--uninstall-extension", "agentisland.ide-focus"],
+                       capture_output=True, text=True, timeout=120)
+    print(f"  {name}: {'removed the terminal-focus extension' if r.returncode == 0 else 'could not remove the extension: ' + r.stderr.strip()[:160]}")
+
 print("\n  Left in place (yours, not ours): ~/.agentisland/rules.json")
 print("  Remove the app with: rm -rf ~/Applications/AgentIsland.app")

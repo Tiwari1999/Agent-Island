@@ -578,6 +578,39 @@ remaining question, not this one.
 - **Compact idle rows reverted.** 36pt dormant rows (d5bc886) made idle agents read as a
   different kind of thing; every row is 64pt with avatar, dot, chip, prompt and status line.
 
+## Exact terminal in VS Code, Cursor and Ghostty (2026-10-03, feat/ide-terminal-jump)
+
+- **VS Code / Cursor**: `extension/` is a dependency-free extension (`agentisland.ide-focus`).
+  `HostTerminal.ide` resolves from `TERM_PROGRAM=vscode` + `__CFBundleIdentifier` (VSCode ->
+  `vscode://`, `todesktop` -> `cursor://`) and carries the agent plus five ancestors
+  (`HostTerminal.lineage`, syscalls only): the editor knows only its shell's pid, and an agent
+  under npx/a wrapper is not that shell's direct child. jump() opens
+  `<scheme>://agentisland.ide-focus/focus?pid=a,b,c`; the extension shows the terminal whose
+  `processId` is in the list and logs `focus pid=N -> shown "<name>" via uri|broadcast` to
+  `/tmp/agentisland-ide.log`. The editor delivers a URI to its LAST-ACTIVE window only (verified
+  in VS Code's `URLHandlerRouter`), so a window that does not own the shell rebroadcasts through
+  `/tmp/agentisland-ide/<scheme>.json`; the owner shows it and calls
+  `workbench.action.focusWindow`. Cursor (VS Code 1.128 base) has no such command: a non-last-
+  active Cursor window gets the tab selected but not raised.
+- Installed check is `~/.<scheme>/extensions/extensions.json` (mtime-cached, no spawn); without it
+  the jump raises the app as before and the caveat says to install the extension.
+- **The first jump shows VS Code's "Allow 'AgentIsland terminal focus' to open this URI?"** dialog
+  (`extensions.confirmedUriHandlerExtensionIds` or the dialog's "Do not ask me again" skips it).
+  The installer does NOT pre-trust it; the user ticks it once. The e2e open on 2026-10-03 hit
+  exactly this: the URI was taken (VS Code activated), no log line until the dialog is answered.
+- Packaging: `extension/build-vsix.sh <out>` hand-zips a byte-identical .vsix (no npm/network);
+  `make-app.sh` bundles it; `install-hooks.py` installs with each editor's OWN bundle CLI
+  (`code` on this machine's PATH is Cursor's shim) only where `~/.vscode|.cursor/extensions`
+  exists — so sandboxed-HOME suite runs never touch the real editors.
+  `AGENTISLAND_SKIP_IDE_EXTENSION=1` skips; uninstall-hooks.py removes it.
+- **Ghostty spike verdict**: Ghostty 1.3.0/1.3.1 (latest tags) expose AppleScript `terminal`
+  with only `id`, `name`, `working directory` and a `focus` command — nothing that maps to our
+  process (cwd is not unique), and no per-surface env var. Ghostty `main` (commit 2026-04-20,
+  "add pid and tty properties to AppleScript terminal class") adds `tty`, and `GHOSTTY_SURFACE_ID`
+  is exported on main only. So `.ghostty(tty:)` matches `tty of t` and calls `focus`, gated on the
+  installed app's `Contents/Resources/Ghostty.sdef` declaring `code="Gtty"`; any older Ghostty
+  stays window-only `.app`. Ghostty is not installed here, so this path is untested live.
+
 ## Working rules that bit us (obey them)
 
 - **Never drive synthetic clicks/hover to verify.** It steals the pointer and raises apps on the

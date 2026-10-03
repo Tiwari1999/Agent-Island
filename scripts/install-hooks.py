@@ -273,6 +273,63 @@ if os.path.isdir(os.path.expanduser("~/.cursor")):
 else:
     print("  Cursor: not installed, skipped")
 
+IDE_EXT = "agentisland.ide-focus"
+# Each editor's own CLI by path: `code` on PATH is often Cursor's shim, which would miss VS Code.
+IDE_CLIS = (("VS Code", "~/.vscode/extensions",
+             ["/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"]),
+            ("Cursor", "~/.cursor/extensions",
+             ["/Applications/Cursor.app/Contents/Resources/app/bin/cursor"]))
+
+
+def ide_ext_version(ext_dir):
+    try:
+        for e in json.load(open(os.path.join(ext_dir, "extensions.json"))):
+            if e.get("identifier", {}).get("id") == IDE_EXT:
+                return e.get("version")
+    except Exception:
+        pass
+    return None
+
+
+def install_ide_extension():
+    """Install the terminal-focus extension into VS Code and Cursor, so a jump lands on the tab."""
+    if os.environ.get("AGENTISLAND_SKIP_IDE_EXTENSION"):
+        print("  IDE extension: skipped (AGENTISLAND_SKIP_IDE_EXTENSION)")
+        return
+    here = os.path.dirname(os.path.abspath(__file__))
+    vsix = next((p for p in (os.path.join(here, "agentisland-ide-focus.vsix"),
+                             os.path.join(REPO, ".build/agentisland-ide-focus.vsix"))
+                 if os.path.exists(p)), None)
+    try:
+        import zipfile
+        want = json.loads(zipfile.ZipFile(vsix).read("extension/package.json"))["version"]
+    except Exception:
+        want = None
+    for name, ext_dir, clis in IDE_CLIS:
+        ext_dir = os.path.expanduser(ext_dir)
+        cli = next((c for c in clis if os.access(c, os.X_OK)), None)
+        # No extensions dir under this HOME means the editor was never used here (or a test HOME).
+        if not cli or not os.path.isdir(ext_dir):
+            print(f"  {name} extension: {name} not found for this user, skipped")
+            continue
+        have = ide_ext_version(ext_dir)
+        if have and (want is None or have == want):
+            print(f"  {name} extension: already installed ({have}), nothing changed")
+            continue
+        if not vsix:
+            print(f"  {name} extension: package not built, skipped (scripts/make-app.sh builds it)")
+            continue
+        import subprocess
+        r = subprocess.run([cli, "--install-extension", vsix, "--force"],
+                           capture_output=True, text=True, timeout=120)
+        ok = r.returncode == 0 and ide_ext_version(ext_dir)
+        print(f"  {name} extension: {'installed ' + vsix if ok else 'install FAILED: ' + (r.stderr or r.stdout).strip()[:200]}")
+        if ok:
+            print(f"    the first jump asks 'Allow ... to open this URI?' once; tick 'Do not ask me again'")
+
+
+install_ide_extension()
+
 print("\n  Uninstall with: python3 scripts/uninstall-hooks.py")
 
 # The harness kills a hook at the timeout in settings.json whatever the hook believes. When
