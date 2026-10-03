@@ -49,6 +49,10 @@ def stage_hooks():
         dst = os.path.join(STAGE, name)
         shutil.copy2(os.path.join(SOURCE, name), dst)
         os.chmod(dst, 0o755)
+    # Beside the hooks, so `brew uninstall --zap` can still unregister them after the app is gone.
+    un = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uninstall-hooks.py")
+    if os.path.exists(un):
+        shutil.copy2(un, os.path.join(os.path.dirname(STAGE), "uninstall-hooks.py"))
     return True
 
 

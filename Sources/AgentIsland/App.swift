@@ -19,10 +19,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                      accessibilityDescription: "AgentIsland")
         item.button?.target = self
         item.button?.action = #selector(toggle)
+        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         statusItem = item
+        _ = Updater.shared   // arms Sparkle's daily timer now, not when Settings first opens
     }
 
-    @objc private func toggle() { island.toggle() }
+    /// Right-click is where macOS users look for a status item's menu; left-click stays the island.
+    @objc private func toggle() {
+        guard NSApp.currentEvent?.type == .rightMouseUp, let button = statusItem?.button else {
+            island.toggle(); return
+        }
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let check = menu.addItem(withTitle: "Check for Updates\u{2026}",
+                                 action: #selector(checkForUpdates), keyEquivalent: "")
+        check.target = self
+        check.isEnabled = Updater.shared.available
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Quit AgentIsland",
+                     action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 4), in: button)
+    }
+
+    @objc private func checkForUpdates() { Updater.shared.check() }
 }
 
 @main
