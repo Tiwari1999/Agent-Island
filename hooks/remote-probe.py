@@ -59,6 +59,18 @@ def running(names):
     return out
 
 
+def custom_title(path, t):
+    # A /rename beats the generated title; Claude also keeps it beside the transcript.
+    v = last_value("customTitle", t)
+    if v:
+        return v
+    try:
+        with open(os.path.join(path[:-6], "custom-title.json")) as f:
+            return json.load(f).get("customTitle") or None
+    except (OSError, ValueError):
+        return None
+
+
 def claude_sessions():
     out = []
     for path in glob.glob(os.path.join(ROOT, ".claude/projects/*/*.jsonl")):
@@ -71,7 +83,7 @@ def claude_sessions():
             "vendor": "claude",
             "sessionId": os.path.basename(path)[:-6],
             "cwd": cwd,
-            "title": last_value("aiTitle", t),
+            "title": custom_title(path, t) or last_value("aiTitle", t),
             "prompt": (last_value("lastPrompt", t) or "").split("\\n")[0][:120] or None,
             "lastActive": last_value("timestamp", t) or iso(mtime),
             "mtime": mtime,

@@ -2484,6 +2484,24 @@ if _m_stale and _m_rem:
 check("a stale window dims its own percentage",
       "Quota.isStale(resets) ? Theme.faint : Quota.tint(pct)" in _vw)
 
+# A /rename did not reach the row: only ai-title was read. RUN, not grepped: the real Titles
+# and Tail are compiled against a stubbed Transcript and fed real transcript files.
+_ttl = open(os.path.join(REPO, "Sources/AgentIsland/Titles.swift")).read()
+_m_tail = re.search(r"(enum Tail \{.*?\n\})", open(os.path.join(REPO, "Sources/AgentIsland/AgentSource.swift")).read(), re.S)
+check("Tail is where the title harness lifts it from", _m_tail is not None)
+if _m_tail:
+    _f = os.path.join(tempfile.gettempdir(), "agentisland-titles.swift")
+    with open(_f, "w") as _h:
+        _h.write(_ttl + "\n" + _m_tail.group(1) + "\n"
+                 + "enum Transcript { static var paths: [String: String] = [:]\n"
+                 + "  static func path(sessionId: String, cwd: String?) -> String? { paths[sessionId] } }\n"
+                 + open(os.path.join(REPO, "tests/titles.swift")).read())
+    _r = subprocess.run(["swift", _f], capture_output=True, text=True, timeout=300)
+    if not _r.stdout.strip():   # an empty stdout is a compile that died on a loaded machine
+        _r = subprocess.run(["swift", _f], capture_output=True, text=True, timeout=300)
+    check("a renamed Claude session shows its new name, generated title otherwise",
+          _r.stdout.strip() == "ok", (_r.stdout + _r.stderr).strip()[:400])
+
 print("\n=== 31. code-review fixes ===")
 _ag = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
 _cv = open(os.path.join(REPO, "Sources/AgentIsland/ConsoleView.swift")).read()
