@@ -20,16 +20,16 @@ cask "agent-island" do
 
   app "AgentIsland.app"
 
-  # Runs from the bundle before brew removes it, so agents stop calling hooks that are gone. brew
-  # also runs this on reinstall/--greedy upgrade; Settings > "What each agent can do" re-adds them.
-  uninstall quit:   "io.github.tiwari1999.agentisland",
-            script: {
-              executable:   "/usr/bin/python3",
-              args:         ["#{appdir}/AgentIsland.app/Contents/Resources/uninstall-hooks.py"],
-              must_succeed: false,
-            }
+  # Hooks stay on uninstall: brew runs this on every reinstall and --greedy upgrade too, and with
+  # no island running each hook exits at once. --zap is the one that unregisters them.
+  uninstall quit: "io.github.tiwari1999.agentisland"
 
-  zap trash: [
+  zap script: {
+        executable:   "/usr/bin/python3",
+        args:         [File.expand_path("~/Library/Application Support/AgentIsland/uninstall-hooks.py")],
+        must_succeed: false,
+      },
+      trash:  [
     "~/Library/Application Support/AgentIsland",
     "~/Library/Caches/io.github.tiwari1999.agentisland",
     "~/Library/HTTPStorages/io.github.tiwari1999.agentisland",

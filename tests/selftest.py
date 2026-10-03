@@ -3880,6 +3880,14 @@ check("release.sh refuses the placeholder Sparkle key before building",
       _up_rel.returncode == 1 and "still holds the placeholder" in _up_rel.stdout)
 # release.sh fills the cask by line pattern; a reformatted cask would silently keep a stale sha.
 _up_cask = open(os.path.join(REPO, "packaging/homebrew/Casks/agent-island.rb")).read()
+# brew runs `uninstall` on every reinstall and --greedy upgrade, so hooks may only go on --zap,
+# from a copy staged outside the app, since the bundle is already gone by then.
+_ih = open(os.path.join(REPO, "scripts/install-hooks.py")).read()
+_un_at, _zap_at = _up_cask.find("\n  uninstall "), _up_cask.find("\n  zap ")
+check("upgrading keeps the hooks; only --zap unregisters them",
+      0 < _un_at < _zap_at and "uninstall-hooks" not in _up_cask[_un_at:_zap_at]
+      and "Application Support/AgentIsland/uninstall-hooks.py" in _up_cask[_zap_at:]
+      and '"uninstall-hooks.py")' in _ih and "os.path.dirname(STAGE)" in _ih)
 check("the cask has the exact lines release.sh rewrites",
       len(re.findall(r'(?m)^  version ".*"$', _up_cask)) == 1
       and len(re.findall(r'(?m)^  sha256 ".*"$', _up_cask)) == 1)
