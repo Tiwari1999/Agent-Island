@@ -9,7 +9,7 @@ Claude Code · Codex · Cursor · Gemini CLI · OpenCode — one panel, at a gla
 [![Platform](https://img.shields.io/badge/macOS-14%2B-000000?style=flat-square&logo=apple&logoColor=white)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-6.0-F05138?style=flat-square&logo=swift&logoColor=white)](https://swift.org)
 [![No Xcode](https://img.shields.io/badge/Xcode-not%20required-4BC51D?style=flat-square)](https://www.swift.org/getting-started/)
-[![Tests](https://img.shields.io/badge/self--tests-411-4BC51D?style=flat-square)](tests/selftest.py)
+[![Tests](https://img.shields.io/badge/self--tests-950%2B-4BC51D?style=flat-square)](tests/selftest.py)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue?style=flat-square)](#-licence)
 
 </div>
@@ -68,7 +68,7 @@ Agent Island puts the answer where your eyes already are.
 
 ## 🧭 The precise jump
 
-The interesting part. 👇 (Warp is the neat case; iTerm2, Terminal.app, kitty and WezTerm work too — the table below.)
+The interesting part. 👇 (Warp is the neat case; iTerm2, Terminal.app, kitty, WezTerm, tmux, VS Code, Cursor and Ghostty work too: see the table below.)
 
 Other notch apps resolve Warp tabs by reading `warp.sqlite` and driving a **keystroke loop**, because the `warp://action/*` scheme is a closed whitelist that rejects focus intents. That approach can't tell apart tabs that share a working directory — so if all your agents live in one monorepo, it lands on the wrong one. Agent Island reads nothing from Warp's database: the session handle comes from the agent process's own environment, so there is no permission to grant and nothing to break when the schema changes.
 
@@ -96,6 +96,8 @@ The same idea generalises: the handle for *every* terminal comes from the agent 
 | Terminal.app | the process's controlling **tty** (read by syscall) | AppleScript select the tab whose `tty` matches | Automation, asked once |
 | kitty | `KITTY_WINDOW_ID` | `kitty @ focus-window --match id:N` | none — but kitty needs `allow_remote_control yes` in `kitty.conf` |
 | WezTerm | `WEZTERM_PANE` | `wezterm cli activate-pane --pane-id N` | none, if the `wezterm` CLI is on `PATH` |
+| VS Code / Cursor | the agent's shell **pid** (VS Code exposes no tab id in the env) | a bundled extension's URI handler shows the terminal whose `processId` matches | the editor asks once to let the extension open the URI |
+| Ghostty | the controlling **tty** | AppleScript `focus` on the terminal whose `tty` matches, only on builds that expose `tty` (newer than 1.3) | Automation, asked once |
 
 The two subtle bugs worth calling out, because they read as "the jump is broken": iTerm2's env handle carries a `wNtNpN:` pane prefix its scripting id does **not**, so a whole-string match never hit — the fix matches on the UUID. And Terminal.app's `TERM_SESSION_ID` is a UUID it never surfaces in AppleScript, so the only usable handle is the controlling tty, read from the process by syscall. Both are covered by `tests/terminals-e2e.py`, which opens two real sessions per terminal and proves the jump lands on the intended one, not its neighbour.
 
@@ -119,28 +121,8 @@ accident.
 
 ## 📦 Install
 
-**From a release**, either way (macOS 14 Sonoma or later):
-
-```bash
-brew install --cask tiwari1999/tap/agent-island
-```
-
-or download `AgentIsland-<version>.dmg` from
-[GitHub Releases](https://github.com/Tiwari1999/Agent-Island/releases) and drag it to Applications.
-Then, the first time only, **right-click it and choose Open**, and Open again.
-
-That step is not optional and not a mistake, and Homebrew does not skip it: these builds are not
-notarized by Apple yet, so a double-click gives *"cannot be opened because the developer cannot be verified"*.
-Right-click → Open is macOS's own way of saying you trust it, and it is only needed the first
-time. There is no `xattr` command to run and you should be suspicious of any project that gives
-you one.
-
-After that the app keeps itself current: it checks `agentisland.in` at most once a day and asks
-before installing anything. Settings → *Check for updates* turns that off or checks now, and so
-does *Check for Updates…* on the menu-bar icon's right-click menu. `brew uninstall --cask agent-island` also removes the hooks;
-add `--zap` to clear preferences too.
-
-**From source:**
+macOS 14+, Apple silicon or Intel. **No Xcode**: Apple's Command Line Tools are enough
+(`xcode-select --install`).
 
 ```bash
 git clone https://github.com/Tiwari1999/Agent-Island.git
@@ -148,30 +130,25 @@ cd Agent-Island
 ./install.sh
 ```
 
-`install.sh` builds a release binary, assembles `~/Applications/AgentIsland.app`, registers the hooks, and launches it.
-`scripts/make-dmg.sh` builds the disk image from the same bundle script, so what you download is
-what a build here produces. Release steps and the notarization path: [`docs/RELEASE.md`](docs/RELEASE.md).
+`install.sh` builds the app into `~/Applications/AgentIsland.app`, registers hooks for every agent
+it finds, and launches it. Run it again after `git pull` to update; it only changes what is out of
+date.
 
-On first launch the panel opens on a short welcome: where it reads from, what it can do for the
-agents you actually have, and one click each for hooks and notifications. Settings brings it back.
+`brew install --cask tiwari1999/tap/agent-island` and a DMG download arrive with the first
+GitHub release (v0.5.0), and those builds update themselves once a day.
 
-macOS asks once for **notification permission** on first launch. That is all monitoring needs —
-no Screen Recording, no Full Disk Access, and **no Accessibility for any jump**. The one extra
-prompt is on your first **jump into iTerm2 or Terminal**: macOS asks to let Agent Island *control*
-that app, because their focus APIs are AppleScript. Warp, kitty and WezTerm need no permission at
-all — a URL open and a control CLI.
-
-Accessibility is asked for in exactly one place, once, and only if you use it: **replying from the
-notch to a session that is sitting idle**, with no hook waiting to take the answer. There the text
-has to be typed into the terminal, which is a synthetic ⌘V. Decline it and nothing breaks — the
-reply is copied to the clipboard and the island says `copied — ⌘V there`.
+**Full guide:** [`docs/INSTALL.md`](docs/INSTALL.md) covers first-launch permissions, what changes
+for each agent, exact-tab jumps in VS Code, Cursor and Ghostty, updating, uninstalling and
+troubleshooting.
 
 <details>
 <summary>🧹 What it touches, and how to undo it</summary>
 
-It appends hook entries to `~/.claude/settings.json` and, where present, `~/.codex/hooks.json` and
-`~/.cursor/hooks.json` — timestamped backup first, other tools' entries never rewritten or
-reordered. If you already have a `statusLine`, it is saved and run inside ours rather than replaced.
+It appends hook entries to `~/.claude/settings.json` and, where present, `~/.codex/hooks.json`,
+`~/.cursor/hooks.json` and `~/.gemini/settings.json`; drops one plugin file into
+`~/.config/opencode/plugins/`; and installs a small terminal-focus extension into VS Code and
+Cursor. It takes a timestamped backup of each file first and never rewrites or reorders other
+tools' entries. An existing `statusLine` is saved and run inside ours rather than replaced.
 
 ```bash
 python3 scripts/uninstall-hooks.py     # removes only our entries, restores your statusLine
@@ -179,21 +156,11 @@ rm -rf ~/Applications/AgentIsland.app
 ```
 </details>
 
-<details>
-<summary>🔧 Build only, without installing</summary>
-
-```bash
-swift build -c release
-```
-
-Xcode is **not** required — Command Line Tools are enough.
-</details>
-
 ### Requirements
 
 - 🍎 macOS 14+
 - 🤖 At least one of Claude Code, Codex, Cursor, Gemini CLI or OpenCode — whichever are installed are picked up automatically
-- 🖥️ A supported terminal for the **precise jump** — Warp, iTerm2, Terminal.app, kitty or WezTerm (everything else works without one). Other terminals raise the app; the row says when a jump can't be precise
+- 🖥️ For the **precise jump**: Warp, iTerm2, Terminal.app, kitty, WezTerm, tmux, or a VS Code / Cursor terminal (Ghostty on builds newer than 1.3). Anywhere else the jump brings the app forward, and the row says why
 
 ### What each agent supports
 
@@ -282,7 +249,7 @@ OpenCode ──opencode.db──┘
 Two design rules earned the hard way:
 
 - 🪟 **The window is created once at maximum size and never resized.** The window server can't interpolate content across a live resize, so every bit of motion happens inside SwiftUI.
-- 🖱️ **Hover uses an `NSTrackingArea`, never polling.** A 32pt strip is crossed in under 40 ms — faster than any practical poll interval, so polling misses it more often than it catches it.
+- 🖱️ **Hover is an 80 ms poll of the pointer, not a window.** A tracking-area window over the notch swallowed clicks meant for the menu bar and fullscreen tab strips, and a global event monitor never saw the crossings. Missing a fast pass-through is the point: that is someone on their way to the menu bar.
 
 ## 🧪 Tests
 
@@ -290,11 +257,11 @@ Two design rules earned the hard way:
 python3 tests/selftest.py
 ```
 
-850+ checks: jump resolution against live Warp tabs, the per-terminal jump handles (iTerm2's UUID-after-prefix and Terminal.app's tty, with a full round-trip in `tests/terminals-e2e.py`), every hook contract (including that each failure path exits without blocking), the full question flow (free-text answers crossing the same validation as labels, state surviving a close/reopen, the sliding grace, no answer sent until submit), auto-approve decisions, panel geometry, the staleness window, and that the panel holds only real sessions — every vendor present on disk reaches it, no row is labelled with a bare session id, and no test data survives.
+950+ checks: jump resolution against live Warp tabs, the per-terminal jump handles (iTerm2's UUID-after-prefix and Terminal.app's tty, with a full round-trip in `tests/terminals-e2e.py`), every hook contract (including that each failure path exits without blocking), the full question flow (free-text answers crossing the same validation as labels, state surviving a close/reopen, the sliding grace, no answer sent until submit), auto-approve decisions, panel geometry, the staleness window, and that the panel holds only real sessions — every vendor present on disk reaches it, no row is labelled with a bare session id, and no test data survives.
 
 ## 📄 Licence
 
-MIT
+MIT, see [`LICENSE`](LICENSE).
 
 <div align="center">
 <sub>Built for people running more agents than they have eyes. 👀</sub>
