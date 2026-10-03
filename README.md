@@ -4,7 +4,7 @@
 
 **Your MacBook notch, turned into mission control for every coding agent you run.**
 
-Claude Code · Codex · Cursor — one panel, at a glance · jump to the exact terminal tab · approve and answer without leaving the notch
+Claude Code · Codex · Cursor · Gemini CLI · OpenCode — one panel, at a glance · jump to the exact terminal tab · approve and answer without leaving the notch
 
 [![Platform](https://img.shields.io/badge/macOS-14%2B-000000?style=flat-square&logo=apple&logoColor=white)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-6.0-F05138?style=flat-square&logo=swift&logoColor=white)](https://swift.org)
@@ -40,7 +40,7 @@ Agent Island puts the answer where your eyes already are.
 ### 👀 See
 | | |
 |---|---|
-| 🧩 **Every agent** | Claude Code, Codex and Cursor in one list, each labelled with its own vendor |
+| 🧩 **Every agent** | Claude Code, Codex, Cursor, Gemini CLI and OpenCode in one list, each labelled with its own vendor |
 | 📋 **Live sessions** | Title, project, model, terminal and the tool call happening right now |
 | 🎯 **Task progress** | `4/9` with the current step, from Claude's own task list |
 | 🧠 **Context pressure** | A per-session ring — compact *before* the cliff, not after |
@@ -192,7 +192,7 @@ Xcode is **not** required — Command Line Tools are enough.
 ### Requirements
 
 - 🍎 macOS 14+
-- 🤖 At least one of Claude Code, Codex or Cursor — whichever are installed are picked up automatically
+- 🤖 At least one of Claude Code, Codex, Cursor, Gemini CLI or OpenCode — whichever are installed are picked up automatically
 - 🖥️ A supported terminal for the **precise jump** — Warp, iTerm2, Terminal.app, kitty or WezTerm (everything else works without one). Other terminals raise the app; the row says when a jump can't be precise
 
 ### What each agent supports
@@ -200,29 +200,35 @@ Xcode is **not** required — Command Line Tools are enough.
 Measured, not assumed. A capability an agent does not expose is labelled on the row rather than
 left blank, so an unsupported feature never reads as a broken one.
 
-| | Claude Code | Codex | Cursor |
-|---|---|---|---|
-| Session list | ✅ | ✅ | ✅ |
-| Live tool activity | ✅ | ✅ | ✅ |
-| Approve from the notch | ✅ | — | — |
-| Answer questions from the notch | ✅ | — | — |
-| Context pressure | ✅ | ✅ | — |
-| Limit windows | ✅ | ✅ | — |
-| Burn rate and projection | ✅ | — | — |
-| Task progress | ✅ | — | — |
-| Precise jump | ✅ | ✅ | ✅ |
-| Resume when stopped | ✅ | ✅ | ✅ |
+| | Claude Code | Codex | Cursor | Gemini CLI | OpenCode |
+|---|---|---|---|---|---|
+| Session list | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Live tool activity | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Approve from the notch | ✅ | — | — | — | ✅ |
+| Answer questions from the notch | ✅ | — | — | — | — |
+| Context pressure | ✅ | ✅ | — | ✅ | — |
+| Limit windows | ✅ | ✅ | — | — | — |
+| Burn rate and projection | ✅ | — | — | — | — |
+| Task progress | ✅ | — | — | — | — |
+| Precise jump | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Resume when stopped | ✅ | ✅ | ✅ | ✅ | ✅ |
 
-Approvals and questions need an agent that asks permission through a hook before it acts. Only
-Claude Code publishes one (`PermissionRequest`, `AskUserQuestion`); Codex and Cursor expose
-lifecycle and tool events but nothing to answer, so those rows are dashes rather than promises.
-Everything else — the list, live activity, jump, resume — works the same for all three.
+Approvals and questions need an agent that asks permission through a hook before it acts, and
+accepts an answer back. Claude Code publishes one (`PermissionRequest`, `AskUserQuestion`).
+OpenCode has no such hook (`permission.ask` is declared but never called), but its plugin sees
+`permission.asked` and can reply through OpenCode's own server, so its asks get a card too —
+not filtered by the auto-approve rules, and its terminal prompt stays up in parallel. Gemini
+CLI's `BeforeTool` hook can deny but never grant, and Codex and Cursor expose nothing to answer,
+so those rows are dashes rather than promises. A Gemini permission prompt still marks its row
+as waiting on you (its `Notification` hook). Gemini and OpenCode keep no limits on disk.
 
 ## 🪝 Hooks
 
 Agent Island listens to each agent's hook events. Claude Code and Codex share a `hooks.json`
 schema; Cursor uses its own event names, which are folded onto one vocabulary internally so a
-`Bash` rule also governs a `Shell` call.
+`Bash` rule also governs a `Shell` call. Gemini CLI takes the same shape in
+`~/.gemini/settings.json` under its own names (`BeforeTool`, `AfterAgent`, …). OpenCode has no
+hooks file: the installer drops `agentisland-opencode.js` into `~/.config/opencode/plugins/`.
 
 | Hook | Powers |
 |---|---|
@@ -258,13 +264,17 @@ The `statusLine` wrapper runs your **existing** statusline unchanged inside it, 
 
 ```
 Claude Code ─hooks──┐
-Codex       ─hooks──┼───> /tmp/agentisland-events.jsonl ──tail──> HookStream
-Cursor      ─hooks──┘
+Codex       ─hooks──┤
+Cursor      ─hooks──┼───> /tmp/agentisland-events.jsonl ──tail──> HookStream
+Gemini CLI  ─hooks──┤
+OpenCode    ─plugin─┘
 
 Claude Code ──statusLine──> /tmp/agentisland-status/<id>.json ───> StatusStore
 Claude ──agents --json──┐
 Codex  ──rollout files──┼──────────────────────────────────────> AgentStore
-Cursor ──chats/meta.json┘
+Cursor ──chats/meta.json┤
+Gemini ──tmp/*/chats────┤
+OpenCode ──opencode.db──┘
                                                                             │
                                        approvals / answers <──decision file─┘
 ```

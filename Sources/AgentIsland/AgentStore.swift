@@ -146,13 +146,15 @@ struct AgentRow: Identifiable {
         if waiting || dormantBlocked { return .waiting }
         guard isWorking else { return .idle }
         switch tool {
-        case "Edit", "Write", "NotebookEdit", "MultiEdit", "str_replace_editor":
+        case "Edit", "Write", "NotebookEdit", "MultiEdit", "str_replace_editor",
+             "write_file", "replace":
             return .writing
         case "Bash", "Shell", "run_terminal_cmd", "BashOutput":
             return .running
-        case "Read", "Grep", "Glob", "LS", "read_file", "list_dir", "codebase_search":
+        case "Read", "Grep", "Glob", "LS", "read_file", "list_dir", "codebase_search",
+             "glob", "grep_search", "list_directory", "read_many_files":
             return .reading
-        case "WebFetch", "WebSearch", "web_search":
+        case "WebFetch", "WebSearch", "web_search", "google_web_search", "web_fetch":
             return .searching
         case "Task", "Agent":
             return .delegating
@@ -257,6 +259,7 @@ final class AgentStore: ObservableObject {
         watcher = SourceWatcher(paths: [
             home + "/.claude/projects", home + "/.claude/jobs",
             home + "/.codex/sessions", home + "/.cursor/chats",
+            home + "/.gemini/tmp", home + "/.local/share/opencode",
         ]) { [weak self] in
             Task { @MainActor in self?.refresh() }
         }
@@ -412,7 +415,8 @@ final class AgentStore: ObservableObject {
 
     /// Every vendor present on the machine. Absent tools cost nothing — `isAvailable` is a
     /// file check — so this list can grow without a settings switch.
-    private let sources: [AgentSource] = [ClaudeSource(), CodexSource(), CursorSource(), RemoteSource()]
+    private let sources: [AgentSource] = [ClaudeSource(), CodexSource(), CursorSource(),
+                                          GeminiSource(), OpenCodeSource(), RemoteSource()]
 
     /// Discovery mutates each vendor's static caches, so exactly one may be in flight. This also
     /// stops polls from stacking up behind a slow one — the shape that made a single wedged

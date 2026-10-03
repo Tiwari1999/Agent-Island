@@ -145,12 +145,25 @@ struct AgentIslandApp {
             }
             exit(agents.isEmpty ? 1 : 0)
         }
+        // One vendor's rows as the panel would get them, so a fixture HOME can be asserted on.
+        if let i = CommandLine.arguments.firstIndex(of: "--discover"),
+           let v = CommandLine.arguments.dropFirst(i + 1).first.flatMap(Vendor.init) {
+            let all: [AgentSource] = [ClaudeSource(), CodexSource(), CursorSource(),
+                                      GeminiSource(), OpenCodeSource()]
+            for a in all.filter({ $0.vendor == v && $0.isAvailable }).flatMap({ $0.discover() }) {
+                print("\(a.sessionId) | state=\(a.state ?? "-") | name=\(a.name ?? "-") "
+                      + "| title=\(a.titleOverride ?? "-") | prompt=\(a.promptOverride ?? "-") "
+                      + "| cwd=\(a.cwd ?? "-") | ctx=\(a.contextPctOverride.map(String.init) ?? "-") "
+                      + "| pid=\(a.pid.map(String.init) ?? "-")")
+            }
+            exit(0)
+        }
         // Discovery only, against whatever HOME points at, so a synthetic fleet can be measured
         // without a window and without touching the real panel.
         if let i = CommandLine.arguments.firstIndex(of: "--benchmark-discovery") {
             let runs = CommandLine.arguments.dropFirst(i + 1).first.flatMap(Int.init) ?? 3
             let sources: [AgentSource] = [ClaudeSource(), CodexSource(), CursorSource(),
-                                          RemoteSource()]
+                                          GeminiSource(), OpenCodeSource(), RemoteSource()]
             for run in 1...runs {
                 var line = "run \(run):"
                 var total = 0.0

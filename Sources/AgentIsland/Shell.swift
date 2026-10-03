@@ -13,6 +13,8 @@ enum Shell {
     static let claude = resolve("claude", extra: [NSHomeDirectory() + "/.claude/local/claude"])
     static let codex = resolve("codex")
     static let cursorAgent = resolve("cursor-agent")
+    static let gemini = resolve("gemini")
+    static let opencode = resolve("opencode", extra: [NSHomeDirectory() + "/.opencode/bin/opencode"])
 
     /// Process creation is the dominant energy cost in a poller, so it is counted rather than
     /// guessed at: the panel is meant to sit in the notch all day.

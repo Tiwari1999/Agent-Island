@@ -4,13 +4,15 @@ import Foundation
 /// session state somewhere different — but once discovered they are all just a pid in a terminal,
 /// which is why jump and host detection stay vendor-agnostic.
 enum Vendor: String {
-    case claude, codex, cursor
+    case claude, codex, cursor, gemini, opencode
 
     var label: String {
         switch self {
-        case .claude: return "Claude"
-        case .codex:  return "Codex"
-        case .cursor: return "Cursor"
+        case .claude:   return "Claude"
+        case .codex:    return "Codex"
+        case .cursor:   return "Cursor"
+        case .gemini:   return "Gemini"
+        case .opencode: return "OpenCode"
         }
     }
 }
@@ -123,6 +125,9 @@ enum PromptCheck {
             (["hook_event_name": "PreToolUse", "tool_name": "Read",
               "tool_input": ["file_path": "/a/b/Views.swift"]],
              "Read Views.swift", "claude read"),
+            (["hook_event_name": "BeforeTool", "tool_name": "run_shell_command",
+              "tool_input": ["command": "npm test", "dir_path": "."]],
+             "npm test", "gemini shell tool: the command, not the tool's name"),
         ]
         // The model's own summary beats the raw parameters: three identical `python3 - <<'PY'`
         // lines are indistinguishable in a notch, three descriptions are not.
@@ -231,7 +236,15 @@ enum PromptCheck {
             (row(nil), .thinking, "between tool calls"),
             (row("Bash", waiting: true), .waiting, "waiting outranks any tool"),
             (row("Bash", working: false), .idle, "not working is idle"),
+            (row("replace"), .writing, "gemini editing a file"),
         ]
+        // Gemini's hook names, which fell through to "something happened" before.
+        let canon = [("BeforeTool", "PreToolUse"), ("AfterTool", "PostToolUse"),
+                     ("BeforeAgent", "UserPromptSubmit"), ("AfterAgent", "Stop")]
+        for (raw, want) in canon where HookStream.canonical(raw) != want {
+            failed += 1
+            FileHandle.standardError.write("FAIL canonical \(raw)\n".data(using: .utf8)!)
+        }
         for (r, want, why) in kinds where r.workKind != want {
             failed += 1
             FileHandle.standardError.write(
@@ -481,6 +494,7 @@ enum PromptCheck {
             }
         }
         let total = cases.count + hooks.count + kinds.count + working.count + interruptCases + 12
+            + canon.count
         let passed = total - failed
         print("pure-logic checks: \(passed)/\(total) cases")
         return failed == 0 ? 0 : 1

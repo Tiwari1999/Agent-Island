@@ -700,8 +700,8 @@ check("so the bar prints no percentage at all",
 check("the primary agent is chosen by how many rows are its own",
       "counts[r.agent.vendor, default: 0] += 1" in
       open(os.path.join(REPO,"Sources/AgentIsland/AgentStore.swift")).read())
-check("cursor is not given a limit it does not publish",
-      "case .cursor: return Quota()" in vw4 and "publishes no limits" in vw4)
+check("cursor, gemini and opencode are not given a limit they do not publish",
+      "case .cursor, .gemini, .opencode: return Quota()" in vw4 and "publishes no limits" in vw4)
 
 print("\n=== 9l. one click, and sessions that argv cannot name ===")
 isl5=open(os.path.join(REPO,"Sources/AgentIsland/Island.swift")).read()
@@ -3333,7 +3333,7 @@ check("the README asks for right-click Open, never an xattr command",
 
 # The README once promised approvals for all three vendors while one publishes the hook.
 check("what each agent can do is stated in one place",
-      "static func approvals(_ v: Vendor) -> Bool { v == .claude }" in _lr_cap
+      "static func approvals(_ v: Vendor) -> Bool { v == .claude || v == .opencode }" in _lr_cap
       and "static var present: [Vendor]" in _lr_cap)
 check("and the first run says it for the agents actually on the machine",
       "Capability.summary(v)" in open(os.path.join(REPO, "Sources/AgentIsland/Welcome.swift")).read())
@@ -3484,7 +3484,8 @@ check("the capability table does not promise approvals nobody can give",
       "| Approve from the notch | ✅ | — | — |" in _r2_rm
       and "only Claude Code publishes a permission hook today" in _r2_rm)
 check("and hooksInstalled asks about the agents the user actually has",
-      '["/.claude/settings.json", "/.codex/hooks.json", "/.cursor/hooks.json"]' in _r2_st)
+      '["/.claude/settings.json", "/.codex/hooks.json", "/.cursor/hooks.json",' in _r2_st
+      and '"/.gemini/settings.json"]' in _r2_st)
 
 # The bare word would take a third-party hook living under a path that merely contains it.
 check("install and uninstall recognise our own scripts, not a bare word",
@@ -3891,6 +3892,185 @@ check("upgrading keeps the hooks; only --zap unregisters them",
 check("the cask has the exact lines release.sh rewrites",
       len(re.findall(r'(?m)^  version ".*"$', _up_cask)) == 1
       and len(re.findall(r'(?m)^  sha256 ".*"$', _up_cask)) == 1)
+
+print("\n=== 81. gemini and opencode, from the files they really write ===")
+# Fixtures mirror gemini-cli-core 0.62 chatRecordingService.js and opencode 1.18 session/sql.ts;
+# real node "gemini"/"opencode" processes sit in their directories, so liveness runs for real.
+import sqlite3 as _sq
+_gofx = tempfile.mkdtemp(prefix="ai-gofx-")
+_gwork = os.path.realpath(f"{_gofx}/work-gemini"); os.makedirs(_gwork)
+_owork = os.path.realpath(f"{_gofx}/work-opencode"); os.makedirs(_owork)
+_gp = f"{_gofx}/.gemini/tmp/work-gemini"
+os.makedirs(f"{_gp}/chats/aaaaaaaa-1111-2222-3333-444444444444")   # a subagent's own log dir
+open(f"{_gp}/.project_root","w").write(_gwork)
+def _jl(o): return json.dumps(o, separators=(",",":"))
+_gid = "aaaaaaaa-1111-2222-3333-444444444444"
+with open(f"{_gp}/chats/session-2026-10-03T10-00-aaaaaaaa.jsonl","w") as _h:
+    for _o in [
+        {"sessionId":_gid,"projectHash":"0"*64,"startTime":"2026-10-03T10:00:00.000Z",
+         "lastUpdated":"2026-10-03T10:00:00.000Z","kind":"main"},
+        # A custom command: content is the expanded prompt, displayContent what was typed.
+        {"id":"m1","timestamp":"2026-10-03T10:00:01.000Z","type":"user",
+         "content":[{"text":"You are reviewing code.\nFocus on the login test."}],
+         "displayContent":[{"text":"/review fix the flaky login test"}]},
+        {"$set":{"lastUpdated":"2026-10-03T10:00:01.000Z"}},
+        {"id":"m2","timestamp":"2026-10-03T10:00:02.000Z","type":"gemini","content":"Looking.",
+         "thoughts":[],"tokens":{"input":262144,"output":10,"cached":0,"thoughts":0,"tool":0,
+         "total":262154},"model":"gemini-2.5-pro"},
+        {"id":"m3","timestamp":"2026-10-03T10:00:03.000Z","type":"user",
+         "content":[{"text":"now run the suite"}]},
+        {"id":"m4","timestamp":"2026-10-03T10:00:04.000Z","type":"user",
+         "content":[{"functionResponse":{"id":"c1","name":"read_file","response":{"output":"y"}}}]},
+        {"$set":{"summary":"Fix flaky login test"}}]:
+        _h.write(_jl(_o)+"\n")
+# Opened and closed without a word: no prompt and no process, so no row.
+open(f"{_gp}/chats/session-2026-10-03T09-00-bbbbbbbb.jsonl","w").write(_jl(
+    {"sessionId":"bbbbbbbb-0000-0000-0000-000000000000","projectHash":"0"*64,
+     "startTime":"2026-10-03T09:00:00.000Z","lastUpdated":"2026-10-03T09:00:00.000Z","kind":"main"})+"\n")
+_old = time.time() - 3600
+os.utime(f"{_gp}/chats/session-2026-10-03T09-00-bbbbbbbb.jsonl", (_old, _old))
+open(f"{_gp}/chats/{_gid}/cccccccc.jsonl","w").write(_jl(
+    {"sessionId":"cccccccc","projectHash":"0"*64,"kind":"subagent"})+"\n")
+
+os.makedirs(f"{_gofx}/.local/share/opencode")
+_db = _sq.connect(f"{_gofx}/.local/share/opencode/opencode.db")
+_db.execute("PRAGMA journal_mode = WAL")
+_db.executescript("""
+CREATE TABLE session (id text PRIMARY KEY, project_id text NOT NULL, workspace_id text,
+  parent_id text, slug text NOT NULL, directory text NOT NULL, path text, title text NOT NULL,
+  version text NOT NULL, time_created integer NOT NULL, time_updated integer NOT NULL,
+  time_compacting integer, time_archived integer);
+CREATE TABLE message (id text PRIMARY KEY, session_id text NOT NULL, time_created integer NOT NULL,
+  time_updated integer NOT NULL, data text NOT NULL);
+CREATE TABLE part (id text PRIMARY KEY, message_id text NOT NULL, session_id text NOT NULL,
+  time_created integer NOT NULL, time_updated integer NOT NULL, data text NOT NULL);
+""")
+_now = int(time.time()*1000)
+def _ses(i, title, parent=None, archived=None, upd=_now):
+    _db.execute("INSERT INTO session VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (i,"prj",None,parent,"slug",_owork,None,title,"1.18.34",upd-5000,upd,None,archived))
+def _msg(i, s, t, data):
+    _db.execute("INSERT INTO message VALUES (?,?,?,?,?)", (i,s,t,t,_jl(data)))
+def _part(i, m, s, t, data):
+    _db.execute("INSERT INTO part VALUES (?,?,?,?,?,?)", (i,m,s,t,t,_jl(data)))
+_ses("ses_live", f"New session - 2026-10-03T10:00:00.000Z")
+_msg("msg_1","ses_live",_now-4000,{"role":"user","time":{"created":_now-4000},"agent":"build",
+     "model":{"providerID":"anthropic","modelID":"claude"}})
+_part("prt_1","msg_1","ses_live",_now-4000,{"type":"text","text":"add a retry to the uploader"})
+_msg("msg_2","ses_live",_now-3000,{"role":"user","time":{"created":_now-3000},"agent":"build",
+     "model":{"providerID":"anthropic","modelID":"claude"}})
+_part("prt_2","msg_2","ses_live",_now-3000,{"type":"text","text":"and log each attempt"})
+_part("prt_3","msg_2","ses_live",_now-2999,{"type":"text","text":"<system-reminder>x","synthetic":True})
+_msg("msg_3","ses_live",_now-2000,{"role":"assistant","time":{"created":_now-2000},"parentID":"msg_2",
+     "modelID":"claude","providerID":"anthropic","mode":"build","agent":"build",
+     "path":{"cwd":_owork,"root":_owork},"cost":0,
+     "tokens":{"input":1,"output":1,"reasoning":0,"cache":{"read":0,"write":0}}})
+_ses("ses_named", "Uploader retries", upd=_now-60000)
+_ses("ses_child", "Child session - x", parent="ses_live")
+_ses("ses_gone", "Archived", archived=_now)
+_db.commit()
+
+# A Node CLI that relaunches itself, as gemini does: two processes, one directory.
+_gjs = f"{_gofx}/bin/gemini"; os.makedirs(os.path.dirname(_gjs))
+open(_gjs,"w").write("const {spawn}=require('child_process');"
+    "if(!process.env.CHILD){spawn(process.execPath,[__filename],{env:{...process.env,CHILD:'1'},"
+    "stdio:'ignore'});}setTimeout(()=>{},120000);")
+# The npm opencode bin is a Node shim, so `node .../opencode` is a real way it runs.
+_oc = f"{_gofx}/bin/opencode"; open(_oc,"w").write("setTimeout(()=>{},120000);")
+_procs = [subprocess.Popen(["node", _gjs], cwd=_gwork),
+          subprocess.Popen(["node", _oc], cwd=_owork)]
+time.sleep(1.5)
+_kids = subprocess.run(["pgrep","-P",str(_procs[0].pid)],capture_output=True,text=True).stdout.split()
+def _disc(v):
+    r = subprocess.run([os.path.join(REPO,".build/release/AgentIsland"),"--discover",v],
+                       capture_output=True,text=True,timeout=60,env=dict(os.environ,AGENTISLAND_HOME=_gofx))
+    return {l.split(" | ")[0]: dict(kv.split("=",1) for kv in l.split(" | ")[1:])
+            for l in r.stdout.splitlines() if " | " in l}
+_g = _disc("gemini"); _o = _disc("opencode")
+_pr = subprocess.run([sys.executable, os.path.join(REPO, "hooks/remote-probe.py")], capture_output=True,
+                     text=True, timeout=60, env=dict(os.environ, AGENTISLAND_PROBE_ROOT=_gofx))
+try: _pv = {(r["vendor"], r["sessionId"]): r for r in json.loads(_pr.stdout)}
+except ValueError: _pv = {}
+for _p in _procs: _p.kill()
+for _k in _kids: subprocess.run(["kill",_k])
+_shutil.rmtree(_gofx, ignore_errors=True)
+_gr = _g.get(_gid, {})
+check("gemini: a chat log becomes a row under its own session id", set(_g) == {_gid}, str(sorted(_g)))
+check("gemini: the title is what was typed, not the expanded command",
+      _gr.get("title") == "/review fix the flaky login test", _gr.get("title",""))
+check("gemini: the last prompt skips tool results logged as user turns",
+      _gr.get("prompt") == "now run the suite", _gr.get("prompt",""))
+check("gemini: a /chat summary names the row", _gr.get("name") == "Fix flaky login test")
+check("gemini: context comes from the last turn's input tokens", _gr.get("ctx") == "25", _gr.get("ctx",""))
+check("gemini: the cwd is read from .project_root", _gr.get("cwd") == _gwork, _gr.get("cwd",""))
+check("gemini: the relaunched child, not its wrapper, is the session's process",
+      len(_kids) == 1 and _gr.get("pid") == _kids[0], f"{_gr.get('pid')} vs children {_kids}")
+check("gemini: a live process makes the row open", _gr.get("state") in ("busy","idle"), _gr.get("state",""))
+_or = _o.get("ses_live", {})
+check("opencode: archived and child sessions are not rows", set(_o) == {"ses_live","ses_named"}, str(sorted(_o)))
+check("opencode: the placeholder title is not a name", _or.get("name") == "-", _or.get("name",""))
+check("opencode: a real title is", _o.get("ses_named",{}).get("name") == "Uploader retries")
+check("opencode: first and last prompts, synthetic parts skipped",
+      _or.get("title") == "add a retry to the uploader" and _or.get("prompt") == "and log each attempt",
+      f"{_or.get('title')} / {_or.get('prompt')}")
+check("opencode: an assistant turn with no completion time is working",
+      _or.get("state") == "busy" and _or.get("pid") == str(_procs[1].pid), f"{_or.get('state')} pid={_or.get('pid')}")
+check("remote probe: gemini and opencode rows, titled and live",
+      _pv.get(("gemini", _gid), {}).get("title") == "/review fix the flaky login test"
+      and _pv.get(("gemini", _gid), {}).get("pid") is not None
+      and _pv.get(("opencode", "ses_named"), {}).get("title") == "Uploader retries"
+      and ("opencode", "ses_child") not in _pv, _pr.stderr.strip()[-200:] or str(sorted(_pv)))
+
+# The plugin, driven the way OpenCode drives it, answered by the island's own --decide.
+_pd = tempfile.mkdtemp(prefix="ai-ocplug-")
+_pp = subprocess.run(["node", os.path.join(REPO, "tests/opencode-plugin.mjs")], capture_output=True,
+                     text=True, timeout=60, env=dict(os.environ, AGENTISLAND_SPOOL=f"{_pd}/spool",
+                     AGENTISLAND_ALIVE=f"{_pd}/alive", AGENTISLAND_DECISIONS=f"{_pd}/dec",
+                     PLUGIN=os.path.join(REPO, "hooks/agentisland-opencode.js"),
+                     BIN=os.path.join(REPO, ".build/release/AgentIsland")))
+_shutil.rmtree(_pd, ignore_errors=True)
+try: _pj = json.loads(_pp.stdout)
+except ValueError: _pj = {"calls": [], "spool": []}
+_ev = [l.get("payload", {}).get("hook_event_name") for l in _pj["spool"]]
+_ap = [l for l in _pj["spool"] if "ap_request_id" in l]
+check("opencode plugin: busy, tool, ask and idle reach the spool in the island's vocabulary",
+      _ev == ["UserPromptSubmit", "PreToolUse", "Notification", "PermissionRequest", "Stop"],
+      str(_ev) + _pp.stderr[-200:])
+check("opencode plugin: a tool's filePath arrives as file_path",
+      _pj["spool"][1:2] and _pj["spool"][1]["payload"]["tool_input"].get("file_path") == "/w/a.ts")
+# HookStream unwraps an ai_ppid wrapper first, so a request id beside one is never seen.
+check("opencode plugin: the ask has the permission hook's exact shape",
+      len(_ap) == 1 and set(_ap[0]) == {"ap_request_id", "payload"}
+      and _ap[0]["payload"].get("tool_input") == {"command": "git push --force"})
+check("opencode plugin: allow in the notch replies 'once' to that permission",
+      _pj["calls"] == [{"path": {"id": "ses_1", "permissionID": "per_1"}, "body": {"response": "once"}}],
+      str(_pj["calls"]))
+
+# Installers, against a throwaway HOME seeded with another tool's Gemini hook.
+_ih = tempfile.mkdtemp(prefix="ai-gohome-")
+os.makedirs(f"{_ih}/.gemini"); os.makedirs(f"{_ih}/.config/opencode/plugins")
+_other = {"hooks": {"BeforeTool": [{"matcher": "exit_plan_mode",
+          "hooks": [{"type": "command", "command": "plannotator", "timeout": 345600}]}]},
+          "experimental": {"plan": True}}
+json.dump(_other, open(f"{_ih}/.gemini/settings.json", "w"))
+def _inst(script):
+    return subprocess.run([sys.executable, os.path.join(REPO, "scripts", script)], capture_output=True,
+                          text=True, timeout=60, env=dict(os.environ, HOME=_ih, AGENTISLAND_KEEP_RUNTIME="1"))
+_inst("install-hooks.py"); _i2 = _inst("install-hooks.py")
+_gs = json.load(open(f"{_ih}/.gemini/settings.json"))
+_ours = {ev for ev, es in _gs.get("hooks", {}).items() for e in es for h in e["hooks"]
+         if "agentisland-hook.sh" in h["command"]}
+_plug = f"{_ih}/.config/opencode/plugins/agentisland-opencode.js"
+check("install: gemini gets the hook on every event it maps, beside the other tool's",
+      _ours == {"SessionStart", "SessionEnd", "BeforeAgent", "AfterAgent", "BeforeTool", "AfterTool",
+                "Notification"} and "plannotator" in json.dumps(_gs), str(sorted(_ours)))
+check("install: opencode gets the plugin, and a second run changes nothing",
+      os.path.exists(_plug) and "Gemini CLI: already installed" in _i2.stdout
+      and "OpenCode: already installed" in _i2.stdout, _i2.stdout[-300:])
+_inst("uninstall-hooks.py")
+check("uninstall: both are gone and the other tool's config is exactly as it was",
+      json.load(open(f"{_ih}/.gemini/settings.json")) == _other and not os.path.exists(_plug))
+_shutil.rmtree(_ih, ignore_errors=True)
 
 print("\n=== 23. binary builds & launches ===")
 b=os.path.join(REPO,".build/debug/AgentIsland")

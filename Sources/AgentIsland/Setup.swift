@@ -27,7 +27,8 @@ enum Setup {
         // Not just "the word appears": a bundled install once registered fourteen entries
         // pointing at a directory that does not exist, and this said they were installed. A
         // hook that is not on disk is not installed, whatever the settings file claims.
-        let settings = ["/.claude/settings.json", "/.codex/hooks.json", "/.cursor/hooks.json"]
+        let settings = ["/.claude/settings.json", "/.codex/hooks.json", "/.cursor/hooks.json",
+                        "/.gemini/settings.json"]
         return settings.contains { file in
             guard let data = FileManager.default.contents(atPath: Home.path + file),
                   let text = String(data: data, encoding: .utf8) else { return false }

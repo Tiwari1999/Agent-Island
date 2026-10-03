@@ -21,7 +21,8 @@ MARK = "agentisland"
 # are these six files, wherever the repo happens to sit — so an install at an old path is still
 # recognised, and somebody else's tool is not.
 SCRIPTS = ("agentisland-hook.sh", "agentisland-permission.sh", "agentisland-rules.py",
-           "agentisland-question.py", "agentisland-input.py", "agentisland-status.sh")
+           "agentisland-question.py", "agentisland-input.py", "agentisland-status.sh",
+           "agentisland-opencode.js")
 
 
 def ours(obj):
@@ -124,6 +125,14 @@ def clean_cursor(path):
 
 
 clean_cursor(os.path.expanduser("~/.cursor/hooks.json"))
+clean("Gemini CLI", os.path.expanduser("~/.gemini/settings.json"))
+
+_oc = os.path.expanduser("~/.config/opencode/plugins/agentisland-opencode.js")
+if os.path.exists(_oc):
+    os.remove(_oc)
+    print("  OpenCode: removed the plugin")
+else:
+    print("  OpenCode: nothing of ours found")
 
 # The runtime files are shared, absolute paths — a sandboxed test uninstalling against its
 # own HOME must not wipe the spool the user's running app is built on.
