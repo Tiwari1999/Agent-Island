@@ -26,6 +26,8 @@ struct Agent: Identifiable {
     var contextPctOverride: Int?
     /// Set when this session lives on a machine reached over ssh.
     var remoteHost: String?
+    /// Discovery measured this session's activity itself; hooks may add the tool but not the state.
+    var exactState = false
 
 
     init(sessionId: String, name: String?, cwd: String?, state: String?, status: String?,
@@ -113,6 +115,7 @@ struct AgentRow: Identifiable {
     /// final Stop leaves its last event saying "active" — so a row with no live process is never
     /// working, whatever the spool remembers. Under-reporting beats claiming work that is over.
     var isWorking: Bool {
+        if agent.exactState { return agent.isWorking }   // Cursor over ACP never sends a stop hook
         guard agent.pid != nil || agent.remoteHost != nil else { return false }
         // Once hooks report for a session they are the authority, and a working agent emits one
         // every few seconds: a claim this old is a turn that ended without a final Stop, not
@@ -230,6 +233,7 @@ final class AgentStore: ObservableObject {
     let hooks = HookStream()
 
     private var timer: Timer?
+    private var settle: Task<Void, Never>?
     private var bag = Set<AnyCancellable>()
 
     var workingCount: Int { rows.filter { $0.isWorking }.count }
@@ -263,7 +267,7 @@ final class AgentStore: ObservableObject {
         let home = Home.path
         watcher = SourceWatcher(paths: [
             home + "/.claude/projects", home + "/.claude/jobs",
-            home + "/.codex/sessions", home + "/.cursor/chats",
+            home + "/.codex/sessions", home + "/.cursor/chats", home + "/.cursor/acp-sessions",
             home + "/.gemini/tmp", home + "/.local/share/opencode",
         ]) { [weak self] in
             Task { @MainActor in self?.refresh() }
@@ -554,6 +558,14 @@ final class AgentStore: ObservableObject {
                 self.rows = self.applyOrder(built)
                 self.freezeOrderIfNeeded()
                 self.refreshing = false
+                // Nothing announces the end of an ACP turn: look again once its write window has lapsed.
+                self.settle?.cancel()
+                if self.rows.contains(where: { $0.agent.exactState && $0.agent.isWorking }) {
+                    self.settle = Task { @MainActor [weak self] in
+                        try? await Task.sleep(for: .seconds(9))
+                        if !Task.isCancelled { self?.refresh() }
+                    }
+                }
                 self.hooks.prune(before: Date().addingTimeInterval(-3600))
                 if self.workingCount == 0 { self.refreshCosts(minInterval: 300) }
                 Self.publishManifest(self.rows)
