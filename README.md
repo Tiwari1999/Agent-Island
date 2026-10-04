@@ -57,7 +57,7 @@ Agent Island puts the answer where your eyes already are.
 ### 👀 See
 | | |
 |---|---|
-| 🧩 **Every agent** | Claude Code, Codex, Cursor, Gemini CLI and OpenCode in one list, each labelled with its own vendor |
+| 🧩 **Every agent** | Claude Code, Codex, Cursor, Gemini CLI and OpenCode in one list, each labelled with its own vendor, including Claude sessions you run from [MonoCode](https://github.com/hardbeat920/monocode) |
 | 📋 **Live sessions** | Title, project, model, terminal and the tool call happening right now |
 | 🎯 **Task progress** | `4/9` with the current step, from Claude's own task list |
 | 🧠 **Context pressure** | A per-session ring — compact *before* the cliff, not after |

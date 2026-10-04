@@ -39,4 +39,16 @@ check("keeps a session that has not said yet", !Q.isHeadless(path: transcript("u
 _ = transcript("u", "sdk-cli")
 check("decides later when the entrypoint appears", Q.isHeadless(path: dir.appendingPathComponent("u.jsonl").path, id: "u"))
 
+// A stream-json session (MonoCode) opens with queue lines too; only a file of nothing else is a queue file.
+let q = "{\"type\":\"queue-operation\",\"operation\":\"enqueue\",\"content\":\"hi\"}\n"
+func file(_ n: String, _ s: String) -> String {
+    let p = dir.appendingPathComponent(n).path; try? s.write(toFile: p, atomically: true, encoding: .utf8); return p
+}
+check("a file of queue lines alone is a queue file", Q.onlyQueueLines(path: file("q.jsonl", q + q)))
+check("queue lines then a conversation are a session",
+      !Q.onlyQueueLines(path: file("m.jsonl", q + q + "{\"parentUuid\":null}\n")))
+// The first conversation line carries every tool schema, ~10 KB: a cut-off read must not hide it.
+check("a conversation line past the read window still counts",
+      !Q.onlyQueueLines(path: file("l.jsonl", q + "{\"parentUuid\":null,\"pad\":\"" + String(repeating: "a", count: 9000) + "\"}\n")))
+
 print(fails == 0 ? "ok" : "\(fails) failed")

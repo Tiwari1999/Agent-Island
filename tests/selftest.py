@@ -2585,6 +2585,17 @@ if _m_dbp and _m_hl and _m_tl:
 # Background agents the user started are kept even if they record an SDK entrypoint.
 check("a background job is never filtered as headless",
       "if jobs[id] == nil, Self.isHeadless(path: path, id: id) { continue }" in _cls)
+# MonoCode runs claude headless (entrypoint sdk-cli) and queues every prompt, so 0.5.0 hid all its
+# sessions twice over. Its agents carry MONOCODE_HARNESS_PARENT; repro'd against a live session.
+_pe = open(os.path.join(REPO, "Sources/AgentIsland/ProcEnv.swift")).read()
+check("a MonoCode-driven claude is known by its env marker and bound by its --session-id",
+      'i.uiDriven = ae.env["MONOCODE_HARNESS_PARENT"] != nil' in _pe
+      and 'a == "--resume" || a == "-r" || a == "--session-id"' in _pe)
+_mono = "for (sid, pid) in bySession where ProcEnv.info(pid: pid).uiDriven { Self.headless[sid] = false }"
+check("and its sessions are exempted before the headless filter runs",
+      _mono in _cls and _cls.index(_mono) < _cls.index("Self.isHeadless(path: path, id: id) { continue }"))
+check("a transcript is a queue file only when queue lines are all it holds",
+      "Self.onlyQueueLines(path: path)" in _cls)
 
 # A menu-bar app has no Edit menu, so ⌘V never reached the question's free-text field. RUN: the
 # real Panel.editAction is lifted and every shortcut checked, plus the chords it must not take.

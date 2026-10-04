@@ -306,6 +306,14 @@ struct ClaudeSource: AgentSource {
     /// `claude -p` runs (Agent SDK, other tools' helpers, our own Explain) write transcripts too.
     /// The entrypoint never changes, so it is read once per session and the answer kept.
     private static var headless: [String: Bool] = [:]
+    /// A stream-json session (MonoCode) also opens with queue lines, so a queue file is one with nothing else.
+    static func onlyQueueLines(path: String) -> Bool {
+        let size = (try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? Int ?? .max
+        guard size < 8192 else { return false }   // read whole, so no cut line hides a conversation
+        return Tail.head(path: path, bytes: 8192).split(whereSeparator: \.isNewline)
+            .allSatisfy { $0.contains("\"type\":\"queue-operation\"") }
+    }
+
     static func isHeadless(path: String, id: String) -> Bool {
         if let known = headless[id] { return known }
         // The first entrypoint sits after the opening metadata lines, ~11 KB in on real files.
@@ -337,26 +345,6 @@ struct ClaudeSource: AgentSource {
                             at: (o["updatedAt"] as? String).flatMap(Self.iso))
         }
 
-        // Sessions are transcript files; recency is the file's own mtime.
-        var found: [String: (path: String, mtime: Date)] = [:]
-        for dir in (try? fm.contentsOfDirectory(atPath: projects)) ?? [] {
-            for f in (try? fm.contentsOfDirectory(atPath: "\(projects)/\(dir)")) ?? []
-            where f.hasSuffix(".jsonl") {
-                let path = "\(projects)/\(dir)/\(f)"
-                guard let mtime = (try? fm.attributesOfItem(atPath: path))?[.modificationDate]
-                        as? Date, mtime > cutoff else { continue }
-                // Queue files share the directory and the .jsonl suffix but hold no
-                // conversation; as rows they render as bare UUIDs.
-                if Tail.head(path: path, bytes: 256).contains("\"type\":\"queue-operation\"") {
-                    continue
-                }
-                let id = String(f.dropLast(6))
-                // A background job is one the user started, however it records its entrypoint.
-                if jobs[id] == nil, Self.isHeadless(path: path, id: id) { continue }
-                found[id] = (path, mtime)
-            }
-        }
-
         // Who is running what: argv carries `--resume <id>`; a fresh session has no argv mark
         // and is bound only when its directory identifies it uniquely — never guessed.
         let pids = Proc.pids(named: ["claude"])
@@ -368,6 +356,30 @@ struct ClaudeSource: AgentSource {
             else { unbound.append(pid) }
         }
         let cwdOf = Cwd.map(pids: unbound)   // cwd -> pid, only where unique
+        // MonoCode drives claude headless (entrypoint sdk-cli); remembered, so its rows outlive the process.
+        for (sid, pid) in bySession where ProcEnv.info(pid: pid).uiDriven { Self.headless[sid] = false }
+
+        // Sessions are transcript files; recency is the file's own mtime.
+        var found: [String: (path: String, mtime: Date)] = [:]
+        for dir in (try? fm.contentsOfDirectory(atPath: projects)) ?? [] {
+            for f in (try? fm.contentsOfDirectory(atPath: "\(projects)/\(dir)")) ?? []
+            where f.hasSuffix(".jsonl") {
+                let path = "\(projects)/\(dir)/\(f)"
+                guard let mtime = (try? fm.attributesOfItem(atPath: path))?[.modificationDate]
+                        as? Date, mtime > cutoff else { continue }
+                // Queue files share the directory and the .jsonl suffix but hold no
+                // conversation; as rows they render as bare UUIDs.
+                if Tail.head(path: path, bytes: 256).contains("\"type\":\"queue-operation\""),
+                   Self.onlyQueueLines(path: path) {
+                    continue
+                }
+                let id = String(f.dropLast(6))
+                // A background job is one the user started, however it records its entrypoint.
+                if jobs[id] == nil, Self.isHeadless(path: path, id: id) { continue }
+                found[id] = (path, mtime)
+            }
+        }
+
 
         var agents: [Agent] = []
         var emitted = Set<String>()
