@@ -40,28 +40,26 @@ cd Agent-Island
 
 Run it again at any time; it is safe to repeat and changes only what is out of date.
 
-### Homebrew or DMG (from the first release)
-
-Once v0.5.0 is published on [GitHub Releases](https://github.com/Tiwari1999/Agent-Island/releases),
-either of these will work:
+### Homebrew (from the first release)
 
 ```bash
-brew install --cask tiwari1999/tap/agent-island
+brew install tiwari1999/tap/agent-island
+agent-island
 ```
 
-or download `AgentIsland-<version>.dmg` from Releases and drag it to Applications.
+- `brew install` **builds the app on your Mac** in about a minute. A locally built app is never
+  quarantined, so it opens with **no Gatekeeper warning**, and no Apple notarization is involved.
+- `agent-island` finishes the install. Homebrew cannot write outside its own folder, so this
+  step copies the app to `~/Applications`, adds the agent hooks, sets up the login item and
+  starts the app.
+- To update, run `brew upgrade agent-island && agent-island`.
 
-> **Not available yet:** neither the tap nor the release exists yet. Until they do, install from
-> source.
+> **Not available yet:** the tap goes live with the v0.5.0 release. Until then, install from
+> source; the result is the same app.
 
-Until releases are notarized by Apple, macOS blocks the first launch of a downloaded copy. To
-allow it:
-
-1. Open the app once and dismiss the warning.
-2. Go to **System Settings → Privacy & Security** and click **Open Anyway**.
-
-You only need to do this once. A copy built from source with `install.sh` is not quarantined, so
-this does not apply to it.
+A downloaded DMG will come later, once releases are notarized. An un-notarized DMG is blocked on
+first launch: open it once, then go to **System Settings → Privacy & Security** and click
+**Open Anyway**.
 
 ## 2. First launch
 
@@ -135,12 +133,13 @@ rm -rf ~/Applications/AgentIsland.app
 
 **Homebrew:**
 
-| Command | Removes the app | Removes the hooks and Application Support |
-|---|---|---|
-| `brew uninstall --cask agent-island` | yes | no. The hooks are left in place but inert: with no app running, each one exits immediately. |
-| `brew uninstall --cask --zap agent-island` | yes | yes |
+```bash
+python3 "$(brew --prefix agent-island)/libexec/scripts/uninstall-hooks.py"   # first, while it is still installed
+brew uninstall agent-island
+rm -rf ~/Applications/AgentIsland.app
+```
 
-`brew upgrade` and `reinstall` keep your hooks.
+`brew upgrade` keeps your hooks.
 
 ## 7. Troubleshooting
 
