@@ -81,6 +81,8 @@ final class StatusStore: ObservableObject {
         else { return }
         var q = Quota()
         let rl = obj["rate_limits"] as? [String: Any] ?? [:]
+        // A session that hasn't reached the API yet writes no rate_limits; that must not blank the account's quota.
+        if rl.isEmpty, let r = quota.fiveHourResets ?? quota.sevenDayResets, r > Date() { return }
         // The percentages arrive as fractional doubles (28.999…): truncating reads 28, which is
         // a percent adrift and makes the number look wrong next to Claude's own display.
         if let f = rl["five_hour"] as? [String: Any] {

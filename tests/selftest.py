@@ -2426,6 +2426,11 @@ check("and each says when it refills",
 _stq = open(os.path.join(REPO, "Sources/AgentIsland/Status.swift")).read()
 check("the quota percentage is clamped before Int(), which traps on a huge or NaN double",
       "d.isNaN ? 0 : Int(min(max(d, 0), 100).rounded())" in _stq)
+# Every Claude session writes the shared status file, and one that hasn't reached the API yet
+# writes it without rate_limits: the footer flipped to "Claude publishes no limits".
+check("a status write without rate_limits keeps the quota whose window is still open",
+      "if rl.isEmpty, let r = quota.fiveHourResets ?? quota.sevenDayResets, r > Date() { return }" in _stq
+      and _stq.index("if rl.isEmpty") < _stq.index("quota = q"))
 check("and no unguarded Double->Int conversion is left in the quota parse",
       "Int($0.doubleValue.rounded())" not in _stq
       and _stq.count("Self.pct($0.doubleValue)") == 2)
