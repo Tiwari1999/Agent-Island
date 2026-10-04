@@ -502,10 +502,13 @@ final class AgentStore: ObservableObject {
                 b.pid = p
                 return b
             }
+            let mono = MonoCode.sessionIDs()
             let resolved: [(Agent, String?, Date?, HostTerminal, GitInfo?)] = bound.map { a in
                 (a, a.pid.flatMap { WarpJump.focusURL(pid: $0) },
                  a.lastActiveOverride ?? Transcript.lastActive(a),
-                 a.pid.map { HostTerminal.resolve(pid: $0) } ?? .unknown,
+                 // MonoCode stops idle agents; its tab is still where the session lives.
+                 mono.contains(a.sessionId) ? MonoCode.host
+                     : a.pid.map { HostTerminal.resolve(pid: $0) } ?? .unknown,
                  a.remoteHost == nil ? a.cwd.flatMap(Git.info(cwd:)) : nil)   // a remote cwd is not on this disk
             }
             Task { @MainActor in

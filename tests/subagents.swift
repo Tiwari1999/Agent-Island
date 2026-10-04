@@ -9,12 +9,14 @@ let person: [(String, [String: Any])] = [
     ("Codex Desktop", ["source": "vscode", "originator": "Codex Desktop"]),
     ("the Codex VS Code extension", ["source": "vscode", "originator": "codex_vscode"]),
     ("an older rollout with no originator", ["source": "cli"]),
+    ("a MonoCode Codex session", ["source": "vscode", "originator": "monocode"]),
 ]
 let automated: [(String, [String: Any])] = [
     ("a Codex subagent", ["source": ["subagent": ["thread_spawn": ["parent_thread_id": "x"]]],
                           "originator": "codex_exec", "thread_source": "subagent"]),
     ("a codex exec run", ["source": "exec", "originator": "codex_exec", "thread_source": "user"]),
     ("Codex embedded by Claude Code", ["source": "vscode", "originator": "Claude Code"]),
+    ("MonoCode's title helper", ["source": "vscode", "originator": "monocode-text"]),
     ("a subagent marked only by thread_source", ["source": "cli", "originator": "codex-tui",
                                                  "thread_source": "subagent"]),
 ]

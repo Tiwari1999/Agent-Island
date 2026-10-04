@@ -91,6 +91,8 @@ enum HostTerminal: Equatable {
 
     static func resolve(pid: Int) -> HostTerminal {
         let i = ProcEnv.info(pid: pid)
+        // MonoCode pipes its agents (no tty, no deep link) and leaks its launcher's TERM_PROGRAM: raise MonoCode.
+        if i.uiDriven { return .app(bundleID: "com.monocode.desktop", name: "MonoCode") }
         // TERM_PROGRAM names the terminal that actually owns this shell, and iTerm2/Terminal set
         // it reliably. Trust it before the bare Warp handle: opening iTerm2 from a Warp tab
         // leaks WARP_FOCUS_URL into it, and keying on that first sent the jump to Warp — the
