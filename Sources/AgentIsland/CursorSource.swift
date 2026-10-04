@@ -9,8 +9,12 @@ struct CursorSource: AgentSource {
     let vendor: Vendor = .cursor
 
     private var root: String { Home.path + "/.cursor/chats" }
+    /// ACP clients (MonoCode) get their own store, with only cwd and title in meta.json.
+    private var acpRoot: String { Home.path + "/.cursor/acp-sessions" }
 
-    var isAvailable: Bool { FileManager.default.fileExists(atPath: root) }
+    var isAvailable: Bool {
+        FileManager.default.fileExists(atPath: root) || FileManager.default.fileExists(atPath: acpRoot)
+    }
 
     func discover() -> [Agent] {
         guard isAvailable else { return [] }
@@ -25,8 +29,7 @@ struct CursorSource: AgentSource {
 
         // Hundreds of sessions accumulate here, so filter on directory mtime before reading
         // any JSON — the window discards almost all of them for the cost of a stat.
-        guard let workspaces = try? fm.contentsOfDirectory(atPath: root) else { return [] }
-        for ws in workspaces {
+        for ws in (try? fm.contentsOfDirectory(atPath: root)) ?? [] {
             let wsPath = "\(root)/\(ws)"
             guard let sessions = try? fm.contentsOfDirectory(atPath: wsPath) else { continue }
             for session in sessions {
@@ -77,6 +80,22 @@ struct CursorSource: AgentSource {
                     // A one-turn chat would otherwise print the same sentence twice.
                     promptOverride: Self.echoes(said, title) ? nil : said))
             }
+        }
+        for session in (try? fm.contentsOfDirectory(atPath: acpRoot)) ?? [] {
+            let dir = "\(acpRoot)/\(session)"
+            let wal = dir + "/store.db-wal"
+            let db = fm.fileExists(atPath: wal) ? wal : dir + "/store.db"   // the WAL moves on every write
+            guard let mtime = (try? fm.attributesOfItem(atPath: db))?[.modificationDate] as? Date,
+                  mtime > cutoff,
+                  let data = fm.contents(atPath: dir + "/meta.json"),
+                  let meta = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let title = meta["title"] as? String, Self.isACPChat(title: title) else { continue }
+            let cwd = meta["cwd"] as? String
+            if let c = cwd, !fm.fileExists(atPath: c) { continue }
+            let live = cwd.flatMap { running[$0] }
+            agents.append(Agent(sessionId: session, name: nil, cwd: cwd,
+                                state: live != nil ? "idle" : nil, status: nil, pid: live,
+                                vendor: .cursor, lastActiveOverride: mtime, titleOverride: title))
         }
         Self.retainText(Set(agents.map(\.sessionId)))
         return Self.claimPids(agents)
@@ -240,6 +259,9 @@ struct CursorSource: AgentSource {
     /// on submit. A title is not enough — Cursor summarises headless runs too — and a live
     /// process cannot be attributed to one session, because agents in a shared repo report the
     /// same working directory and none of them holds its transcript open.
+    /// Cursor names an ACP chat after its first reply; MonoCode's title helper gets named by its own JSON answer.
+    static func isACPChat(title: String) -> Bool { !title.isEmpty && !title.hasPrefix("{") }
+
     static func isUserDriven(dir: String) -> Bool {
         FileManager.default.fileExists(atPath: dir + "/prompt_history.json")
     }
@@ -276,7 +298,9 @@ struct CursorSource: AgentSource {
         let pids = candidates.keys.map(Int.init).filter { pid in
             Proc.argsEnv(pid: pid)?.argv.contains { $0.contains("cursor-agent") } ?? false
         }
-        return Cwd.map(pids: pids)
+        // The launcher can run node as a child in the same cwd (ACP does); two pids there bind neither.
+        let outer = Set(pids)
+        return Cwd.map(pids: pids.filter { Proc.parent(pid: $0).map { !outer.contains($0) } ?? true })
     }
 }
 
@@ -359,6 +383,8 @@ struct ClaudeSource: AgentSource {
         // MonoCode drives claude headless (entrypoint sdk-cli); remembered, so its rows outlive the process.
         for (sid, pid) in bySession where ProcEnv.info(pid: pid).uiDriven { Self.headless[sid] = false }
 
+        let mono = MonoCode.sessionIDs()
+
         // Sessions are transcript files; recency is the file's own mtime.
         var found: [String: (path: String, mtime: Date)] = [:]
         for dir in (try? fm.contentsOfDirectory(atPath: projects)) ?? [] {
@@ -374,8 +400,8 @@ struct ClaudeSource: AgentSource {
                     continue
                 }
                 let id = String(f.dropLast(6))
-                // A background job is one the user started, however it records its entrypoint.
-                if jobs[id] == nil, Self.isHeadless(path: path, id: id) { continue }
+                // A background job is one the user started, however it records its entrypoint; so is a MonoCode tab.
+                if jobs[id] == nil, !mono.contains(id), Self.isHeadless(path: path, id: id) { continue }
                 found[id] = (path, mtime)
             }
         }

@@ -39,9 +39,16 @@ def ppid(pid):
     out=subprocess.run(["ps","-o","ppid=","-p",str(pid)],capture_output=True,text=True).stdout.strip()
     return int(out) if out.isdigit() and int(out) > 1 else None
 
+def monocode_app(pid):
+    """MonoCode marks every agent it pipes with its own pid; resolve() raises that app."""
+    env=subprocess.run(["ps","eww","-p",str(pid),"-o","command="],capture_output=True,text=True).stdout
+    v=next((t.split("=",1)[1] for t in env.split() if t.startswith("MONOCODE_HARNESS_PARENT=")),None)
+    return int(v) if v and v.isdigit() else None
+
 def owning_pid(pid, hops=8):
     """Mirrors HostTerminal.resolve: a background agent has no terminal of its own, so it
     resolves to the nearest ancestor that has one — the window the user watches it in."""
+    if (app := monocode_app(pid)) is not None: return app
     if has_tty(pid): return pid
     cur = pid
     for _ in range(hops):
@@ -52,6 +59,7 @@ def owning_pid(pid, hops=8):
     return None
 
 def focus_url(pid):
+    if monocode_app(pid) is not None: return None   # MonoCode's window, never a Warp tab
     owner = owning_pid(pid)
     if owner is None: return None
     env=subprocess.run(["ps","eww","-p",str(owner),"-o","command="],capture_output=True,text=True).stdout
@@ -2584,7 +2592,7 @@ if _m_dbp and _m_hl and _m_tl:
           _r.stdout.strip() == "ok", (_r.stdout + _r.stderr).strip()[:400])
 # Background agents the user started are kept even if they record an SDK entrypoint.
 check("a background job is never filtered as headless",
-      "if jobs[id] == nil, Self.isHeadless(path: path, id: id) { continue }" in _cls)
+      "if jobs[id] == nil, !mono.contains(id), Self.isHeadless(path: path, id: id) { continue }" in _cls)
 # MonoCode runs claude headless (entrypoint sdk-cli) and queues every prompt, so 0.5.0 hid all its
 # sessions twice over. Its agents carry MONOCODE_HARNESS_PARENT; repro'd against a live session.
 _pe = open(os.path.join(REPO, "Sources/AgentIsland/ProcEnv.swift")).read()
@@ -2596,6 +2604,57 @@ check("and its sessions are exempted before the headless filter runs",
       _mono in _cls and _cls.index(_mono) < _cls.index("Self.isHeadless(path: path, id: id) { continue }"))
 check("a transcript is a queue file only when queue lines are all it holds",
       "Self.onlyQueueLines(path: path)" in _cls)
+# 0.5.1 listed MonoCode rows but the jump fell to "background, no terminal" and did nothing. First in
+# resolve, since MonoCode inherits its launcher's TERM_PROGRAM. Verified live: Finder -> MonoCode.
+_ht = open(os.path.join(REPO, "Sources/AgentIsland/HostTerminal.swift")).read()
+_rs = _ht[_ht.index("static func resolve(pid: Int) -> HostTerminal {"):]
+check("a MonoCode agent jumps to MonoCode, ahead of every terminal rule",
+      re.match(r"static func resolve\(pid: Int\) -> HostTerminal \{\s*let i = ProcEnv\.info\(pid: pid\)\s*"
+               r"//[^\n]*\n\s*if i\.uiDriven \{ return \.app\(bundleID: \"com\.monocode\.desktop\", name: \"MonoCode\"\) \}", _rs)
+      is not None)
+# Cursor over ACP (MonoCode) keeps sessions in ~/.cursor/acp-sessions, which 0.5.1 never read. RUN
+# against a synthetic home with no ~/.cursor/chats: a chat lists; MonoCode's JSON-titled title
+# helper and a not-yet-named session do not.
+_ah = tempfile.mkdtemp(prefix="ai-acp-")
+for _sid, _title in [("acp-real", "Mono Repo Check"), ("acp-helper", '{"title": "Check", "workItem": null}'),
+                     ("acp-untitled", None)]:
+    os.makedirs(f"{_ah}/.cursor/acp-sessions/{_sid}")
+    _m = {"schemaVersion": "1", "cwd": _ah}
+    if _title is not None: _m["title"] = _title
+    json.dump(_m, open(f"{_ah}/.cursor/acp-sessions/{_sid}/meta.json", "w"))
+    open(f"{_ah}/.cursor/acp-sessions/{_sid}/store.db", "w").write("x")
+_ad = subprocess.run([os.path.join(REPO, ".build/debug/AgentIsland"), "--discover", "cursor"],
+                     capture_output=True, text=True, timeout=60, env={**os.environ, "AGENTISLAND_HOME": _ah}).stdout
+_shutil.rmtree(_ah, ignore_errors=True)
+check("a Cursor chat run over ACP lists, with no ~/.cursor/chats on the machine",
+      "acp-real | " in _ad and "title=Mono Repo Check" in _ad)
+check("and MonoCode's title helper and an unnamed ACP session do not",
+      "acp-helper" not in _ad and "acp-untitled" not in _ad, _ad.strip()[:300])
+check("an ACP launcher and the node it runs in the same cwd bind as one process",
+      "pids.filter { Proc.parent(pid: $0).map { !outer.contains($0) } ?? true }" in open(os.path.join(REPO, "Sources/AgentIsland/CursorSource.swift")).read())
+# MonoCode stops an agent between turns, so neither the env marker nor a live pid survives. Its own
+# table of tabs does. RUN against a synthetic home: an open tab's headless session lists, an archived
+# tab's and an unrelated `claude -p` run's stay hidden.
+import sqlite3 as _sq
+_mh = tempfile.mkdtemp(prefix="ai-mono-")
+os.makedirs(f"{_mh}/Library/Application Support/com.monocode.desktop")
+os.makedirs(f"{_mh}/.claude/projects/-mono")
+_mdb = _sq.connect(f"{_mh}/Library/Application Support/com.monocode.desktop/monocode.db")
+_mdb.execute("CREATE TABLE sessions (id TEXT, provider_session_id TEXT, archived INTEGER NOT NULL DEFAULT 0)")
+_mdb.executemany("INSERT INTO sessions VALUES (?,?,?)", [("t1", "mono-open", 0), ("t2", "mono-archived", 1)])
+_mdb.commit(); _mdb.close()
+for _sid in ["mono-open", "mono-archived", "script-run"]:
+    open(f"{_mh}/.claude/projects/-mono/{_sid}.jsonl", "w").write(
+        '{"type":"user","entrypoint":"sdk-cli","cwd":"%s"}\n' % _mh)
+_md = subprocess.run([os.path.join(REPO, ".build/debug/AgentIsland"), "--discover", "claude"],
+                     capture_output=True, text=True, timeout=60, env={**os.environ, "AGENTISLAND_HOME": _mh}).stdout
+_shutil.rmtree(_mh, ignore_errors=True)
+check("a MonoCode tab's session lists with no process running",
+      "mono-open | " in _md, _md.strip()[:300])
+check("and an archived tab or a plain claude -p run does not",
+      "mono-archived" not in _md and "script-run" not in _md, _md.strip()[:300])
+check("a MonoCode session jumps to MonoCode whether or not its agent is running",
+      "mono.contains(a.sessionId) ? MonoCode.host" in open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read())
 
 # A menu-bar app has no Edit menu, so ⌘V never reached the question's free-text field. RUN: the
 # real Panel.editAction is lifted and every shortcut checked, plus the chords it must not take.

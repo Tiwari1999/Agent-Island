@@ -226,7 +226,8 @@ struct CodexSource: AgentSource {
         // Codex's own clients (codex-tui, Codex Desktop, codex_vscode) name themselves; a host
         // app that embeds Codex does not. Older rollouts carry no originator at all.
         guard let origin = meta["originator"] as? String else { return true }
-        return origin.lowercased().contains("codex")
+        // MonoCode is a UI a person types into; its "monocode-text" title helper is not.
+        return origin.lowercased().contains("codex") || origin == "monocode"
     }
 
     /// The human's own words from one entry, whatever shape Codex wrote it in.
