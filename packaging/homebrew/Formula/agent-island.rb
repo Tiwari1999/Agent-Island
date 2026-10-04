@@ -12,12 +12,14 @@ class AgentIsland < Formula
   def install
     ENV["AGENTISLAND_SWIFT_FLAGS"] = "--disable-sandbox"
     system "scripts/make-app.sh", buildpath/"AgentIsland.app"
-    libexec.install "install.sh", "scripts", "hooks", "AgentIsland.app"
+    # Zipped because brew rewrites Mach-O load paths in a keg, which breaks Sparkle's signature seal.
+    system "ditto", "-c", "-k", "--keepParent", "AgentIsland.app", "AgentIsland.zip"
+    libexec.install "install.sh", "scripts", "hooks", "AgentIsland.zip"
     (libexec/".build").install ".build/agentisland-ide-focus.vsix"
     # brew may not write outside its prefix, so this one command finishes the install.
     (bin/"agent-island").write <<~SH
       #!/bin/bash
-      AGENTISLAND_PREBUILT="#{opt_libexec}/AgentIsland.app" exec "#{opt_libexec}/install.sh" "$@"
+      AGENTISLAND_PREBUILT="#{opt_libexec}/AgentIsland.zip" exec "#{opt_libexec}/install.sh" "$@"
     SH
   end
 
@@ -31,6 +33,6 @@ class AgentIsland < Formula
   end
 
   test do
-    assert_path_exists libexec/"AgentIsland.app/Contents/MacOS/AgentIsland"
+    assert_path_exists libexec/"AgentIsland.zip"
   end
 end
