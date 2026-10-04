@@ -19,8 +19,10 @@ enum ProcEnv {
         var jetbrains: Bool = false
         /// Set by macOS on every process an app launches — the most reliable host id there is.
         var bundleID: String?
-        /// From argv (`claude --resume <id>`): the exact session this process is running.
+        /// From argv (`claude --resume <id>` or `--session-id <id>`): the exact session this process is running.
         var resumeSession: String?
+        /// Spawned by a desktop UI a person types into (MonoCode), so its headless mode is not automation.
+        var uiDriven = false
     }
 
     private static var cache: [Int: Info] = [:]
@@ -40,7 +42,7 @@ enum ProcEnv {
             var wantsResume = false
             for a in ae.argv {
                 if wantsResume { i.resumeSession = a; wantsResume = false }
-                if a == "--resume" || a == "-r" { wantsResume = true }
+                if a == "--resume" || a == "-r" || a == "--session-id" { wantsResume = true }
             }
             i.focusURL = ae.env["WARP_FOCUS_URL"]
             i.itermSession = ae.env["ITERM_SESSION_ID"]
@@ -51,6 +53,7 @@ enum ProcEnv {
             i.bundleID = ae.env["__CFBundleIdentifier"]
             i.tty = Proc.tty(pid: pid)
             i.jetbrains = ae.env["TERMINAL_EMULATOR"]?.contains("JetBrains") ?? false
+            i.uiDriven = ae.env["MONOCODE_HARNESS_PARENT"] != nil
             found[pid] = i
         }
         // A pid we could not read still gets an entry, so we never re-ask about it.
