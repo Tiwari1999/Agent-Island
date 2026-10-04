@@ -10,7 +10,9 @@ pkill -f "AgentIsland.app/Contents/MacOS/AgentIsland" 2>/dev/null || true
 # LaunchServices treat the new instance as a duplicate, which exits silently seconds later.
 for _ in $(seq 1 25); do pgrep -x AgentIsland >/dev/null || break; sleep 0.2; done
 # One place assembles a bundle, so what a stranger downloads cannot drift from what runs here.
-"$REPO/scripts/make-app.sh" "$APP"
+# A Homebrew install already built the bundle on this Mac; copy it rather than building twice.
+if [ -n "${AGENTISLAND_PREBUILT:-}" ]; then rm -rf "$APP"; ditto "$AGENTISLAND_PREBUILT" "$APP"
+else "$REPO/scripts/make-app.sh" "$APP"; fi
 
 echo "==> registering hooks"
 python3 "$REPO/scripts/install-hooks.py" "$REPO"

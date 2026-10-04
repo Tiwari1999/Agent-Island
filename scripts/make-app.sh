@@ -30,7 +30,8 @@ fi
 rm -f "$probe"
 
 echo "==> building $VERSION"
-swift build -c release --package-path "$REPO"
+# Homebrew passes --disable-sandbox: SwiftPM's own sandbox cannot start inside brew's.
+swift build -c release --package-path "$REPO" ${AGENTISLAND_SWIFT_FLAGS:-}
 
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS"
 cp "$REPO/.build/release/AgentIsland" "$APP/Contents/MacOS/AgentIsland"
