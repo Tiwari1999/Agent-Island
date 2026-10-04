@@ -2609,6 +2609,17 @@ check("a prompt queued during a running tool keeps the row working",
       and "state.inTool = false" not in _ups
       and "state.inTool = false        // however it stopped" in _hs_ups)
 
+# The formula builds on the user's Mac (no Developer ID, no Gatekeeper prompt). brew rewrites
+# Mach-O paths in a keg, which broke Sparkle's seal until the app was shipped zipped.
+_fm = open(os.path.join(REPO, "packaging/homebrew/Formula/agent-island.rb")).read()
+_ins_sh = open(os.path.join(REPO, "install.sh")).read()
+check("the Homebrew formula builds locally and ships the app zipped, untouched by brew",
+      'ENV["AGENTISLAND_SWIFT_FLAGS"] = "--disable-sandbox"' in _fm
+      and '"ditto", "-c", "-k", "--keepParent", "AgentIsland.app", "AgentIsland.zip"' in _fm
+      and '"AgentIsland.app"' not in _fm.split("libexec.install", 1)[1].split("\n", 1)[0]
+      and 'ditto -x -k "$AGENTISLAND_PREBUILT"' in _ins_sh
+      and "${AGENTISLAND_SWIFT_FLAGS:-}" in open(os.path.join(REPO, "scripts/make-app.sh")).read())
+
 print("\n=== 31. code-review fixes ===")
 _ag = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
 _cv = open(os.path.join(REPO, "Sources/AgentIsland/ConsoleView.swift")).read()

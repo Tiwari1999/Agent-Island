@@ -134,8 +134,8 @@ cd Agent-Island
 it finds, and launches it. Run it again after `git pull` to update; it only changes what is out of
 date.
 
-`brew install --cask tiwari1999/tap/agent-island` and a DMG download arrive with the first
-GitHub release (v0.5.0), and those builds update themselves once a day.
+With the v0.5.0 release: `brew install tiwari1999/tap/agent-island && agent-island`. It builds on
+your Mac, so there is no Gatekeeper warning and no notarization involved.
 
 **Full guide:** [`docs/INSTALL.md`](docs/INSTALL.md) covers first-launch permissions, what changes
 for each agent, exact-tab jumps in VS Code, Cursor and Ghostty, updating, uninstalling and
