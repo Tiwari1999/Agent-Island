@@ -2617,12 +2617,19 @@ check("a MonoCode agent jumps to MonoCode, ahead of every terminal rule",
 # helper and a not-yet-named session do not.
 _ah = tempfile.mkdtemp(prefix="ai-acp-")
 for _sid, _title in [("acp-real", "Mono Repo Check"), ("acp-helper", '{"title": "Check", "workItem": null}'),
-                     ("acp-untitled", None)]:
+                     ("acp-untitled", None), ("acp-quiet", "Quiet Chat"), ("acp-mono-new", None)]:
     os.makedirs(f"{_ah}/.cursor/acp-sessions/{_sid}")
     _m = {"schemaVersion": "1", "cwd": _ah}
     if _title is not None: _m["title"] = _title
     json.dump(_m, open(f"{_ah}/.cursor/acp-sessions/{_sid}/meta.json", "w"))
     open(f"{_ah}/.cursor/acp-sessions/{_sid}/store.db", "w").write("x")
+# A turn writes the store about once a second; a minute of silence is a finished turn.
+os.utime(f"{_ah}/.cursor/acp-sessions/acp-quiet/store.db", (time.time() - 60, time.time() - 60))
+os.makedirs(f"{_ah}/Library/Application Support/com.monocode.desktop")
+import sqlite3 as _sq0
+_adb = _sq0.connect(f"{_ah}/Library/Application Support/com.monocode.desktop/monocode.db")
+_adb.execute("CREATE TABLE sessions (provider_session_id TEXT, archived INTEGER NOT NULL DEFAULT 0)")
+_adb.execute("INSERT INTO sessions VALUES ('acp-mono-new', 0)"); _adb.commit(); _adb.close()
 _ad = subprocess.run([os.path.join(REPO, ".build/debug/AgentIsland"), "--discover", "cursor"],
                      capture_output=True, text=True, timeout=60, env={**os.environ, "AGENTISLAND_HOME": _ah}).stdout
 _shutil.rmtree(_ah, ignore_errors=True)
@@ -2630,6 +2637,20 @@ check("a Cursor chat run over ACP lists, with no ~/.cursor/chats on the machine"
       "acp-real | " in _ad and "title=Mono Repo Check" in _ad)
 check("and MonoCode's title helper and an unnamed ACP session do not",
       "acp-helper" not in _ad and "acp-untitled" not in _ad, _ad.strip()[:300])
+check("an unnamed ACP session lists from its first turn when it is a MonoCode tab",
+      "acp-mono-new | " in _ad, _ad.strip()[:300])
+# Cursor sends no stop hook over ACP, so a turn's own writes decide working, and silence ends it.
+_aline = lambda sid: next((l for l in _ad.splitlines() if l.startswith(sid + " | ")), "")
+check("an ACP session writing now is working; one silent for a minute is idle",
+      "state=busy" in _aline("acp-real") and "state=idle" in _aline("acp-quiet"), _ad.strip()[:300])
+_as = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
+check("and that measured state outranks hook state, which never closes an ACP turn",
+      "if agent.exactState { return agent.isWorking }" in _as
+      and _as.index("if agent.exactState { return agent.isWorking }")
+          < _as.index("guard agent.pid != nil || agent.remoteHost != nil else { return false }"))
+check("a busy ACP row is looked at again once its write window lapses, panel open or not",
+      "if self.rows.contains(where: { $0.agent.exactState && $0.agent.isWorking }) {" in _as
+      and "try? await Task.sleep(for: .seconds(9))" in _as)
 check("an ACP launcher and the node it runs in the same cwd bind as one process",
       "pids.filter { Proc.parent(pid: $0).map { !outer.contains($0) } ?? true }" in open(os.path.join(REPO, "Sources/AgentIsland/CursorSource.swift")).read())
 # MonoCode stops an agent between turns, so neither the env marker nor a live pid survives. Its own

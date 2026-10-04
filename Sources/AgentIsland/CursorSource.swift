@@ -81,6 +81,7 @@ struct CursorSource: AgentSource {
                     promptOverride: Self.echoes(said, title) ? nil : said))
             }
         }
+        let mono = MonoCode.sessionIDs()
         for session in (try? fm.contentsOfDirectory(atPath: acpRoot)) ?? [] {
             let dir = "\(acpRoot)/\(session)"
             let wal = dir + "/store.db-wal"
@@ -88,14 +89,20 @@ struct CursorSource: AgentSource {
             guard let mtime = (try? fm.attributesOfItem(atPath: db))?[.modificationDate] as? Date,
                   mtime > cutoff,
                   let data = fm.contents(atPath: dir + "/meta.json"),
-                  let meta = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let title = meta["title"] as? String, Self.isACPChat(title: title) else { continue }
+                  let meta = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+            let title = meta["title"] as? String ?? ""
+            // A MonoCode tab lists from its first turn; anything else waits for Cursor to name it.
+            guard mono.contains(session) || Self.isACPChat(title: title) else { continue }
             let cwd = meta["cwd"] as? String
             if let c = cwd, !fm.fileExists(atPath: c) { continue }
             let live = cwd.flatMap { running[$0] }
-            agents.append(Agent(sessionId: session, name: nil, cwd: cwd,
-                                state: live != nil ? "idle" : nil, status: nil, pid: live,
-                                vendor: .cursor, lastActiveOverride: mtime, titleOverride: title))
+            // A turn writes the store about once a second (measured) and stops when it ends.
+            let busy = Date().timeIntervalSince(mtime) < 8
+            var a = Agent(sessionId: session, name: nil, cwd: cwd,
+                          state: busy ? "busy" : "idle", status: nil, pid: live, vendor: .cursor,
+                          lastActiveOverride: mtime, titleOverride: Self.isACPChat(title: title) ? title : nil)
+            a.exactState = true
+            agents.append(a)
         }
         Self.retainText(Set(agents.map(\.sessionId)))
         return Self.claimPids(agents)
