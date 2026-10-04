@@ -13,7 +13,21 @@ no account and no API key.
 
 ## 1. Install
 
-### From source (works today)
+### Homebrew (recommended)
+
+```bash
+brew install tiwari1999/tap/agent-island
+agent-island
+```
+
+- `brew install` **builds the app on your Mac** in about a minute. A locally built app is never
+  quarantined, so it opens with **no Gatekeeper warning**, and no Apple notarization is involved.
+- `agent-island` finishes the install. Homebrew cannot write outside its own folder, so this
+  step copies the app to `~/Applications`, adds the agent hooks, sets up the login item and
+  starts the app.
+- To update, run `brew upgrade agent-island && agent-island`.
+
+### From source
 
 You need Apple's **Command Line Tools**. If `xcode-select -p` prints a path, you have them.
 Otherwise install them:
@@ -39,23 +53,6 @@ cd Agent-Island
 5. Launches the app.
 
 Run it again at any time; it is safe to repeat and changes only what is out of date.
-
-### Homebrew (from the first release)
-
-```bash
-brew install tiwari1999/tap/agent-island
-agent-island
-```
-
-- `brew install` **builds the app on your Mac** in about a minute. A locally built app is never
-  quarantined, so it opens with **no Gatekeeper warning**, and no Apple notarization is involved.
-- `agent-island` finishes the install. Homebrew cannot write outside its own folder, so this
-  step copies the app to `~/Applications`, adds the agent hooks, sets up the login item and
-  starts the app.
-- To update, run `brew upgrade agent-island && agent-island`.
-
-> **Not available yet:** the tap goes live with the v0.5.0 release. Until then, install from
-> source; the result is the same app.
 
 A downloaded DMG will come later, once releases are notarized. An un-notarized DMG is blocked on
 first launch: open it once, then go to **System Settings → Privacy & Security** and click
@@ -116,6 +113,7 @@ To skip the editor extension, run `AGENTISLAND_SKIP_IDE_EXTENSION=1 ./install.sh
 
 ## 5. Updating
 
+- **Homebrew:** run `brew upgrade agent-island && agent-island`.
 - **From source:** run `git pull && ./install.sh`.
 - **Release builds:** they check `agentisland.in` at most once a day and ask before installing
   anything. Two places control this:

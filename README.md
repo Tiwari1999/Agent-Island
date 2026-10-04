@@ -9,7 +9,7 @@ Claude Code · Codex · Cursor · Gemini CLI · OpenCode — one panel, at a gla
 [![Platform](https://img.shields.io/badge/macOS-14%2B-000000?style=flat-square&logo=apple&logoColor=white)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-6.0-F05138?style=flat-square&logo=swift&logoColor=white)](https://swift.org)
 [![No Xcode](https://img.shields.io/badge/Xcode-not%20required-4BC51D?style=flat-square)](https://www.swift.org/getting-started/)
-[![Tests](https://img.shields.io/badge/self--tests-950%2B-4BC51D?style=flat-square)](tests/selftest.py)
+[![Tests](https://img.shields.io/badge/self--tests-980%2B-4BC51D?style=flat-square)](tests/selftest.py)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue?style=flat-square)](#-licence)
 
 </div>
@@ -21,10 +21,27 @@ Claude Code · Codex · Cursor · Gemini CLI · OpenCode — one panel, at a gla
 > Agent Island reads only what your agents already write to your own disk.
 
 <div align="center">
-  <img src="docs/panel.png" alt="Agent Island expanded panel: quota header and four live agent sessions" width="844">
+  <a href="https://github.com/Tiwari1999/Agent-Island/releases/download/v0.5.0/agent-island-demo.mp4"><img src="docs/screenshots/demo-poster.jpg" alt="Agent Island demo video: the agents panel opening from the MacBook notch" width="844"></a>
   <br>
-  <sub>Quota and burn rate up top · one row per agent with its model, terminal, context ring, last instruction and live tool call</sub>
+  <sub>▶ <a href="https://github.com/Tiwari1999/Agent-Island/releases/download/v0.5.0/agent-island-demo.mp4"><b>Watch the 40-second demo</b></a></sub>
 </div>
+
+<div align="center">
+  <img src="docs/screenshots/01-agents-running.png" alt="Agent Island panel: three agents with branch, context ring, cost and 5h/7d quota left" width="700">
+  <br>
+  <sub>Every agent in one list: branch, context ring, today's spend, and how much of the 5h and 7-day windows is left</sub>
+</div>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/02-allow-deny.png" alt="Permission card with Deny, Always and Allow"><br><sub><b>Approve from the notch</b>: Deny, Allow, or Always allow a narrow rule</sub></td>
+    <td width="50%"><img src="docs/screenshots/03-question-answer.png" alt="An agent's multiple-choice question answered in the notch"><br><sub><b>Answer questions</b>: pick an option or type your own</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/05-finished-toast.png" alt="Toast: Add Stripe checkout finished, with a jump link"><br><img src="docs/screenshots/06-collapsed-notch-bar.png" alt="Collapsed bar around the notch: 4 working"><br><sub><b>Finished, and what is running</b>: a toast with <b>jump</b> to the exact tab, and the bar at rest</sub></td>
+    <td><img src="docs/screenshots/04-agents-finished.png" alt="Panel after two agents finished"><br><sub><b>Done vs working</b> at a glance</sub></td>
+  </tr>
+</table>
 
 ## 🤔 Why
 
@@ -124,6 +141,18 @@ accident.
 macOS 14+, Apple silicon or Intel. **No Xcode**: Apple's Command Line Tools are enough
 (`xcode-select --install`).
 
+**Homebrew** (recommended):
+
+```bash
+brew install tiwari1999/tap/agent-island
+agent-island      # copies the app to ~/Applications, adds the hooks, starts it
+```
+
+It builds on your Mac in about a minute, so there is no Gatekeeper warning and no notarization
+involved. Update with `brew upgrade agent-island && agent-island`.
+
+**From source:**
+
 ```bash
 git clone https://github.com/Tiwari1999/Agent-Island.git
 cd Agent-Island
@@ -133,9 +162,6 @@ cd Agent-Island
 `install.sh` builds the app into `~/Applications/AgentIsland.app`, registers hooks for every agent
 it finds, and launches it. Run it again after `git pull` to update; it only changes what is out of
 date.
-
-With the v0.5.0 release: `brew install tiwari1999/tap/agent-island && agent-island`. It builds on
-your Mac, so there is no Gatekeeper warning and no notarization involved.
 
 **Full guide:** [`docs/INSTALL.md`](docs/INSTALL.md) covers first-launch permissions, what changes
 for each agent, exact-tab jumps in VS Code, Cursor and Ghostty, updating, uninstalling and
@@ -259,7 +285,7 @@ Two design rules earned the hard way:
 python3 tests/selftest.py
 ```
 
-950+ checks: jump resolution against live Warp tabs, the per-terminal jump handles (iTerm2's UUID-after-prefix and Terminal.app's tty, with a full round-trip in `tests/terminals-e2e.py`), every hook contract (including that each failure path exits without blocking), the full question flow (free-text answers crossing the same validation as labels, state surviving a close/reopen, the sliding grace, no answer sent until submit), auto-approve decisions, panel geometry, the staleness window, and that the panel holds only real sessions — every vendor present on disk reaches it, no row is labelled with a bare session id, and no test data survives.
+980+ checks: jump resolution against live Warp tabs, the per-terminal jump handles (iTerm2's UUID-after-prefix and Terminal.app's tty, with a full round-trip in `tests/terminals-e2e.py`), every hook contract (including that each failure path exits without blocking), the full question flow (free-text answers crossing the same validation as labels, state surviving a close/reopen, the sliding grace, no answer sent until submit), auto-approve decisions, panel geometry, the staleness window, and that the panel holds only real sessions — every vendor present on disk reaches it, no row is labelled with a bare session id, and no test data survives.
 
 ## 📄 Licence
 
