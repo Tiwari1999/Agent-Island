@@ -50,7 +50,7 @@ struct CursorSource: AgentSource {
                     Date(timeIntervalSince1970: $0.doubleValue / 1000)
                 } ?? mtime
                 let live = cwd.flatMap { running[$0] }   // claimed below, once, per cwd
-                guard Self.isUserDriven(dir: dir) else { continue }
+                guard Self.isUserDriven(dir: dir, title: meta["title"] as? String) else { continue }
                 let activity = Self.activity(sessionId: session)
                 let prompt = Self.lastPrompt(dir: dir)
                 // Cursor names a chat only once it has summarised it, so fall back to what the
@@ -269,8 +269,10 @@ struct CursorSource: AgentSource {
     /// Cursor names an ACP chat after its first reply; MonoCode's title helper gets named by its own JSON answer.
     static func isACPChat(title: String) -> Bool { !title.isEmpty && !title.hasPrefix("{") }
 
-    static func isUserDriven(dir: String) -> Bool {
-        FileManager.default.fileExists(atPath: dir + "/prompt_history.json")
+    /// A prompt typed in the composer writes prompt_history.json; one given on the command line only
+    /// gets a title, which Cursor never gives a headless `-p` run (none of 1,162 here had one).
+    static func isUserDriven(dir: String, title: String?) -> Bool {
+        FileManager.default.fileExists(atPath: dir + "/prompt_history.json") || !(title ?? "").isEmpty
     }
 
     /// One process, one row. `Cwd.map` resolves a working directory to a single pid, so every
@@ -303,7 +305,9 @@ struct CursorSource: AgentSource {
         // so candidates are confirmed by argv — still zero spawns, just one sysctl per candidate.
         let candidates = Proc.all().filter { ["agent", "cursor-agent", "node"].contains($0.value) }
         let pids = candidates.keys.map(Int.init).filter { pid in
-            Proc.argsEnv(pid: pid)?.argv.contains { $0.contains("cursor-agent") } ?? false
+            // worker-server is a daemon each agent leaves behind; orphaned, it claimed the newest chat.
+            guard let argv = Proc.argsEnv(pid: pid)?.argv, !argv.contains("worker-server") else { return false }
+            return argv.contains { $0.contains("cursor-agent") }
         }
         // The launcher can run node as a child in the same cwd (ACP does); two pids there bind neither.
         let outer = Set(pids)

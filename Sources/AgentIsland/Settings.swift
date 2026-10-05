@@ -108,7 +108,7 @@ final class Prefs: ObservableObject {
         guard let until = snoozedUntil, until > Date() else { return }
         expiry = Timer.scheduledTimer(withTimeInterval: until.timeIntervalSinceNow,
                                       repeats: false) { [weak self] _ in
-            Task { @MainActor in self?.snoozedUntil = nil }
+            Task { @MainActor [weak self] in self?.snoozedUntil = nil }
         }
     }
 

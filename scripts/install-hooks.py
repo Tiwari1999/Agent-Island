@@ -93,14 +93,14 @@ def backup(path):
 def save(path, cfg):
     """Write-then-rename: a kill or full disk mid-write must never leave settings truncated."""
     tmp = path + ".agentisland.tmp"
-    with open(tmp, "w") as f:
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
     os.replace(tmp, path)
 
 
 def load(path):
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except FileNotFoundError:
         return {}
@@ -184,9 +184,9 @@ def install(name, path, plan, statusline=False):
             cfg["statusLine"] = {"type": "command", "command": cfg["statusLine"]}
         if isinstance(cfg.get("statusLine"), dict) and cfg["statusLine"].get("command"):
             os.makedirs(STATE, exist_ok=True)
-            with open(os.path.join(STATE, "prev-statusline.json"), "w") as f:
+            with open(os.path.join(STATE, "prev-statusline.json"), "w", encoding="utf-8") as f:
                 json.dump(cfg["statusLine"], f)
-            with open(os.path.join(STATE, "prev-statusline"), "w") as f:
+            with open(os.path.join(STATE, "prev-statusline"), "w", encoding="utf-8") as f:
                 f.write(cfg["statusLine"]["command"])   # plain text: the wrapper runs it as-is
         cfg["statusLine"] = {"type": "command", "command": f"bash {shlex.quote(STATUSLINE)}"}
         changed += 1
@@ -236,6 +236,8 @@ if os.path.isdir(os.path.expanduser("~/.codex")):
     codex_plan = [(e, HOOK, {}) for e in
                   ["SessionStart", "Stop", "PreToolUse", "PostToolUse", "Notification"]]
     install("Codex", os.path.expanduser("~/.codex/hooks.json"), codex_plan)
+    # Codex skips new or changed hooks without a word until they are approved, so say how.
+    print("  Codex: approve the Agent Island hooks once: run codex, type /hooks, trust them")
 else:
     print("  Codex: not installed, skipped")
 
@@ -251,10 +253,12 @@ if os.path.isdir(os.path.expanduser("~/.cursor")):
     cfg = load(cursor_path)
     if cfg is not None:
         hooks = cfg.setdefault("hooks", {})
+        # Cursor's schema requires "version"; a file created here from nothing had none.
+        added = int("version" not in cfg)
+        cfg.setdefault("version", 1)
         foreign = sum(len(v) for k, v in hooks.items()
                       for _ in [0]) - sum(1 for v in hooks.values() for h in v
                                           if MARK in json.dumps(h))
-        added = 0
         for event in CURSOR_EVENTS:
             entries = hooks.setdefault(event, [])
             # Claude and Codex replace an entry whose path has moved; Cursor skipped the event
@@ -315,7 +319,7 @@ IDE_CLIS = (("VS Code", "~/.vscode/extensions",
 
 def ide_ext_version(ext_dir):
     try:
-        for e in json.load(open(os.path.join(ext_dir, "extensions.json"))):
+        for e in json.load(open(os.path.join(ext_dir, "extensions.json"), encoding="utf-8")):
             if e.get("identifier", {}).get("id") == IDE_EXT:
                 return e.get("version")
     except Exception:
@@ -362,7 +366,8 @@ def install_ide_extension():
 
 install_ide_extension()
 
-print("\n  Uninstall with: python3 scripts/uninstall-hooks.py")
+# The staged copy, not scripts/: a Homebrew user has no checkout and the Cellar path changes per version.
+print(f'\n  Uninstall with: python3 "{os.path.join(os.path.dirname(STAGE), "uninstall-hooks.py")}"')
 
 # The harness kills a hook at the timeout in settings.json whatever the hook believes. When
 # that number sits below the hook's own window the failure is silent and late: the reader
@@ -370,7 +375,7 @@ print("\n  Uninstall with: python3 scripts/uninstall-hooks.py")
 # reads. Say so here rather than at answer time.
 def check_deadline():
     try:
-        src = open(os.path.join(REPO, "hooks/agentisland-question.py")).read()
+        src = open(os.path.join(REPO, "hooks/agentisland-question.py"), encoding="utf-8").read()
         window = float(re.search(r'AGENTISLAND_Q_TIMEOUT", "([0-9.]+)"', src).group(1))
     except Exception:
         return

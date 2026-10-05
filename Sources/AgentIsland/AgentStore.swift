@@ -270,7 +270,7 @@ final class AgentStore: ObservableObject {
             home + "/.codex/sessions", home + "/.cursor/chats", home + "/.cursor/acp-sessions",
             home + "/.gemini/tmp", home + "/.local/share/opencode",
         ]) { [weak self] in
-            Task { @MainActor in self?.refresh() }
+            Task { @MainActor [weak self] in self?.refresh() }
         }
         watcher?.start()
     }
@@ -410,7 +410,7 @@ final class AgentStore: ObservableObject {
                                    today.values.reduce(0) { $0 + $1.input + $1.output
                                                               + $1.cacheRead + $1.cacheWrite },
                                    today.count))
-            Task { @MainActor in self?.costTable = t; self?.costsScanned = true }
+            Task { @MainActor [weak self] in self?.costTable = t; self?.costsScanned = true }
         }
     }
 
@@ -418,7 +418,7 @@ final class AgentStore: ObservableObject {
         timer?.invalidate()
         let interval = panelVisible ? Self.activeInterval : Self.idleInterval
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
+            Task { @MainActor [weak self] in self?.refresh() }
         }
     }
 
@@ -451,7 +451,7 @@ final class AgentStore: ObservableObject {
                     String(format: "%@ %d/%.2fs", $0.0.rawValue, $0.1.count, $0.2)
                   }.joined(separator: ", ") + "] "
                 + Shell.spawnsSinceLastCheck())
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 self?.hasRefreshed = true
                 // Cleared by rebuild once the rows are published: releasing it here let the next
                 // refresh overtake a slow rebuild and publish an older set over a newer one.
