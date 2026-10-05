@@ -12,7 +12,13 @@ for _ in $(seq 1 25); do pgrep -x AgentIsland >/dev/null || break; sleep 0.2; do
 # One place assembles a bundle, so what a stranger downloads cannot drift from what runs here.
 # A Homebrew install already built the bundle on this Mac; copy it rather than building twice.
 if [ -n "${AGENTISLAND_PREBUILT:-}" ]; then rm -rf "$APP"; ditto -x -k "$AGENTISLAND_PREBUILT" "$(dirname "$APP")"
-else "$REPO/scripts/make-app.sh" "$APP"; fi
+else
+    "$REPO/scripts/preflight.sh"
+    # Exit 3 is make-app's "no SDK compiles SwiftUI": a broken toolchain, which a reinstall fixes.
+    rc=0; "$REPO/scripts/make-app.sh" "$APP" || rc=$?
+    if [ "$rc" = 3 ]; then "$REPO/scripts/preflight.sh" --reinstall-clt && "$REPO/scripts/make-app.sh" "$APP"
+    elif [ "$rc" != 0 ]; then exit "$rc"; fi
+fi
 
 echo "==> registering hooks"
 python3 "$REPO/scripts/install-hooks.py" "$REPO"

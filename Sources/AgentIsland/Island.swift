@@ -218,7 +218,7 @@ final class Island: NSObject, ObservableObject {
         guard autoHides else { return }
         hideTimer = Timer.scheduledTimer(withTimeInterval: Prefs.shared.autoHideSeconds,
                                          repeats: false) { [weak self] _ in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 guard let self, self.state == .collapsed, !self.revealed else { return }
                 // Never while something is happening. The bar exists to show that an agent is
             // working; hiding it then removes the one thing it is for. Letting work in progress
@@ -370,7 +370,7 @@ final class Island: NSObject, ObservableObject {
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.pinned = nil
                 self.followActiveScreen()
@@ -575,7 +575,7 @@ final class Island: NSObject, ObservableObject {
         poll?.invalidate()
         let interval: TimeInterval = state == .collapsed ? 0.75 : 0.06
         poll = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.track() }
+            Task { @MainActor [weak self] in self?.track() }
         }
     }
 
@@ -769,7 +769,7 @@ final class Island: NSObject, ObservableObject {
         let trail = store.hooks.live[a.session]?.trail ?? []
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let ctx = ApprovalContext.gather(for: a, trail: trail)
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 guard let self, case .approval(let cur) = self.state, cur.id == a.id else { return }
                 withAnimation(Motion.shell) {
                     self.approvalContext = ctx
@@ -1124,7 +1124,7 @@ final class Island: NSObject, ObservableObject {
         // never reach the chat while its reader is waiting to be told what it means.
         explainHold?.invalidate()
         explainHold = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] t in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 guard let self, self.explaining.contains(item.id) else { t.invalidate(); return }
                 self.markInteraction(q.id)
             }
@@ -1289,7 +1289,7 @@ final class Island: NSObject, ObservableObject {
         let center = DistributedNotificationCenter.default()
         for (name, locked) in [("com.apple.screenIsLocked", true), ("com.apple.screenIsUnlocked", false)] {
             center.addObserver(forName: .init(name), object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
                     self?.screenLocked = locked
                     if !locked { self?.fireReminders() }
                 }
@@ -1327,7 +1327,7 @@ final class Island: NSObject, ObservableObject {
         reminderTimer?.invalidate()
         reminderTimer = Timer.scheduledTimer(withTimeInterval: max(1, at.timeIntervalSinceNow),
                                              repeats: false) { [weak self] _ in
-            Task { @MainActor in self?.fireReminders() }
+            Task { @MainActor [weak self] in self?.fireReminders() }
         }
     }
 

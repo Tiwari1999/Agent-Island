@@ -65,7 +65,7 @@ final class StatusStore: ObservableObject {
     func start() {
         read()
         timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.read() }
+            Task { @MainActor [weak self] in self?.read() }
         }
     }
 

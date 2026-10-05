@@ -29,14 +29,17 @@ agent-island
 
 ### From source
 
-You need Apple's **Command Line Tools**. If `xcode-select -p` prints a path, you have them.
-Otherwise install them:
+`install.sh` checks what the build needs before it starts and fixes it on the spot:
 
-```bash
-xcode-select --install
-```
+- **Command Line Tools missing:** it opens Apple's installer, waits for it, then carries on.
+- **Swift too old:** it installs the newer Command Line Tools from Software Update (macOS asks
+  for your password), then carries on.
+- **Command Line Tools half-upgraded** (no SDK can build the app): it offers to reinstall them.
+- **macOS older than 14:** it stops and says so, because a script cannot upgrade macOS.
 
-Then:
+Run without a terminal (for example from CI), it prints the exact command instead of prompting.
+
+
 
 ```bash
 git clone https://github.com/Tiwari1999/Agent-Island.git
@@ -85,7 +88,7 @@ you use the matching feature:
 | Agent | What the installer changes | What you get |
 |---|---|---|
 | **Claude Code** | Hook entries in `~/.claude/settings.json`, plus a `statusLine`. An existing statusLine is kept and run inside ours, not replaced. | Every feature, including approvals, answers, quota and burn rate |
-| **Codex** | Hook entries in `~/.codex/hooks.json` | Sessions, status, Codex rate limits |
+| **Codex** | Hook entries in `~/.codex/hooks.json`. Codex runs new or changed hooks only after you approve them: run `codex`, type `/hooks`, trust the Agent Island entries | Sessions, status, Codex rate limits |
 | **Cursor** (agent) | Hook entries in `~/.cursor/hooks.json` | Sessions and status |
 | **Gemini CLI** | Hook entries in `~/.gemini/settings.json` | Sessions and status. **No approvals**: Gemini's hooks can deny a tool but never grant one. |
 | **OpenCode** | Plugin file `~/.config/opencode/plugins/agentisland-opencode.js` | Sessions, status and **approvals** from the notch |
@@ -141,8 +144,8 @@ rm -rf ~/Applications/AgentIsland.app
 
 ## 7. Troubleshooting
 
-**The build fails with `no installed SDK compiles SwiftUI` and prints a compiler error.** Read the
-compiler error: it names the real cause.
+**The build fails with `no installed SDK compiles SwiftUI` and prints a compiler error.** `./install.sh`
+offers to reinstall the Command Line Tools for you. Read the compiler error: it names the real cause.
 
 The usual cause is a Command Line Tools install that was only half upgraded, with leftover files
 from an older Swift version. Reinstall them cleanly:

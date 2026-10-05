@@ -1253,7 +1253,7 @@ if os.path.isdir(cur):
 
 _store = open(f"{src}/AgentStore.swift").read()
 check("refresh hops back onto the main actor",
-      "Task { @MainActor in" in _store and "self?.rebuild(found)" in _store)
+      "Task { @MainActor [weak self] in" in _store and "self?.rebuild(found)" in _store)
 check("sources are snapshotted before leaving the actor",
       "let sources = self.sources" in open(f"{src}/AgentStore.swift").read())
 live_log="/tmp/agentisland.log"
@@ -2653,6 +2653,57 @@ check("a busy ACP row is looked at again once its write window lapses, panel ope
       and "try? await Task.sleep(for: .seconds(9))" in _as)
 check("an ACP launcher and the node it runs in the same cwd bind as one process",
       "pids.filter { Proc.parent(pid: $0).map { !outer.contains($0) } ?? true }" in open(os.path.join(REPO, "Sources/AgentIsland/CursorSource.swift")).read())
+# Live turn state, RUN against stand-in processes compiled here (comm "codex" / "node"), since
+# discovery binds by process name and cwd. Codex closes a turn with task_complete: 0.5.4 kept it
+# working 90s past that. A cursor-agent worker-server outlives its agent: orphaned, it took a chat.
+_cc = _shutil.which("cc")
+check("a C compiler is present for the live-turn stand-ins", _cc is not None)
+if _cc:
+    _lt = os.path.realpath(tempfile.mkdtemp(prefix="ai-turn-"))   # a process cwd reads /private/var
+    open(f"{_lt}/s.c", "w").write("#include <unistd.h>\nint main(void){sleep(60);return 0;}\n")
+    subprocess.run([_cc, f"{_lt}/s.c", "-o", f"{_lt}/codex"], check=True)
+    _shutil.copy(f"{_lt}/codex", f"{_lt}/node")
+    _lh = f"{_lt}/home"; _rd = f"{_lh}/.codex/sessions/2026/10/05"; os.makedirs(_rd)
+    _procs = []
+    for _name, _events in [("done", ["task_started", "task_complete"]), ("busy", ["task_complete", "task_started"])]:
+        _w = f"{_lt}/w-{_name}"; os.makedirs(_w)
+        _sid = f"01a10a00-0000-7000-8000-00000000000{'1' if _name == 'done' else '2'}"
+        with open(f"{_rd}/rollout-2026-10-05T10-00-00-{_sid}.jsonl", "w") as _h:
+            _h.write(json.dumps({"type": "session_meta", "payload": {"id": _sid, "cwd": _w, "originator": "codex-tui",
+                                                                    "source": "cli", "thread_source": "user"}}) + "\n")
+            for _e in _events:
+                # Compact, as Codex writes it.
+                _h.write(json.dumps({"type": "event_msg", "payload": {"type": _e, "turn_id": "t"}}, separators=(",", ":")) + "\n")
+        _procs.append(subprocess.Popen([f"{_lt}/codex"], cwd=_w))
+    # The daemon an interactive codex leaves behind in its folder; counted, it unbound the session.
+    _procs.append(subprocess.Popen([f"{_lt}/codex", "app-server", "--listen", "unix://", "--managed-daemon"],
+                                   cwd=f"{_lt}/w-done"))
+    _ww = f"{_lt}/w-worker"; os.makedirs(_ww); os.makedirs(f"{_lh}/.cursor/acp-sessions/acp-w")
+    json.dump({"cwd": _ww, "title": "A Chat"}, open(f"{_lh}/.cursor/acp-sessions/acp-w/meta.json", "w"))
+    open(f"{_lh}/.cursor/acp-sessions/acp-w/store.db", "w").write("x")
+    _procs.append(subprocess.Popen([f"{_lt}/node", "/x/cursor-agent/index.js", "worker-server"], cwd=_ww))
+    # `cursor-agent "prompt"` gets a title but no prompt_history.json; a headless -p run gets neither.
+    for _cid, _ct in [("chat-cli", "Okay Reply"), ("chat-headless", None)]:
+        os.makedirs(f"{_lh}/.cursor/chats/ws/{_cid}")
+        _cm = {"cwd": _ww, "hasConversation": True, "updatedAtMs": int(time.time() * 1000)}
+        if _ct: _cm["title"] = _ct
+        json.dump(_cm, open(f"{_lh}/.cursor/chats/ws/{_cid}/meta.json", "w"))
+    time.sleep(0.5)
+    _env = {**os.environ, "AGENTISLAND_HOME": _lh}
+    _cx = subprocess.run([os.path.join(REPO, ".build/debug/AgentIsland"), "--discover", "codex"],
+                         capture_output=True, text=True, timeout=60, env=_env).stdout
+    _cu = subprocess.run([os.path.join(REPO, ".build/debug/AgentIsland"), "--discover", "cursor"],
+                         capture_output=True, text=True, timeout=60, env=_env).stdout
+    for _p in _procs: _p.kill()
+    _shutil.rmtree(_lt, ignore_errors=True)
+    _cl = lambda tail: next((l for l in _cx.splitlines() if l.startswith("01a10a00") and l.split(" | ")[0].endswith(tail)), "")
+    check("a Codex turn that wrote task_complete is idle at once; one still running is busy",
+          "state=idle" in _cl("1") and "pid=-" not in _cl("1") and "state=busy" in _cl("2"), _cx.strip()[:300])
+    check("a Cursor chat started with a command-line prompt lists; a headless -p run does not",
+          "chat-cli | " in _cu and "chat-headless" not in _cu, _cu.strip()[:300])
+    check("an orphaned cursor-agent worker-server is never taken for a chat's process",
+          "acp-w | " in _cu and "pid=-" in next((l for l in _cu.splitlines() if l.startswith("acp-w | ")), ""), _cu.strip()[:300])
+
 # MonoCode stops an agent between turns, so neither the env marker nor a live pid survives. Its own
 # table of tabs does. RUN against a synthetic home: an open tab's headless session lists, an archived
 # tab's and an unrelated `claude -p` run's stay hidden.
@@ -2711,6 +2762,78 @@ _pk = open(os.path.join(REPO, "Package.swift")).read()
 _pk_code = "\n".join(l for l in _pk.splitlines() if not l.strip().startswith("//"))
 check("the manifest parses on older toolchains: tools 5.10, no language-mode setting",
       _pk.startswith("// swift-tools-version: 5.10\n") and "swiftLanguageMode" not in _pk_code)
+
+# Swift 5.10 (Sonoma's Xcode 15 tools, the manifest's floor) rejects a nested Task using an outer
+# [weak self]; 6.x accepts it, so only an old toolchain saw the 13 sites. Each Task captures its own.
+_allsrc = "".join(open(p).read() for p in glob.glob(os.path.join(REPO, "Sources/AgentIsland/*.swift")))
+check("no nested Task reuses an outer weak self (a compile error on Swift 5.10)",
+      re.search(r"Task \{ @MainActor in\s+self\?", _allsrc) is None)
+# Settings read in the locale's encoding: ASCII crashed the install halfway, Latin-1 rewrote "Grüße"
+# as mojibake. RUN in a sandboxed HOME under an ASCII locale; Cursor's new file also needs "version".
+_lh2 = RUN + "-locale"; os.makedirs(_lh2 + "/.claude", exist_ok=True); os.makedirs(_lh2 + "/.cursor", exist_ok=True)
+json.dump({"note": "Grüße 你好 🚀"}, open(_lh2 + "/.claude/settings.json", "w", encoding="utf-8"), ensure_ascii=False)
+_r = subprocess.run([sys.executable, os.path.join(REPO, "scripts/install-hooks.py"), REPO], capture_output=True,
+                    text=True, timeout=60, env=dict(os.environ, HOME=_lh2, AGENTISLAND_SKIP_IDE_EXTENSION="1",
+                                                    LC_ALL="en_US.US-ASCII", LANG="en_US.US-ASCII"))
+_lj = json.load(open(_lh2 + "/.claude/settings.json", encoding="utf-8"))
+check("an ASCII-locale install keeps non-ASCII settings intact and finishes",
+      _r.returncode == 0 and _lj.get("note") == "Grüße 你好 🚀", (_r.stdout + _r.stderr)[-300:])
+check("a Cursor hooks.json created from nothing carries the version Cursor requires",
+      os.path.exists(_lh2 + "/.cursor/hooks.json")
+      and json.load(open(_lh2 + "/.cursor/hooks.json", encoding="utf-8")).get("version") == 1)
+_fmt = open(os.path.join(REPO, "packaging/homebrew/Formula/agent-island.rb")).read()
+check("the formula lists license before head, as brew audit --strict requires",
+      _fmt.index('\n  license "MIT"') < _fmt.index("\n  head "))
+
+# Every new user hit a new missing or outdated package. RUN: the real preflight against stubbed
+# sw_vers/swift/xcode-select/softwareupdate/sudo, under `script` so it has a terminal like a person.
+def _preflight(macos, swift, clt=True, tty=True):
+    d = tempfile.mkdtemp(prefix="ai-pf-"); b = d + "/bin"; os.makedirs(b)
+    st = d + "/state"; os.makedirs(st)
+    open(st + "/swift", "w").write(swift)
+    if clt: open(st + "/clt", "w").write("1")
+    stubs = {
+        "sw_vers": f'echo {macos}',
+        "swift": f'[ -f {st}/clt ] || exit 1; echo "Apple Swift version $(cat {st}/swift) (x)"',
+        "xcode-select": f'echo "xcode-select $*" >> {st}/log; [ "$1" = -p ] && {{ [ -f {st}/clt ] && echo /CLT || exit 2; }}; '
+                        f'[ "$1" = --install ] && {{ echo 1 > {st}/clt; echo 6.1 > {st}/swift; }}; true',
+        "softwareupdate": f'echo "softwareupdate $*" >> {st}/log; '
+                          f'[ "$1" = --list ] && printf "Software Update found:\\n* Label: Command Line Tools for Xcode-16.4\\n"; '
+                          f'[ "$1" = -i ] && echo 6.1 > {st}/swift; true',
+        "sudo": f'echo "sudo $*" >> {st}/log; "$@"',
+        "sleep": 'true',
+    }
+    for n, body in stubs.items():
+        open(f"{b}/{n}", "w").write("#!/bin/bash\n" + body + "\n"); os.chmod(f"{b}/{n}", 0o755)
+    env = {**os.environ, "PATH": b + ":/usr/bin:/bin", "AGENTISLAND_MIN_SWIFT": "6.0"}
+    cmd = [os.path.join(REPO, "scripts/preflight.sh")]
+    if tty: cmd = ["script", "-q", "/dev/null"] + cmd
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=env, stdin=subprocess.DEVNULL if not tty else None)
+    log = open(st + "/log").read() if os.path.exists(st + "/log") else ""
+    _shutil.rmtree(d, ignore_errors=True)
+    return r.returncode, r.stdout + r.stderr, log
+_rc, _out, _log = _preflight("15.1", "6.1")
+check("preflight: an up-to-date Mac goes straight on and installs nothing",
+      _rc == 0 and "ready" in _out and "softwareupdate -i" not in _log and "--install" not in _log, _out[-200:])
+_rc, _out, _ = _preflight("13.6", "6.1")
+check("preflight: macOS 13 stops with the reason, since no script can upgrade macOS",
+      _rc != 0 and "needs macOS 14" in _out, _out[-200:])
+_rc, _out, _log = _preflight("15.1", "5.9")
+check("preflight: an old Swift updates Command Line Tools on the spot, then carries on",
+      _rc == 0 and 'sudo softwareupdate -i Command Line Tools for Xcode-16.4' in _log and "Swift 6.1: ready" in _out,
+      (_out + _log)[-300:])
+_rc, _out, _log = _preflight("15.1", "6.1", clt=False)
+check("preflight: missing Command Line Tools start Apple's installer and the install continues",
+      _rc == 0 and "xcode-select --install" in _log and "ready" in _out, (_out + _log)[-300:])
+_rc, _out, _log = _preflight("15.1", "5.9", tty=False)
+check("preflight: with nobody at a terminal it prints the exact command instead of prompting",
+      _rc != 0 and 'sudo softwareupdate -i "Command Line Tools for Xcode-16.4"' in _out and "-i" not in _log.replace("--list", ""),
+      (_out + _log)[-300:])
+_ins = open(os.path.join(REPO, "install.sh")).read()
+check("install.sh runs the preflight before building, and reinstalls a broken toolchain only on make-app's exit 3",
+      _ins.index('"$REPO/scripts/preflight.sh"\n') < _ins.index('rc=0; "$REPO/scripts/make-app.sh" "$APP" || rc=$?')
+      and 'if [ "$rc" = 3 ]; then "$REPO/scripts/preflight.sh" --reinstall-clt' in _ins
+      and 'rm -rf "$probe_dir"; exit 3; }' in open(os.path.join(REPO, "scripts/make-app.sh")).read())
 
 # The formula builds on the user's Mac (no Developer ID, no Gatekeeper prompt). brew rewrites
 # Mach-O paths in a keg, which broke Sparkle's seal until the app was shipped zipped.
@@ -3166,7 +3289,7 @@ check("preferences are written as they change, not on an Apply",
       and "UserDefaults.standard.set(snoozedUntil?.timeIntervalSince1970" in _st)
 # Nothing else watches the clock, so quiet would otherwise outlast its own deadline.
 check("quiet ends on its own",
-      "private func armExpiry()" in _st and "Task { @MainActor in self?.snoozedUntil = nil }" in _st)
+      "private func armExpiry()" in _st and "Task { @MainActor [weak self] in self?.snoozedUntil = nil }" in _st)
 # Counted on the condition, not on the whole one-line statement: one of the three now logs why
 # it dropped the thing, and a guard with a body is still a guard.
 check("quiet stops the island putting anything over your screen",

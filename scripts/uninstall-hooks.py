@@ -33,7 +33,7 @@ def ours(obj):
 def save(path, cfg):
     """Write-then-rename: a kill or full disk mid-write must never leave settings truncated."""
     tmp = path + ".agentisland.tmp"
-    with open(tmp, "w") as f:
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
     os.replace(tmp, path)
 
@@ -43,7 +43,7 @@ def clean(name, path):
         print(f"  {name}: no config, nothing to do")
         return
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             cfg = json.load(f)
     except json.JSONDecodeError:
         print(f"  {name}: config is not valid JSON, refusing to touch it")
@@ -69,7 +69,7 @@ def clean(name, path):
         saved = os.path.expanduser("~/.agentisland/prev-statusline.json")
         user = os.path.expanduser("~/.claude/statusline-command.sh")
         if os.path.exists(saved):
-            cfg["statusLine"] = json.load(open(saved))
+            cfg["statusLine"] = json.load(open(saved, encoding="utf-8"))
             for f in (saved, saved[: -len(".json")]):
                 os.remove(f)
         elif os.path.exists(user):
@@ -102,7 +102,7 @@ def clean_cursor(path):
         print("  Cursor: no config, nothing to do")
         return
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             cfg = json.load(f)
     except json.JSONDecodeError:
         print("  Cursor: config is not valid JSON, refusing to touch it")
@@ -189,7 +189,7 @@ for name, ext_dir, cli in (
          "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"),
         ("Cursor", "~/.cursor/extensions", "/Applications/Cursor.app/Contents/Resources/app/bin/cursor")):
     try:
-        listed = open(os.path.join(os.path.expanduser(ext_dir), "extensions.json")).read()
+        listed = open(os.path.join(os.path.expanduser(ext_dir), "extensions.json"), encoding="utf-8").read()
     except OSError:
         continue
     if '"agentisland.ide-focus"' not in listed or not os.access(cli, os.X_OK):

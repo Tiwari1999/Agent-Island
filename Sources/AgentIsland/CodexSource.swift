@@ -64,7 +64,8 @@ struct CodexSource: AgentSource {
                 // A live process means the session is open, not that it is working. Codex
                 // appends to its rollout while it works, so recency is the evidence; without
                 // this every open Codex tab claimed to be busy forever.
-                state: live == nil ? nil : (Self.working(since: mtime) ? "busy" : "idle"),
+                // Codex closes a turn with task_complete; recency alone kept it busy 90s past that.
+                state: live == nil ? nil : (!roll.turnEnded && Self.working(since: mtime) ? "busy" : "idle"),
                 status: nil,
                 pid: live,
                 vendor: .codex,
@@ -98,6 +99,8 @@ struct CodexSource: AgentSource {
         var limitPct: Int?
         var weekPct: Int?
         var limitResets: Date?
+        /// The newest turn event was task_complete or turn_aborted, not task_started.
+        var turnEnded = false
     }
 
     /// The newest session's quota, for the panel and the resting bar.
@@ -131,6 +134,9 @@ struct CodexSource: AgentSource {
             var lastUsage: [String: Any]?
             var window: Double?
             for line in text.split(whereSeparator: \.isNewline) {
+                if line.contains("\"payload\":{\"type\":\"task_started\"") { r.turnEnded = false }
+                else if line.contains("\"payload\":{\"type\":\"task_complete\"")
+                    || line.contains("\"payload\":{\"type\":\"turn_aborted\"") { r.turnEnded = true }
                 // Older rollouts logged a `user_message` event; newer ones record the turn as a
                 // response_item whose content is a block array. Gate on either.
                 let wantsPrompt = line.contains("\"user_message\"") || line.contains("\"input_text\"")
@@ -256,7 +262,10 @@ struct CodexSource: AgentSource {
         // Exact name only. Matching the full command line pulled in 97 processes — every one
         // carrying "codex" anywhere in its environment, including unrelated agents — and each
         // cost an lsof call.
-        let pids = Proc.pids(named: ["codex"])
+        // The TUI leaves a `codex app-server --managed-daemon` behind in its cwd; counting it unbound every codex there.
+        let pids = Proc.pids(named: ["codex"]).filter {
+            !(Proc.argsEnv(pid: $0)?.argv.contains("--managed-daemon") ?? false)
+        }
         return Cwd.map(pids: pids)
     }
 
