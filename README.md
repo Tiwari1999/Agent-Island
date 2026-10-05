@@ -163,6 +163,33 @@ cd Agent-Island
 it finds, and launches it. Run it again after `git pull` to update; it only changes what is out of
 date.
 
+### One step after installing
+
+Most agents pick the hooks up on their own. Two ask you first, once:
+
+| Agent | What you do |
+|---|---|
+| **Codex** | Run `codex`, type `/hooks` and trust the Agent Island entries. Codex skips new or changed hooks until you do, and asks again whenever another tool edits `~/.codex/hooks.json`. |
+| **Gemini CLI** | Hooks run only in folders you trust. Run `gemini` in your project and trust the folder when it asks. |
+| Claude Code, Cursor, OpenCode | Nothing to approve. |
+
+Then restart any session that was already running: the Cursor CLI, Gemini CLI and OpenCode read
+hooks only when a session starts. Claude Code and the Cursor editor reload them by themselves.
+
+**Installing with an AI agent?** Paste this into Claude Code, Codex or Cursor:
+
+```text
+Install Agent Island (https://github.com/Tiwari1999/Agent-Island) on this Mac.
+1. Run `brew install tiwari1999/tap/agent-island`, then `agent-island`. Without Homebrew,
+   clone the repo and run ./install.sh instead.
+2. Then tell me the steps only I can do, and do not work around them:
+   - Codex: run `codex`, type /hooks, trust the Agent Island entries.
+   - Gemini CLI: trust my project folder when gemini asks.
+   Never use --dangerously-bypass-hook-trust, --skip-trust or GEMINI_CLI_TRUST_WORKSPACE, and
+   never edit Codex's or Gemini's trust settings yourself: those approvals are mine to give.
+3. Remind me to restart agent sessions that were already running.
+```
+
 **Full guide:** [`docs/INSTALL.md`](docs/INSTALL.md) covers first-launch permissions, what changes
 for each agent, exact-tab jumps in VS Code, Cursor and Ghostty, updating, uninstalling and
 troubleshooting.
@@ -177,7 +204,8 @@ Cursor. It takes a timestamped backup of each file first and never rewrites or r
 tools' entries. An existing `statusLine` is saved and run inside ours rather than replaced.
 
 ```bash
-python3 scripts/uninstall-hooks.py     # removes only our entries, restores your statusLine
+# removes only our entries and restores your statusLine; works for source and Homebrew installs
+python3 ~/Library/"Application Support"/AgentIsland/uninstall-hooks.py
 rm -rf ~/Applications/AgentIsland.app
 ```
 </details>
