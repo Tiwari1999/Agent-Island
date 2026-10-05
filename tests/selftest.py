@@ -2705,6 +2705,13 @@ check("a prompt queued during a running tool keeps the row working",
       and "state.inTool = false" not in _ups
       and "state.inTool = false        // however it stopped" in _hs_ups)
 
+# A friend's install died on `.swiftLanguageMode`, which older 6.x Command Line Tools lack. A 5.10
+# manifest builds in Swift 5 mode on every 5.10+/6.x toolchain with no setting at all.
+_pk = open(os.path.join(REPO, "Package.swift")).read()
+_pk_code = "\n".join(l for l in _pk.splitlines() if not l.strip().startswith("//"))
+check("the manifest parses on older toolchains: tools 5.10, no language-mode setting",
+      _pk.startswith("// swift-tools-version: 5.10\n") and "swiftLanguageMode" not in _pk_code)
+
 # The formula builds on the user's Mac (no Developer ID, no Gatekeeper prompt). brew rewrites
 # Mach-O paths in a keg, which broke Sparkle's seal until the app was shipped zipped.
 _fm = open(os.path.join(REPO, "packaging/homebrew/Formula/agent-island.rb")).read()
