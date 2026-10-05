@@ -2786,7 +2786,7 @@ check("the formula lists license before head, as brew audit --strict requires",
       _fmt.index('\n  license "MIT"') < _fmt.index("\n  head "))
 
 # Every new user hit a new missing or outdated package. RUN: the real preflight against stubbed
-# sw_vers/swift/xcode-select/softwareupdate/sudo, under `script` so it has a terminal like a person.
+# sw_vers/swift/xcode-select/softwareupdate/sudo, on a pty so it has a terminal like a person.
 def _preflight(macos, swift, clt=True, tty=True):
     d = tempfile.mkdtemp(prefix="ai-pf-"); b = d + "/bin"; os.makedirs(b)
     st = d + "/state"; os.makedirs(st)
@@ -2806,9 +2806,12 @@ def _preflight(macos, swift, clt=True, tty=True):
     for n, body in stubs.items():
         open(f"{b}/{n}", "w").write("#!/bin/bash\n" + body + "\n"); os.chmod(f"{b}/{n}", 0o755)
     env = {**os.environ, "PATH": b + ":/usr/bin:/bin", "AGENTISLAND_MIN_SWIFT": "6.0"}
-    cmd = [os.path.join(REPO, "scripts/preflight.sh")]
-    if tty: cmd = ["script", "-q", "/dev/null"] + cmd
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=env, stdin=subprocess.DEVNULL if not tty else None)
+    # A pty of our own, not `script`: that needs the suite's own stdin to be a terminal, and it often is not.
+    import pty
+    m, sl = pty.openpty() if tty else (None, None)
+    r = subprocess.run([os.path.join(REPO, "scripts/preflight.sh")], capture_output=True, text=True, timeout=60,
+                       env=env, stdin=sl if tty else subprocess.DEVNULL)
+    if tty: os.close(m); os.close(sl)
     log = open(st + "/log").read() if os.path.exists(st + "/log") else ""
     _shutil.rmtree(d, ignore_errors=True)
     return r.returncode, r.stdout + r.stderr, log
@@ -3674,6 +3677,12 @@ _lr_ig = open(os.path.join(REPO, "docs/INSTALL.md")).read()
 check("the install guide sends a blocked first launch to Open Anyway, never an xattr command",
       "privacy & security" in _lr_ig.lower() and "open anyway" in _lr_ig.lower()
       and "docs/INSTALL.md" in _lr_rm and "xattr -d" not in _lr_rm and "xattr -d" not in _lr_ig)
+# Codex runs new or changed hooks only once trusted in /hooks, Gemini only in a trusted folder; nothing
+# said so, and a user's own agent asked to "make it work" could reach for a bypass flag instead.
+_hk = _lr_rm[_lr_rm.find("### One step after installing"):_lr_rm.find("**Full guide:**")]
+check("the README says how to approve the hooks once, and its agent prompt forbids bypassing that",
+      "type `/hooks` and trust the Agent Island entries" in _hk and "trust the folder when it asks" in _hk
+      and "Never use --dangerously-bypass-hook-trust, --skip-trust or GEMINI_CLI_TRUST_WORKSPACE" in _hk)
 
 # The README once promised approvals for all three vendors while one publishes the hook.
 check("what each agent can do is stated in one place",

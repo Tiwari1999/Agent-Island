@@ -90,8 +90,13 @@ you use the matching feature:
 | **Claude Code** | Hook entries in `~/.claude/settings.json`, plus a `statusLine`. An existing statusLine is kept and run inside ours, not replaced. | Every feature, including approvals, answers, quota and burn rate |
 | **Codex** | Hook entries in `~/.codex/hooks.json`. Codex runs new or changed hooks only after you approve them: run `codex`, type `/hooks`, trust the Agent Island entries | Sessions, status, Codex rate limits |
 | **Cursor** (agent) | Hook entries in `~/.cursor/hooks.json` | Sessions and status |
-| **Gemini CLI** | Hook entries in `~/.gemini/settings.json` | Sessions and status. **No approvals**: Gemini's hooks can deny a tool but never grant one. |
+| **Gemini CLI** | Hook entries in `~/.gemini/settings.json`. Gemini runs them only in folders you trust: run `gemini` in your project and trust it when asked | Sessions and status. **No approvals**: Gemini's hooks can deny a tool but never grant one. |
 | **OpenCode** | Plugin file `~/.config/opencode/plugins/agentisland-opencode.js` | Sessions, status and **approvals** from the notch |
+
+Restart any agent session that was already running when you installed: the Cursor CLI, Gemini
+CLI and OpenCode read hooks only when a session starts. Claude Code and the Cursor editor reload
+them by themselves. Installing with an AI agent? The [README](../README.md#one-step-after-installing)
+has a prompt to paste.
 
 The installer backs up every file it edits before changing it, with a timestamp. It never
 rewrites or reorders other tools' entries. An agent that isn't installed is skipped. If you

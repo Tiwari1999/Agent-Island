@@ -289,6 +289,8 @@ if os.path.isdir(os.path.expanduser("~/.gemini")):
     gemini_plan = [(e, HOOK, {}) for e in ["SessionStart", "SessionEnd", "BeforeAgent",
                                             "AfterAgent", "BeforeTool", "AfterTool", "Notification"]]
     install("Gemini CLI", os.path.expanduser("~/.gemini/settings.json"), gemini_plan)
+    # Folder Trust (on by default) holds back every settings hook in a folder not yet trusted.
+    print("  Gemini CLI: hooks run only in folders you trust: run gemini in your project and trust it")
 else:
     print("  Gemini CLI: not installed, skipped")
 
@@ -367,7 +369,8 @@ def install_ide_extension():
 install_ide_extension()
 
 # The staged copy, not scripts/: a Homebrew user has no checkout and the Cellar path changes per version.
-print(f'\n  Uninstall with: python3 "{os.path.join(os.path.dirname(STAGE), "uninstall-hooks.py")}"')
+print("\n  Restart agent sessions that were already running: the Cursor CLI, Gemini CLI and OpenCode load hooks at start.")
+print(f'  Uninstall with: python3 "{os.path.join(os.path.dirname(STAGE), "uninstall-hooks.py")}"')
 
 # The harness kills a hook at the timeout in settings.json whatever the hook believes. When
 # that number sits below the hook's own window the failure is silent and late: the reader
