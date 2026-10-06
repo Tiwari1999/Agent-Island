@@ -449,7 +449,7 @@ sequenceDiagram
     I->>Y: card in the notch
     Y->>I: allow / deny (or ⌘⌥A / ⌘⌥D)
     I->>K: write decision file (dir is 0700)
-    K-->>A: permissionDecision
+    K-->>A: decision (allow / deny)
   end
   Note over K,A: no answer in 20 s → exit 0, terminal prompt
 </pre>

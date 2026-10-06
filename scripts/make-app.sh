@@ -32,7 +32,8 @@ rm -rf "$probe_dir"
 
 echo "==> building $VERSION"
 # Homebrew passes --disable-sandbox: SwiftPM's own sandbox cannot start inside brew's.
-swift build -c release --package-path "$REPO" ${AGENTISLAND_SWIFT_FLAGS:-}
+# Sparkle's zip is public; a keychain lookup for github.com only raised a password dialog (issue #10).
+swift build -c release --disable-keychain --package-path "$REPO" ${AGENTISLAND_SWIFT_FLAGS:-}
 
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS"
 cp "$REPO/.build/release/AgentIsland" "$APP/Contents/MacOS/AgentIsland"

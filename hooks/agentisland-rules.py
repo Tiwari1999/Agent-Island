@@ -184,11 +184,11 @@ def main():
                 note(f"agentisland rules: {hit!r} is never auto-approved; asking instead")
                 continue
         note(f"agentisland rules: {action} by {pat!r}")
-        print(json.dumps({"hookSpecificOutput": {
-            "hookEventName": "PermissionRequest",
-            "permissionDecision": action,
-            "permissionDecisionReason": f"AgentIsland rule: {pat}",
-        }}))
+        # PermissionRequest reads decision.behavior; permissionDecision is PreToolUse's and was silently dropped.
+        decision = {"behavior": action}
+        if action == "deny":
+            decision["message"] = f"Agent Island rule: {pat}"
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": decision}}))
         sys.exit(0)
     sys.exit(0)
 
