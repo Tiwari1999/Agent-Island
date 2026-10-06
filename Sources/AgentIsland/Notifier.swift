@@ -19,6 +19,8 @@ enum Notifier {
     /// Set by the island. Given an approval id and the answer, delivers it the same way the
     /// card does — including telling the user when it arrived too late.
     static var onDecision: ((String, Bool) -> Void)?
+    /// A click on the alert itself, with the session it is about.
+    static var onOpen: ((String) -> Void)?
 
     private static let delegate = NotificationDelegate()
 
@@ -45,12 +47,14 @@ enum Notifier {
                                     didReceive response: UNNotificationResponse,
                                     withCompletionHandler done: @escaping () -> Void) {
             defer { done() }
-            guard let id = response.notification.request.content
-                    .userInfo["approval"] as? String else { return }
-            switch response.actionIdentifier {
-            case allowAction: Task { @MainActor in onDecision?(id, true) }
-            case denyAction:  Task { @MainActor in onDecision?(id, false) }
-            default: break     // tapping the body opens the app; it is not an answer
+            let info = response.notification.request.content.userInfo
+            switch (response.actionIdentifier, info["approval"] as? String) {
+            case (allowAction, let id?): Task { @MainActor in onDecision?(id, true) }
+            case (denyAction, let id?):  Task { @MainActor in onDecision?(id, false) }
+            // The app has no window, so "opening" it showed nothing: go to the agent instead.
+            case (UNNotificationDefaultActionIdentifier, _):
+                if let s = info["session"] as? String { Task { @MainActor in onOpen?(s) } }
+            default: break
             }
         }
     }
@@ -119,6 +123,7 @@ enum Notifier {
             // The island already plays one cue for this; two sounds for one event reads as
             // a bug. Whichever surface the user is looking at, they hear it once.
             content.sound = Prefs.shared.soundNeedsYou ? nil : .default
+            content.userInfo["session"] = String(key.split(separator: "/").first ?? Substring(key))
             if let approval {
                 content.categoryIdentifier = approvalCategory
                 content.userInfo["approval"] = approval

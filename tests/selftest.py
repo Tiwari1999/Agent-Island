@@ -76,7 +76,10 @@ got=[u for u in resolved.values() if u]
 check("agents with pid resolve a Warp URL", len(got)>0, f"{len(got)}/{len(withpid)}")
 # Only sessions that own a terminal must hold it exclusively. A background agent shares its
 # owner's tab by definition — that is where its conversation is displayed.
-_own=[a for a in withpid if has_tty(a["pid"])]
+# Claude's background jobs run in a pre-warmed `bg-spare` on a pty of its own: a tty, but no tab.
+def claude_bg(pid):
+    return "--bg-spare" in subprocess.run(["ps","-o","command=","-p",str(pid)],capture_output=True,text=True).stdout
+_own=[a for a in withpid if has_tty(a["pid"]) and not claude_bg(a["pid"])]
 _owned=[u for u in (focus_url(a["pid"]) for a in _own) if u]
 check("each interactive agent maps to a DISTINCT tab",
       len(set(_owned))==len(_owned), f"{len(set(_owned))} distinct of {len(_owned)}")
@@ -2694,6 +2697,19 @@ if _cc:
                          capture_output=True, text=True, timeout=60, env=_env).stdout
     _cu = subprocess.run([os.path.join(REPO, ".build/debug/AgentIsland"), "--discover", "cursor"],
                          capture_output=True, text=True, timeout=60, env=_env).stdout
+    # A Claude background job: a bg-spare on its own pty carrying the launching tab's handle (kitty's here,
+    # so a regression tries a kitty that is absent instead of stealing focus). It is no tab; resolve says so.
+    import pty
+    _shutil.copy(f"{_lt}/codex", f"{_lt}/claude")
+    _bgp, _bgfd = pty.fork()
+    if _bgp == 0:
+        os.execve(f"{_lt}/claude", ["claude", "bg-spare", "--bg-spare", "/tmp/x.sock"], {**os.environ, "KITTY_WINDOW_ID": "7"})
+    time.sleep(0.5)
+    _bgj = subprocess.run([os.path.join(REPO, ".build/debug/AgentIsland"), "--jump-pid", str(_bgp)],
+                          capture_output=True, text=True, timeout=30).stdout
+    os.kill(_bgp, 9); os.waitpid(_bgp, 0); os.close(_bgfd)
+    check("a Claude background job is no tab: its row offers attach, never the launching tab",
+          "host=background" in _bgj, _bgj.strip())
     for _p in _procs: _p.kill()
     _shutil.rmtree(_lt, ignore_errors=True)
     _cl = lambda tail: next((l for l in _cx.splitlines() if l.startswith("01a10a00") and l.split(" | ")[0].endswith(tail)), "")
@@ -2703,6 +2719,23 @@ if _cc:
           "chat-cli | " in _cu and "chat-headless" not in _cu, _cu.strip()[:300])
     check("an orphaned cursor-agent worker-server is never taken for a chat's process",
           "acp-w | " in _cu and "pid=-" in next((l for l in _cu.splitlines() if l.startswith("acp-w | ")), ""), _cu.strip()[:300])
+
+# Notifications that went nowhere: a toast's click region refreshed at the idle 0.75s, so the first clicks
+# fell through; the toast left at 4s mid-reach; the macOS banner only "opened" a windowless app.
+_isl_n = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_ntf = open(os.path.join(REPO, "Sources/AgentIsland/Notifier.swift")).read()
+check("a toast or card tracks the pointer at the open rate from the moment it shows",
+      "@Published var state: IslandState = .collapsed { didSet { if oldValue.surface != state.surface { repoll() } } }" in _isl_n)
+check("a toast stays while the pointer is on it",
+      "if self.peekRect.insetBy(dx: -4, dy: -4).contains(NSEvent.mouseLocation) { self.endPeek(after: 1); return }" in _isl_n)
+check("clicking a macOS banner goes to its agent",
+      'content.userInfo["session"] = String(key.split(separator: "/").first ?? Substring(key))' in _ntf
+      and "case (UNNotificationDefaultActionIdentifier, _):" in _ntf
+      and "if let s = info[\"session\"] as? String { Task { @MainActor in onOpen?(s) } }" in _ntf
+      and "Notifier.onOpen = { [weak self] session in self?.open(session: session) }" in _isl_n)
+check("a notification whose agent has no row opens the panel instead of doing nothing",
+      "if let row = store.rows.first(where: { $0.agent.sessionId == session }) { store.jump(row) }" in _isl_n
+      and "showing the panel\"); expand(sticky: true) }" in _isl_n)
 
 # MonoCode stops an agent between turns, so neither the env marker nor a live pid survives. Its own
 # table of tabs does. RUN against a synthetic home: an open tab's headless session lists, an archived

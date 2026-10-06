@@ -23,6 +23,8 @@ enum ProcEnv {
         var resumeSession: String?
         /// Spawned by a desktop UI a person types into (MonoCode), so its headless mode is not automation.
         var uiDriven = false
+        /// A Claude Code background job, run in a pre-warmed `bg-spare` on its own pty: no tab of yours.
+        var claudeBackground = false
     }
 
     private static var cache: [Int: Info] = [:]
@@ -54,6 +56,7 @@ enum ProcEnv {
             i.tty = Proc.tty(pid: pid)
             i.jetbrains = ae.env["TERMINAL_EMULATOR"]?.contains("JetBrains") ?? false
             i.uiDriven = ae.env["MONOCODE_HARNESS_PARENT"] != nil
+            i.claudeBackground = ae.argv.contains("--bg-spare")
             found[pid] = i
         }
         // A pid we could not read still gets an entry, so we never re-ask about it.

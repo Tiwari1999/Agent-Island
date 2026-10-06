@@ -71,7 +71,8 @@ enum IslandState: Equatable {
 /// does not interpolate content across a live resize, which is what makes frame animation stutter.
 @MainActor
 final class Island: NSObject, ObservableObject {
-    @Published var state: IslandState = .collapsed
+    // A toast or card is clickable only where the hit region says, so it must track at the open rate.
+    @Published var state: IslandState = .collapsed { didSet { if oldValue.surface != state.surface { repoll() } } }
     /// Which screen the panel is on. It lives here, not in PanelView, because the panel is
     /// rebuilt from scratch on every collapse — `.id(island.state.surface)` forces that — so a
     /// @State mode re-ran its initialiser each time and threw away where the reader was.
@@ -290,6 +291,7 @@ final class Island: NSObject, ObservableObject {
                                    needsInput: false))
         }
 
+        Notifier.onOpen = { [weak self] session in self?.open(session: session) }
         Notifier.onDecision = { [weak self] id, allow in
             guard let self else { return }
             // Whatever is on screen, the alert is answering THIS approval — the visible one if
@@ -708,12 +710,18 @@ final class Island: NSObject, ObservableObject {
         peekWork?.cancel()
         withAnimation(Motion.shell) { state = .peek(payload) }
         refreshHitRegion()
+        endPeek(after: 4.0)
+    }
+
+    /// Ends the toast, but never under the pointer: someone reaching for "jump" must not lose it.
+    private func endPeek(after delay: TimeInterval) {
         let work = DispatchWorkItem { [weak self] in
             guard let self, case .peek = self.state else { return }
+            if self.peekRect.insetBy(dx: -4, dy: -4).contains(NSEvent.mouseLocation) { self.endPeek(after: 1); return }
             withAnimation(Motion.close) { self.state = .collapsed }
         }
         peekWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     /// Asks that arrived while another card was up. Ten agents can block on the same second, and
@@ -1371,10 +1379,14 @@ final class Island: NSObject, ObservableObject {
     /// Clicking a toast jumps straight to the agent that raised it.
     func actOnPeek(_ payload: PeekPayload) {
         peekWork?.cancel()
-        if let row = store.rows.first(where: { $0.agent.sessionId == payload.session }) {
-            store.jump(row)
-        }
         withAnimation(Motion.close) { state = .collapsed }
+        if !payload.session.isEmpty { open(session: payload.session) }   // "" is the attach-command notice
+    }
+
+    /// Jump to an agent's tab; with no row to jump from, open the panel rather than do nothing.
+    func open(session: String) {
+        if let row = store.rows.first(where: { $0.agent.sessionId == session }) { store.jump(row) }
+        else { Diagnostics.log("open \(session.prefix(8)): no row, showing the panel"); expand(sticky: true) }
     }
 }
 
