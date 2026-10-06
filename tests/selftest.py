@@ -223,10 +223,12 @@ open(f"{RUN}-dec/{rid}","w").write("deny")
 th.join()
 try:
     d=json.loads(out["r"].stdout)["hookSpecificOutput"]
-    ok = d.get("hookEventName")=="PermissionRequest" and d.get("permissionDecision")=="deny"
+    # The shape Claude Code reads for PermissionRequest; permissionDecision there is silently ignored.
+    ok = d.get("hookEventName")=="PermissionRequest" and d.get("decision",{}).get("behavior")=="deny" \
+         and "permissionDecision" not in d
 except Exception:
     ok=False; d={}
-check("answered -> emits valid permissionDecision", ok, f"decision={d.get('permissionDecision')}")
+check("answered -> emits the decision Claude Code reads", ok, f"decision={d.get('decision')}")
 check("decision file is consumed (no leak)", not os.path.exists(f"{RUN}-dec/{rid}"))
 check("heartbeat file exists while app runs", os.path.exists("/tmp/agentisland.alive"))
 
@@ -607,7 +609,7 @@ _sh.rmtree(hw,ignore_errors=True)
 check("an untouched approval exits at its base timeout", 1.0<d1<3.0, f"{d1:.1f}s")
 check("a touched card extends the wait to the hard ceiling", 3.5<d2<6.5, f"{d2:.1f}s")
 check("an answer past the base timeout is honored once touched",
-      '"permissionDecision":"allow"' in o3 and d3<5.5, f"{d3:.1f}s")
+      '"decision":{"behavior":"allow"}' in o3 and d3<5.5, f"{d3:.1f}s")
 check("the mark is cleaned on every path", not (h1 or h2 or h3))
 isl3=open(os.path.join(REPO,"Sources/AgentIsland/Island.swift")).read()
 check("expanding arms the hold and re-arms the drop to the ceiling",
@@ -1118,7 +1120,7 @@ def rule(cmd, tool="Bash", field="command"):
         {"tool_name":tool,"cwd":"/x","tool_input":{field:cmd}}),
         capture_output=True,text=True,timeout=10)
     if not r.stdout.strip(): return "ask"
-    return json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"]
+    return json.loads(r.stdout)["hookSpecificOutput"].get("decision", {}).get("behavior", "MALFORMED")
 check("safe read-only commands auto-allow", rule("git status")=="allow")
 check("destructive commands still ask", rule("rm -rf /")=="ask")
 check("force push still asks", rule("git push --force")=="ask")
@@ -1151,7 +1153,7 @@ _aa_rh = os.path.join(REPO, "hooks/agentisland-rules.py")
 def _aa_hook(tool, field, val, cwd="/tmp/proj"):
     _o = subprocess.run([_aa_rh], input=json.dumps({"tool_name": tool, "cwd": cwd, "tool_input": {field: val}}),
                         capture_output=True, text=True, timeout=10, env=_aa_env).stdout
-    return json.loads(_o)["hookSpecificOutput"]["permissionDecision"] if _o.strip() else "ask"
+    return json.loads(_o)["hookSpecificOutput"].get("decision", {}).get("behavior", "MALFORMED") if _o.strip() else "ask"
 check("the real hook accepts each saved rule for the request it came from",
       _aa_hook("Bash", "command", "git status") == "allow"
       and _aa_hook("Bash", "command", "git status -s") == "allow"
@@ -1495,7 +1497,7 @@ def _rule(rules, cmd, mode=0o600, link=False, tool="Bash"):
     if r.returncode != 0: return "CRASH"
     out = r.stdout.strip()
     if not out: return None
-    try: return json.loads(out)["hookSpecificOutput"]["permissionDecision"]
+    try: return json.loads(out)["hookSpecificOutput"]["decision"]["behavior"]
     except Exception: return "MALFORMED"
 
 # An agent can write files, so a prompt injection can write the rules file. A catch-all allow
@@ -2881,6 +2883,10 @@ check("the Homebrew formula builds locally and ships the app zipped, untouched b
       and '"AgentIsland.app"' not in _fm.split("libexec.install", 1)[1].split("\n", 1)[0]
       and 'ditto -x -k "$AGENTISLAND_PREBUILT"' in _ins_sh
       and "${AGENTISLAND_SWIFT_FLAGS:-}" in open(os.path.join(REPO, "scripts/make-app.sh")).read())
+# Issue #10: SwiftPM looked up github.com in the keychain to fetch Sparkle's public zip, raising a dialog.
+check("the build never asks the keychain for github.com, and this toolchain takes the flag",
+      'swift build -c release --disable-keychain' in open(os.path.join(REPO, "scripts/make-app.sh")).read()
+      and "--disable-keychain" in subprocess.run(["swift", "build", "--help"], capture_output=True, text=True).stdout)
 
 print("\n=== 31. code-review fixes ===")
 _ag = open(os.path.join(REPO, "Sources/AgentIsland/AgentStore.swift")).read()
@@ -2944,7 +2950,7 @@ def _roundtrip(want):
                    capture_output=True, text=True, timeout=30,
                    env=dict(os.environ, AGENTISLAND_DECISIONS=dec))
     t.join()
-    try: got = json.loads(out["r"].stdout)["hookSpecificOutput"]["permissionDecision"]
+    try: got = json.loads(out["r"].stdout)["hookSpecificOutput"]["decision"]["behavior"]
     except Exception: got = ""
     return got, os.path.exists(os.path.join(dec, rid))
 os.makedirs(_rt, exist_ok=True)
