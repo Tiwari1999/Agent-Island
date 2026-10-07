@@ -15,24 +15,16 @@ struct CollapsedView: View {
     /// Content is never allowed nearer the notch than this — text sliding under the camera
     /// housing is the one thing that makes the bar look broken.
     static let notchMargin: CGFloat = 14
-    /// Live agent activity stays visible at rest — that ambient view is the point of the bar,
-    /// and hiding it behind a hover made the island useless at a glance.
+    /// At rest only pulse + avatar (left) and bare counts (right): the 220pt sentence covered the
+    /// menus and icons beside the notch while any agent ran. Hovering the notch brings the words.
+    static let restSide: CGFloat = 52   // 4 + 15 pulse + 2×6 + 19 avatar; fits counts up to 99/99
 
-    /// The two sides are not equal: the right holds three short numbers, the left holds a
-    /// sentence. Splitting the same total 210/86 instead of 148/148 buys the sentence room
-    /// without the bar growing at all; hover buys it more.
-    /// Sized to what there is to say. A fixed 210 left a wide empty gap whenever the activity
-    /// line was short, which reads as a bar that is mostly nothing.
-    /// Each side is sized to what it holds — a sentence on the left, numbers on the right — and
-    /// never mirrored. Forcing both to the wider one squared the sentence's width onto a side
-    /// that only ever prints two percentages, and the bar grew half a screen wide for nothing.
-    /// The notch gap stays put through `Island.shellOffsetX`, not through symmetry.
-    /// 6.2/char is the measured advance of the real 10pt monospace face; the old 5.3 was tuned
-    /// for an 8.5pt scale that no longer exists, so every line silently overran its box.
+    /// Each side is sized to what it holds and never mirrored; `Island.shellOffsetX` keeps the gap on the notch.
     static func sides(revealed: Bool, left leftText: String? = nil,
                       right rightText: String? = nil) -> (left: CGFloat, right: CGFloat) {
+        guard revealed else { return (restSide, rightText == nil ? 0 : restSide) }
         // pulse + avatar + gaps on the left; the counts render a point larger on the right.
-        let l = max(112, min(revealed ? 300 : 220, 46 + CGFloat(min((leftText ?? "").count, 30)) * 6.0))
+        let l = max(112, min(300, 46 + CGFloat(min((leftText ?? "").count, 30)) * 6.0))
         let r = max(86, min(310, 34 + CGFloat((rightText ?? "").count) * 6.9))
         return (l, r)
     }
@@ -94,19 +86,21 @@ struct CollapsedView: View {
                 Spacer(minLength: 0)
                 if let row = lead {
                     AgentAvatar(seed: row.agent.sessionId, size: 19, mood: row.mood)
-                    Text(row.activity ?? row.displayName)
-                        .font(Theme.mono(Type.small))
-                        .foregroundColor(row.waiting ? Theme.waiting : Theme.muted)
-                        .lineLimit(1).truncationMode(.tail)
-                        // Bounded so the text cannot grow into the pulse's place.
-                        .frame(maxWidth: Self.sides(revealed: revealed, left: leftText,
-                                                    right: rightText).left - 46,
-                               alignment: .trailing)
-                } else if let s = spentText {
+                    if revealed {
+                        Text(row.activity ?? row.displayName)
+                            .font(Theme.mono(Type.small))
+                            .foregroundColor(row.waiting ? Theme.waiting : Theme.muted)
+                            .lineLimit(1).truncationMode(.tail)
+                            // Bounded so the text cannot grow into the pulse's place.
+                            .frame(maxWidth: Self.sides(revealed: revealed, left: leftText,
+                                                        right: rightText).left - 46,
+                                   alignment: .trailing)
+                    }
+                } else if revealed, let s = spentText {
                     // Nothing running: the left carries what today cost, so the bar stays balanced
                     // and the two sides read as one sentence — spent here, left there.
                     Text(s).font(Theme.mono(Type.micro)).foregroundColor(Theme.faint).lineLimit(1)
-                } else {
+                } else if revealed {
                     Text("idle").font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
                 }
             }
@@ -125,8 +119,10 @@ struct CollapsedView: View {
                             .font(Theme.label(Type.small)).foregroundColor(Theme.working)
                             .contentTransition(.numericText(value: Double(store.workingCount)))
                             .animation(Motion.value, value: store.workingCount)
-                        Text("working").font(Theme.mono(Type.micro))
-                            .foregroundColor(Theme.working.opacity(0.85))
+                        if revealed {
+                            Text("working").font(Theme.mono(Type.micro))
+                                .foregroundColor(Theme.working.opacity(0.85))
+                        }
                     }
                     .lineLimit(1)
                     .transition(reduceMotion ? .opacity
@@ -141,7 +137,7 @@ struct CollapsedView: View {
                             .font(Theme.label(Type.small)).foregroundColor(Theme.waiting)
                             .contentTransition(.numericText(value: Double(store.waitingCount)))
                             .animation(Motion.value, value: store.waitingCount)
-                        Text("waiting").font(Theme.mono(Type.micro)).foregroundColor(Theme.waiting)
+                        if revealed { Text("waiting").font(Theme.mono(Type.micro)).foregroundColor(Theme.waiting) }
                     }
                     .lineLimit(1)
                     .transition(reduceMotion ? .opacity
@@ -150,7 +146,7 @@ struct CollapsedView: View {
                     HStack(spacing: 3) {
                         Text("\(store.blockedCount)")
                             .font(Theme.mono(Type.small)).foregroundColor(Theme.faint)
-                        Text("blocked").font(Theme.mono(Type.micro)).foregroundColor(Theme.faint)
+                        if revealed { Text("blocked").font(Theme.mono(Type.micro)).foregroundColor(Theme.faint) }
                     }
                     .lineLimit(1)
                     .transition(reduceMotion ? .opacity

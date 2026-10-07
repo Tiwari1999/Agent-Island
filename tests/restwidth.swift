@@ -3,10 +3,10 @@
 // an advance width. Both sides are clipped, not truncated, so an overrun loses characters with no
 // ellipsis — except the activity text on the left, which sets truncationMode(.tail) and may
 // ellipsize once past the width the formula counts.
-// argv: lFloor lCeil lBase lPer  rFloor rCeil rBase rPer
+// argv: lFloor lCeil lBase lPer  rFloor rCeil rBase rPer  restSide
 import AppKit
 let a = CommandLine.arguments.dropFirst().compactMap(Double.init)
-guard a.count == 8 else { print("bad args"); exit(2) }
+guard a.count == 9 else { print("bad args"); exit(2) }
 let (lFloor, lCeil, lBase, lPer) = (a[0], a[1], a[2], a[3])
 let (rFloor, rCeil, rBase, rPer) = (a[4], a[5], a[6], a[7])
 // The counts render a point larger than the limits; measure everything at the larger size.
@@ -34,4 +34,12 @@ for l in ["idle", "spent $0.02 · 12k", "spent $438 · 18.2M", "spent $1999999 �
     let needs = width(l) + 14
     if l.count <= 30, needs > box { bad.append("LEFT \(l) needs \(Int(needs)) box \(Int(box))") }
 }
+// At rest each side holds glyphs only: pulse + avatar on the left, bare counts (bell for waiting) on the right.
+let rest = a[8]
+if 4 + 15 + 2 * 6 + 19 > rest { bad.append("REST left pulse+avatar needs 50 box \(Int(rest))") }
+let digits = NSFont.systemFont(ofSize: 11, weight: .semibold)
+let bell = NSImage(systemSymbolName: "bell.fill", accessibilityDescription: nil)!
+    .withSymbolConfiguration(.init(pointSize: 9, weight: .regular))!.size.width
+let counts = ("99" as NSString).size(withAttributes: [.font: digits]).width
+if counts + 7 + bell + 3 + counts > rest { bad.append("REST right 99/99 box \(Int(rest))") }
 print(bad.isEmpty ? "ok" : "CUT: " + bad.joined(separator: "; "))
