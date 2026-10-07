@@ -438,14 +438,15 @@ proto=open(os.path.join(REPO,"Sources/AgentIsland/AgentSource.swift")).read()
 vw = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
 # Both sides are clipped, not truncated, so an overrun loses characters with no ellipsis to show
 # for it. Measure the real strings in the real font against the box the real formula gives.
-_m = re.search(r'let l = max\(([\d.]+), min\(revealed \? [\d.]+ : ([\d.]+), '
+_m = re.search(r'let l = max\(([\d.]+), min\(([\d.]+), '
                r'([\d.]+) \+ CGFloat\(min\(\(leftText \?\? ""\)\.count, 30\)\) \* ([\d.]+)\)\)', vw)
 _w = re.search(r'let r = max\(([\d.]+), min\(([\d.]+), '
                r'([\d.]+) \+ CGFloat\(\(rightText \?\? ""\)\.count\) \* ([\d.]+)\)\)', vw)
-check("the width formula is where the test expects it", _m is not None and _w is not None)
-if _m and _w:
+_rs = re.search(r'static let restSide: CGFloat = ([\d.]+)', vw)
+check("the width formula is where the test expects it", _m is not None and _w is not None and _rs is not None)
+if _m and _w and _rs:
     _r = subprocess.run(["swift", os.path.join(REPO, "tests/restwidth.swift")]
-                        + list(_m.groups()) + list(_w.groups()),
+                        + list(_m.groups()) + list(_w.groups()) + [_rs.group(1)],
                         capture_output=True, text=True, timeout=300).stdout.strip()
     check("both bar sides always fit their box", _r == "ok", _r)
 check("resting line is not hard-clipped without truncation", ".lineLimit(1).fixedSize()" not in vw)
@@ -844,7 +845,15 @@ check("bar width follows the text it prints, not a fixed number",
       "left leftText: String? = nil" in vw6 and "right rightText: String? = nil" in vw6
       and '(leftText ?? "").count' in vw6 and '(rightText ?? "").count' in vw6)
 check("it still has a floor and a ceiling",
-      "max(112, min(revealed ? 300 : 220" in vw6 and "max(86, min(310" in vw6)
+      "max(112, min(300, " in vw6 and "max(86, min(310" in vw6)
+# At 220pt the resting sentence sat over the menus and icons beside the notch whenever an agent ran.
+check("at rest the bar is glyphs only, a side's width at most, and the words come with a hover",
+      "guard revealed else { return (restSide, rightText == nil ? 0 : restSide) }" in vw6
+      and float(re.search(r'static let restSide: CGFloat = ([\d.]+)', vw6).group(1)) <= 56
+      and "if revealed {\n                        Text(row.activity ?? row.displayName)" in vw6
+      and "} else if revealed, let s = spentText {" in vw6 and "} else if revealed {\n                    Text(\"idle\")" in vw6
+      and 'if revealed {\n                            Text("working")' in vw6
+      and 'if revealed { Text("waiting")' in vw6 and 'if revealed { Text("blocked")' in vw6)
 # Each side is sized to what it holds and never mirrored: forcing both to the wider one paid the
 # activity sentence's width twice and grew the bar to half a screen. The notch gap is kept by
 # shifting the shell instead — unequal sides otherwise drift it by half their difference.
