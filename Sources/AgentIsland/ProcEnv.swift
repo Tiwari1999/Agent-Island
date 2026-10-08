@@ -12,6 +12,7 @@ enum ProcEnv {
         var tty: String?               // controlling terminal, for Terminal.app focus
         var kittyWindow: String?       // kitty
         var weztermPane: String?       // WezTerm
+        var cmuxSurface: String?       // cmux: its AppleScript terminal id
         /// The innermost layer when present: tmux owns the session whatever terminal draws it,
         /// which is the only handle that reaches a pane inside a terminal with no scripting.
         var tmuxPane: String?
@@ -50,6 +51,7 @@ enum ProcEnv {
             i.itermSession = ae.env["ITERM_SESSION_ID"]
             i.kittyWindow = ae.env["KITTY_WINDOW_ID"]
             i.weztermPane = ae.env["WEZTERM_PANE"]
+            i.cmuxSurface = ae.env["CMUX_SURFACE_ID"]
             i.tmuxPane = ae.env["TMUX_PANE"]
             i.termProgram = ae.env["TERM_PROGRAM"]
             i.bundleID = ae.env["__CFBundleIdentifier"]
