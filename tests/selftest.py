@@ -2731,6 +2731,15 @@ if _cc:
     check("an orphaned cursor-agent worker-server is never taken for a chat's process",
           "acp-w | " in _cu and "pid=-" in next((l for l in _cu.splitlines() if l.startswith("acp-w | ")), ""), _cu.strip()[:300])
 
+# A plan is often better answered in the chat, whose prompt offers auto-accept and keep-planning.
+_isl_c = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_vw_c = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
+check("a plan card can hand the ask to the chat: button and ⌘⌥J jump there, drop the card and the hold",
+      'if approval.plan != nil, let onChat {\n                button("Chat ⌘⌥J"' in _vw_c
+      and "onChat:  { island.answerInChat(a) })" in _isl_c
+      and "keys.append((kVK_ANSI_J, Hotkeys.cmdOpt, { [weak self] in self?.answerInChat(approval) }))" in _isl_c
+      and "    func answerInChat(_ approval: Approval) {\n        approvalWork?.cancel()\n        hold.end(); approvalContext = nil\n        Hotkeys.shared.unbind()\n        presentNext()\n        open(session: approval.session)\n    }" in _isl_c)
+
 # Notifications that went nowhere: a toast's click region refreshed at the idle 0.75s, so the first clicks
 # fell through; the toast left at 4s mid-reach; the macOS banner only "opened" a windowless app.
 _isl_n = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
