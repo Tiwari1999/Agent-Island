@@ -40,7 +40,7 @@ enum TerminalWrite {
     static func canWrite(_ host: HostTerminal) -> Bool {
         switch host {
         case .tmux, .iterm, .kitty, .wezterm: return true
-        case .ghostty, .ide: return false
+        case .ghostty, .cmux, .ide: return false
         case .appleTerminal, .warp, .app, .degraded, .unknown: return false
         }
     }
@@ -102,7 +102,7 @@ enum TerminalWrite {
             // --no-paste so the shell sees typed input rather than a bracketed paste.
             return ran("printf %s \(shellQuoted(text + "\n")) "
                        + "| wezterm cli send-text --pane-id \(id) --no-paste")
-        case .ghostty, .ide:
+        case .ghostty, .cmux, .ide:
             return false
         case .warp, .app, .degraded, .unknown:
             return false

@@ -85,7 +85,7 @@ Agent Island puts the answer where your eyes already are.
 
 ## 🧭 The precise jump
 
-The interesting part. 👇 (Warp is the neat case; iTerm2, Terminal.app, kitty, WezTerm, tmux, VS Code, Cursor and Ghostty work too: see the table below.)
+The interesting part. 👇 (Warp is the neat case; iTerm2, Terminal.app, kitty, WezTerm, tmux, VS Code, Cursor, Ghostty and cmux work too: see the table below.)
 
 Other notch apps resolve Warp tabs by reading `warp.sqlite` and driving a **keystroke loop**, because the `warp://action/*` scheme is a closed whitelist that rejects focus intents. That approach can't tell apart tabs that share a working directory — so if all your agents live in one monorepo, it lands on the wrong one. Agent Island reads nothing from Warp's database: the session handle comes from the agent process's own environment, so there is no permission to grant and nothing to break when the schema changes.
 
@@ -115,6 +115,7 @@ The same idea generalises: the handle for *every* terminal comes from the agent 
 | WezTerm | `WEZTERM_PANE` | `wezterm cli activate-pane --pane-id N` | none, if the `wezterm` CLI is on `PATH` |
 | VS Code / Cursor | the agent's shell **pid** (VS Code exposes no tab id in the env) | a bundled extension's URI handler shows the terminal whose `processId` matches | the editor asks once to let the extension open the URI |
 | Ghostty | the controlling **tty** | AppleScript `focus` on the terminal whose `tty` matches, only on builds that expose `tty` (newer than 1.3) | Automation, asked once |
+| cmux | `CMUX_SURFACE_ID` (its AppleScript terminal id) | AppleScript `focus terminal id …`, which also switches to that workspace | Automation, asked once |
 
 The two subtle bugs worth calling out, because they read as "the jump is broken": iTerm2's env handle carries a `wNtNpN:` pane prefix its scripting id does **not**, so a whole-string match never hit — the fix matches on the UUID. And Terminal.app's `TERM_SESSION_ID` is a UUID it never surfaces in AppleScript, so the only usable handle is the controlling tty, read from the process by syscall. Both are covered by `tests/terminals-e2e.py`, which opens two real sessions per terminal and proves the jump lands on the intended one, not its neighbour.
 
@@ -214,7 +215,7 @@ rm -rf ~/Applications/AgentIsland.app
 
 - 🍎 macOS 14+
 - 🤖 At least one of Claude Code, Codex, Cursor, Gemini CLI or OpenCode — whichever are installed are picked up automatically
-- 🖥️ For the **precise jump**: Warp, iTerm2, Terminal.app, kitty, WezTerm, tmux, or a VS Code / Cursor terminal (Ghostty on builds newer than 1.3). Anywhere else the jump brings the app forward, and the row says why
+- 🖥️ For the **precise jump**: Warp, iTerm2, Terminal.app, kitty, WezTerm, cmux, tmux, or a VS Code / Cursor terminal (Ghostty on builds newer than 1.3). Anywhere else the jump brings the app forward, and the row says why
 
 ### What each agent supports
 

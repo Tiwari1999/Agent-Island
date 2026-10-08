@@ -111,6 +111,7 @@ Clicking a row lands on the **exact** tab the agent runs in:
 | Warp, iTerm2, Terminal.app | ✅ | nothing |
 | kitty | ✅ | `allow_remote_control yes` in `kitty.conf` |
 | WezTerm | ✅ | the `wezterm` CLI on your `PATH` |
+| cmux | ✅ | nothing (macOS asks once to let Agent Island control cmux) |
 | tmux (in any terminal) | ✅ | nothing |
 | **VS Code** terminal | ✅ | The *Agent Island* extension, which `install.sh` installs into VS Code |
 | **Cursor** terminal | ✅ tab; a background Cursor window may not come to the front | The same extension, installed into Cursor |

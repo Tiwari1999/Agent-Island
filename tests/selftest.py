@@ -2721,6 +2721,19 @@ if _cc:
     os.kill(_bgp, 9); os.waitpid(_bgp, 0); os.close(_bgfd)
     check("a Claude background job is no tab: its row offers attach, never the launching tab",
           "host=background" in _bgj, _bgj.strip())
+    # cmux says TERM_PROGRAM=ghostty and hands its launcher's WARP_FOCUS_URL to every terminal;
+    # following either landed in the wrong app. Its surface id is the AppleScript terminal id.
+    _cmp, _cmfd = pty.fork()
+    if _cmp == 0:
+        os.execve(f"{_lt}/claude", ["claude"], {**os.environ, "__CFBundleIdentifier": "com.cmuxterm.app",
+                  "CMUX_SURFACE_ID": "0BADF00D-0000-4000-8000-00000000C3D0", "TERM_PROGRAM": "ghostty",
+                  "WARP_FOCUS_URL": "warp://session/leaked"})
+    time.sleep(0.5)
+    _cmj = subprocess.run([os.path.join(REPO, ".build/debug/AgentIsland"), "--jump-pid", str(_cmp)],
+                          capture_output=True, text=True, timeout=30).stdout
+    os.kill(_cmp, 9); os.waitpid(_cmp, 0); os.close(_cmfd)
+    check("a cmux session resolves to its own cmux terminal, not Ghostty or the Warp tab that launched cmux",
+          "host=cmux precise=true target=0BADF00D-0000-4000-8000-00000000C3D0" in _cmj, _cmj.strip())
     for _p in _procs: _p.kill()
     _shutil.rmtree(_lt, ignore_errors=True)
     _cl = lambda tail: next((l for l in _cx.splitlines() if l.startswith("01a10a00") and l.split(" | ")[0].endswith(tail)), "")
@@ -2730,6 +2743,15 @@ if _cc:
           "chat-cli | " in _cu and "chat-headless" not in _cu, _cu.strip()[:300])
     check("an orphaned cursor-agent worker-server is never taken for a chat's process",
           "acp-w | " in _cu and "pid=-" in next((l for l in _cu.splitlines() if l.startswith("acp-w | ")), ""), _cu.strip()[:300])
+
+# Proven live against cmux 0.65: `focus terminal id` selects that terminal's workspace and raises its window.
+_ht_cm = open(os.path.join(REPO, "Sources/AgentIsland/HostTerminal.swift")).read()
+_cm_case = _ht_cm[_ht_cm.index("case .cmux(let surface):\n            let s"):]
+_cm_case = _cm_case[:_cm_case.index("case .ide(")]
+check("a cmux jump focuses that exact terminal, and never launches cmux to do it",
+      'withBundleIdentifier: "com.cmuxterm.app").isEmpty else { return false }' in _cm_case
+      and 'if not (exists terminal id "\\(s)") then return "0"' in _cm_case
+      and 'focus terminal id "\\(s)"' in _cm_case and "activate" in _cm_case)
 
 # A plan is often better answered in the chat, whose prompt offers auto-accept and keep-planning.
 _isl_c = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
@@ -3975,7 +3997,7 @@ check("the queued steer is only read from a file we own",
 # successful jump while the app had merely come forward on whatever was already selected.
 check("a jump believes what the script returns, not that it ran",
       'guard let answer = out?.stringValue, answer == "0" || answer == "1" else { return true }'
-      in _rv_ht and _rv_ht.count('return "0"') == 3 and _rv_ht.count('return "1"') == 3)   # iTerm, Terminal, Ghostty
+      in _rv_ht and _rv_ht.count('return "0"') == 4 and _rv_ht.count('return "1"') == 4)   # iTerm, Terminal, Ghostty, cmux
 check("a queued steer nobody collected does not live for ever",
       "age > 24 * 3600" in open(
           os.path.join(REPO, "Sources/AgentIsland/TerminalWrite.swift")).read())

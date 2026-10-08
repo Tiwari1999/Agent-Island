@@ -16,6 +16,8 @@ enum HostTerminal: Equatable {
     case wezterm(pane: String)
     /// Ghostty builds whose AppleScript `terminal` has a `tty` (after 1.3.1); older ones stay `.app`.
     case ghostty(tty: String)
+    /// cmux's AppleScript `terminal` id, which it also puts in the shell as CMUX_SURFACE_ID.
+    case cmux(surface: String)
     /// A VS Code or Cursor integrated terminal. `pids` is the agent and its ancestors, one of
     /// which is the shell the editor reports as that terminal's processId.
     case ide(scheme: String, bundleID: String, name: String, pids: [Int])
@@ -35,7 +37,7 @@ enum HostTerminal: Equatable {
         case .warp: return "dev.warp.Warp-Stable"
         // Only Warp. A bundle id names the app, not the session — pasting into Cursor, VS Code
         // or Ghostty lands in whatever document is frontmost, which is not where this belongs.
-        case .ghostty, .ide: return nil
+        case .ghostty, .cmux, .ide: return nil
         case .degraded, .app, .tmux, .iterm, .appleTerminal, .kitty, .wezterm, .unknown: return nil
         }
     }
@@ -49,6 +51,7 @@ enum HostTerminal: Equatable {
         case .kitty: return "kitty"
         case .wezterm: return "WezTerm"
         case .ghostty: return "Ghostty"
+        case .cmux: return "cmux"
         case .ide(_, _, let n, _): return n
         case .app(_, let n): return n
         case .degraded(_, let n, _): return n
@@ -62,6 +65,7 @@ enum HostTerminal: Equatable {
         switch self {
         case .warp(let url):        return url
         case .iterm(let session):   return session
+        case .cmux(let surface):    return surface
         case .ide:                  return ideURL
         default:                    return nil
         }
@@ -69,7 +73,7 @@ enum HostTerminal: Equatable {
 
     var isPrecise: Bool {
         switch self {
-        case .tmux, .warp, .iterm, .appleTerminal, .kitty, .wezterm, .ghostty: return true
+        case .tmux, .warp, .iterm, .appleTerminal, .kitty, .wezterm, .ghostty, .cmux: return true
         case .ide(let scheme, _, _, _): return Self.ideExtensionInstalled(scheme: scheme)
         case .app, .degraded, .unknown: return false
         }
@@ -119,6 +123,8 @@ enum HostTerminal: Equatable {
                              name: i.bundleID.map { friendly($0, i) } ?? "background",
                              reason: "background session \u{2014} no terminal anywhere above it")
         }
+        // cmux says TERM_PROGRAM=ghostty and passes on its launcher's WARP_FOCUS_URL; its surface id is the tab.
+        if i.bundleID == "com.cmuxterm.app", let s = i.cmuxSurface, !s.isEmpty { return .cmux(surface: s) }
         if let w = i.kittyWindow, !w.isEmpty { return .kitty(window: w) }
         if i.termProgram == "ghostty" || i.bundleID == "com.mitchellh.ghostty",
            let tty = i.tty, ghosttyHasTTY { return .ghostty(tty: tty) }
@@ -305,6 +311,21 @@ enum HostTerminal: Equatable {
                 end if
               end repeat
               return "0"
+            end tell
+            """)
+
+        case .cmux(let surface):
+            let s = Self.appleSafe(surface)
+            // Not running means no session lives there, and `tell` would only launch it.
+            guard !s.isEmpty, !NSRunningApplication.runningApplications(
+                withBundleIdentifier: "com.cmuxterm.app").isEmpty else { return false }
+            // `focus` selects the terminal's workspace too, and brings its window forward.
+            return osascript("""
+            tell application id "com.cmuxterm.app"
+              if not (exists terminal id "\(s)") then return "0"
+              focus terminal id "\(s)"
+              activate
+              return "1"
             end tell
             """)
 
