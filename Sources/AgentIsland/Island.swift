@@ -830,6 +830,9 @@ final class Island: NSObject, ObservableObject {
         if approval.rule != nil {
             keys.append((kVK_ANSI_A, Hotkeys.cmdOptShift, { [weak self] in self?.alwaysAllow(approval) }))
         }
+        if approval.plan != nil {
+            keys.append((kVK_ANSI_J, Hotkeys.cmdOpt, { [weak self] in self?.answerInChat(approval) }))
+        }
         Hotkeys.shared.bind(keys)
         // Read before the state write: hushed is false the moment a card is on screen.
         let silenced = hushed
@@ -1258,6 +1261,15 @@ final class Island: NSObject, ObservableObject {
         answer(approval, allow: true)
     }
 
+    /// Leave the ask to the chat, which shows the same prompt: drop the card and stop holding the hook.
+    func answerInChat(_ approval: Approval) {
+        approvalWork?.cancel()
+        hold.end(); approvalContext = nil
+        Hotkeys.shared.unbind()
+        presentNext()
+        open(session: approval.session)
+    }
+
     func answer(_ approval: Approval, allow: Bool) {
         forget(approval.session, approval.id)
         approvalWork?.cancel()
@@ -1509,7 +1521,8 @@ private struct RootView: View {
                         onExpand: { island.expandApproval() },
                         onAllow: { island.answer(a, allow: true) },
                         onAlways: { island.alwaysAllow(a) },
-                        onDeny:  { island.answer(a, allow: false) })
+                        onDeny:  { island.answer(a, allow: false) },
+                        onChat:  { island.answerInChat(a) })
                         .frame(maxHeight: island.approvalSize(a).height, alignment: .bottom)
                         .padding(.bottom, 6)
                 case .question(let q):

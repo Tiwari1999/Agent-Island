@@ -734,7 +734,9 @@ struct ApprovalCard: View {
     let onAllow: () -> Void
     var onAlways: (() -> Void)? = nil
     let onDeny: () -> Void
+    var onChat: (() -> Void)? = nil
     @ViewState private var hoverAllow = false
+    @ViewState private var hoverChat = false
     @ViewState private var hoverAlways = false
     @ViewState private var hoverDeny = false
 
@@ -837,6 +839,10 @@ struct ApprovalCard: View {
                     .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Theme.raised))
                     .contentShape(Rectangle())
                     .onTapGesture(perform: onExpand)
+            }
+            // The chat's own prompt has choices the card lacks (auto-accept edits, keep planning with feedback).
+            if approval.plan != nil, let onChat {
+                button("Chat ⌘⌥J", Theme.muted, hoverChat, onChat) { hoverChat = $0 }
             }
             button("Deny ⌘⌥D", Theme.failed, hoverDeny, onDeny) { hoverDeny = $0 }
             if approval.rule != nil, let onAlways {
