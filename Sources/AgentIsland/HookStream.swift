@@ -16,6 +16,9 @@ struct Approval: Identifiable, Equatable {
     var cwd: String?          // where the session runs, for reading its transcript
     var fullInput: String?    // the complete ask, untruncated — a heredoc is unreviewable at one line
     var rule: AlwaysRule?     // what "Always allow" would save; nil means the card offers no such thing
+    var callKey = ""          // tool + full input: a PostToolUse with the same key means it was answered elsewhere
+    /// Its hook (`ap-<pid>-<ts>`) has exited: Esc in the terminal kills it, and so does its timeout.
+    var abandoned: Bool { Int(id.split(separator: "-").dropFirst().first ?? "").map { !Proc.alive($0) } ?? false }
 }
 
 /// A multiple-choice question waiting on one click.
@@ -133,6 +136,8 @@ final class HookStream: ObservableObject {
     var onAttention: ((String, String, Bool) -> Void)?
     /// A tool is blocked waiting for the user to allow or deny it.
     var onApproval: ((Approval) -> Void)?
+    /// An ask answered outside the island: (session, callKey), where "" means all of that session's.
+    var onSettled: ((String, String) -> Void)?
     /// An agent asked a multiple-choice question and is blocked on the answer.
     var onQuestion: ((Question) -> Void)?
     private var source: DispatchSourceFileSystemObject?
@@ -266,6 +271,8 @@ final class HookStream: ObservableObject {
         var fails: [String: String] = [:]
         var revived: Set<String> = []
         var answered: Set<String> = []
+        // Asks settled outside the island, oldest first: (session, callKey), "" = every ask of that session.
+        var settled: [(session: String, key: String)] = []
         for line in text.split(separator: "\n") {
             guard let d = line.data(using: .utf8),
                   var obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any]
@@ -343,7 +350,10 @@ final class HookStream: ObservableObject {
                     cwd: payload["cwd"] as? String,
                     fullInput: Self.fullText(tool: tool, input: payload["tool_input"]),
                     rule: AlwaysAllow.rule(tool: tool, input: payload["tool_input"] as? [String: Any],
-                                           cwd: payload["cwd"] as? String))
+                                           cwd: payload["cwd"] as? String),
+                    callKey: Self.callKey(tool: tool, input: payload["tool_input"]))
+                // Anything settled earlier in this batch predates this ask, so must not dismiss it.
+                settled.removeAll { $0.session == approval.session && ($0.key == approval.callKey || $0.key.isEmpty) }
                 approvals.append(approval)
                 obj = payload
             }
@@ -356,6 +366,11 @@ final class HookStream: ObservableObject {
             }
             var state = updates[session] ?? carried[session] ?? LiveState()
             state.at = stamp ?? (replay ? .distantPast : Date())
+            // The turn ended (a "No" in the terminal interrupts it) or moved on: none of its asks is pending.
+            if ["Stop", "StopFailure", "SessionEnd", "UserPromptSubmit"].contains(event) {
+                approvals.removeAll { $0.session == session }
+                settled.append((session, ""))
+            }
 
             switch event {
             case "PreToolUse", "PostToolUse":
@@ -379,6 +394,12 @@ final class HookStream: ObservableObject {
                 // PostToolUse for the same tool means the answer already came back.
                 state.waiting = event == "PreToolUse"
                     && obj["tool_name"] as? String == "AskUserQuestion"
+                // The call ran, so it was approved, in the terminal if not here.
+                if event == "PostToolUse", let tool = obj["tool_name"] as? String {
+                    let key = Self.callKey(tool: tool, input: obj["tool_input"])
+                    approvals.removeAll { $0.session == session && $0.callKey == key }
+                    settled.append((session, key))
+                }
             case "Notification", "PermissionRequest":
                 // `idle_prompt` just means the session finished its turn and is sitting at a
                 // prompt — it fires constantly for every session and is not a request for you.
@@ -434,7 +455,7 @@ final class HookStream: ObservableObject {
             }
             updates[session] = state
         }
-        if replay { attention = []; approvals = []; questions = [] }
+        if replay { attention = []; approvals = []; questions = []; settled = [] }
         guard !updates.isEmpty || !attention.isEmpty || !approvals.isEmpty
                 || !questions.isEmpty || !fails.isEmpty || !revived.isEmpty
                 || !planUpdates.isEmpty || !pidUpdates.isEmpty || !answered.isEmpty else { return }
@@ -455,6 +476,7 @@ final class HookStream: ObservableObject {
                 self.onQuestion?(q)
             }
             for a in approvals { self.onApproval?(a) }
+            for s in settled { self.onSettled?(s.session, s.key) }
             for (s, m, needs) in attention { self.onAttention?(s, m, needs) }
         }
     }
@@ -506,6 +528,9 @@ final class HookStream: ObservableObject {
         }
         return nil
     }
+
+    /// Same call, same key: an ask and the PostToolUse that shows it ran.
+    static func callKey(tool: String, input: Any?) -> String { tool + "\u{1F}" + (fullText(tool: tool, input: input) ?? "") }
 
     /// The whole ask, not the one-line summary the row shows.
     static func fullText(tool: String, input: Any?) -> String? {

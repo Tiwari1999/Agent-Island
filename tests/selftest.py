@@ -2753,6 +2753,28 @@ check("a cmux jump focuses that exact terminal, and never launches cmux to do it
       and 'if not (exists terminal id "\\(s)") then return "0"' in _cm_case
       and 'focus terminal id "\\(s)"' in _cm_case and "activate" in _cm_case)
 
+# Proven live in cmux 0.65 with real Claude, Codex and Cursor sessions: the line lands in that terminal and submits.
+_tw_cm = open(os.path.join(REPO, "Sources/AgentIsland/TerminalWrite.swift")).read()
+check("a reply typed in the notch reaches a cmux session's own terminal and is submitted",
+      "case .tmux, .iterm, .kitty, .wezterm, .cmux: return true" in _tw_cm
+      and 'input text \\(quoted(text)) to terminal id "\\(sid)"' in _tw_cm
+      and 'perform action "text:\\\\\\\\r" on terminal id "\\(sid)"' in _tw_cm
+      and _tw_cm.count('withBundleIdentifier: "com.cmuxterm.app").isEmpty else { return false }') == 1)
+# Answering in the terminal left the card up: a click then "worked" on nothing, and the next ask queued behind it.
+_hs_st = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()
+_isl_st = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+check("an approval answered in the terminal leaves the notch: same call ran, turn ended, or its hook died",
+      'if event == "PostToolUse", let tool = obj["tool_name"] as? String {' in _hs_st
+      and "approvals.removeAll { $0.session == session && $0.callKey == key }" in _hs_st
+      and 'if ["Stop", "StopFailure", "SessionEnd", "UserPromptSubmit"].contains(event) {' in _hs_st
+      and "settled.removeAll { $0.session == approval.session && ($0.key == approval.callKey || $0.key.isEmpty) }" in _hs_st
+      and "for s in settled { self.onSettled?(s.session, s.key) }" in _hs_st
+      and "if replay { attention = []; approvals = []; questions = []; settled = [] }" in _hs_st
+      and "store.hooks.onSettled = { [weak self] session, key in self?.settled(session, key) }" in _isl_st
+      and "queuedApprovals.removeAll(where: match)" in _isl_st
+      and "if case .approval(let a) = state, a.abandoned { settled(a.session, a.callKey); return }" in _isl_st
+      and "queuedApprovals.removeAll { $0.deadline <= now || $0.abandoned }" in _isl_st)
+
 # A plan is often better answered in the chat, whose prompt offers auto-accept and keep-planning.
 _isl_c = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
 _vw_c = open(os.path.join(REPO, "Sources/AgentIsland/Views.swift")).read()
@@ -3516,7 +3538,7 @@ check("a pane id keeps its sigil",
 check("text is sent literally, and the Return is separate",
       "-l \\(shellQuoted(text))" in _tw2 and "Enter\")" in _tw2)
 check("and tmux counts as writable, which is what reaches Warp",
-      "case .tmux, .iterm, .kitty, .wezterm: return true" in _tw2)
+      "case .tmux, .iterm, .kitty, .wezterm, .cmux: return true" in _tw2)
 
 print("\n=== 47. the bar shows what it exists to show ===")
 _iv12 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()

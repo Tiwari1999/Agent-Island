@@ -196,6 +196,14 @@ struct AgentIslandApp {
             print("host=\(host.name) precise=\(host.isPrecise) target=\(host.target ?? "-")")
             exit(host.jump() ? 0 : 1)
         }
+        // The notch's reply path, minus the text field: proves a line reaches that session's own terminal.
+        if let i = CommandLine.arguments.firstIndex(of: "--send-pid"), CommandLine.arguments.count > i + 2,
+           let pid = Int(CommandLine.arguments[i + 1]) {
+            ProcEnv.prime(pids: [pid])
+            let host = HostTerminal.resolve(pid: pid)
+            print("host=\(host.name) canWrite=\(TerminalWrite.canWrite(host))")
+            exit(TerminalWrite.send(CommandLine.arguments[i + 2], to: host) ? 0 : 1)
+        }
         // One island only. launchd starts it at login and install.sh starts it again, so without
         // this the notch quietly carries two bars drawing over each other. A LaunchServices check
         // misses: started straight from a shell or by launchd the process is not registered as an
