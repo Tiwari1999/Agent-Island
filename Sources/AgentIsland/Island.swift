@@ -292,6 +292,7 @@ final class Island: NSObject, ObservableObject {
         }
 
         Notifier.onOpen = { [weak self] session in self?.open(session: session) }
+        store.hooks.onSettled = { [weak self] session, key in self?.settled(session, key) }
         Notifier.onDecision = { [weak self] id, allow in
             guard let self else { return }
             // Whatever is on screen, the alert is answering THIS approval — the visible one if
@@ -603,6 +604,7 @@ final class Island: NSObject, ObservableObject {
             }
             return
         }
+        if case .approval(let a) = state, a.abandoned { settled(a.session, a.callKey); return }
         // Only re-home while collapsed; moving a visible panel would yank it mid-interaction.
         if state == .collapsed { followActiveScreen() }
         let mouse = NSEvent.mouseLocation
@@ -751,7 +753,7 @@ final class Island: NSObject, ObservableObject {
         for q in queuedQuestions where q.deadline <= now { Approvals.release(q.id) }
         for a in queuedApprovals where a.deadline <= now { Approvals.release(a.id) }
         queuedQuestions.removeAll { $0.deadline <= now }
-        queuedApprovals.removeAll { $0.deadline <= now }
+        queuedApprovals.removeAll { $0.deadline <= now || $0.abandoned }
         // Clear first: ask() and present() both treat a different card still being on screen as
         // "wait your turn", so handing them the next one mid-state queued it forever.
         if !queuedQuestions.isEmpty || !queuedApprovals.isEmpty { state = .collapsed }
@@ -1259,6 +1261,19 @@ final class Island: NSObject, ObservableObject {
             }
         }
         answer(approval, allow: true)
+    }
+
+    /// Answered in the terminal: the card is a dead end, and a click on it would only seem to work.
+    private func settled(_ session: String, _ key: String) {
+        let match = { (a: Approval) in a.session == session && (key.isEmpty || a.callKey == key) }
+        queuedApprovals.removeAll(where: match)
+        guard case .approval(let a) = state, match(a) else { return }
+        Diagnostics.log("approval \(a.id): answered outside the island or gone, card dropped")
+        forget(a.session, a.id)
+        approvalWork?.cancel()
+        hold.end(); approvalContext = nil
+        Hotkeys.shared.unbind()
+        presentNext()
     }
 
     /// Leave the ask to the chat, which shows the same prompt: drop the card and stop holding the hook.

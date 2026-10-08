@@ -39,8 +39,8 @@ enum TerminalWrite {
     /// Terminal publishes only `do script`, which executes its argument rather than typing it.
     static func canWrite(_ host: HostTerminal) -> Bool {
         switch host {
-        case .tmux, .iterm, .kitty, .wezterm: return true
-        case .ghostty, .cmux, .ide: return false
+        case .tmux, .iterm, .kitty, .wezterm, .cmux: return true
+        case .ghostty, .ide: return false
         case .appleTerminal, .warp, .app, .degraded, .unknown: return false
         }
     }
@@ -102,7 +102,18 @@ enum TerminalWrite {
             // --no-paste so the shell sees typed input rather than a bracketed paste.
             return ran("printf %s \(shellQuoted(text + "\n")) "
                        + "| wezterm cli send-text --pane-id \(id) --no-paste")
-        case .ghostty, .cmux, .ide:
+        case .cmux(let surface):
+            let sid = HostTerminal.appleSafe(surface)
+            guard !sid.isEmpty, !NSRunningApplication.runningApplications(
+                withBundleIdentifier: "com.cmuxterm.app").isEmpty else { return false }
+            // `input text` pastes, and a pasted newline does not submit; Return goes as its own key.
+            return script("""
+            tell application id "com.cmuxterm.app"
+              input text \(quoted(text)) to terminal id "\(sid)"
+              perform action "text:\\\\r" on terminal id "\(sid)"
+            end tell
+            """)
+        case .ghostty, .ide:
             return false
         case .warp, .app, .degraded, .unknown:
             return false
