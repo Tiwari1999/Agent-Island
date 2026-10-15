@@ -18,7 +18,7 @@ no account and no API key.
 Two routes, same version. The formula builds; the cask downloads.
 
 ```bash
-brew install tiwari1999/tap/agent-island        # builds locally, no Gatekeeper warning
+brew install --formula tiwari1999/tap/agent-island   # builds locally, no Gatekeeper warning
 agent-island
 ```
 
@@ -28,6 +28,8 @@ agent-island
   step copies the app to `~/Applications`, adds the agent hooks, sets up the login item and
   starts the app.
 - To update, run `brew upgrade agent-island && agent-island`.
+- The `--formula` flag is only to silence a warning: the tap now holds a cask of the same name,
+  so brew asks which you meant. Without the flag it still picks the formula.
 
 ```bash
 brew install --cask tiwari1999/tap/agent-island  # 2.4MB prebuilt DMG, seconds
