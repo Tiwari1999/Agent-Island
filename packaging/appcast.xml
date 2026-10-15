@@ -1,0 +1,14 @@
+<?xml version='1.0' encoding='utf-8'?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+  <channel>
+    <title>AgentIsland</title>
+    <item>
+      <title>AgentIsland 0.5.12</title>
+      <pubDate>Thu, 15 Oct 2026 04:02:57 GMT</pubDate>
+      <sparkle:version>0.5.12</sparkle:version>
+      <sparkle:shortVersionString>0.5.12</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <enclosure url="https://github.com/Tiwari1999/Agent-Island/releases/download/v0.5.12/AgentIsland-0.5.12.dmg" length="2515880" type="application/octet-stream" sparkle:edSignature="7r9xq8ejwfyakan+Yq2j2bVS29ovb5eClp7I4dlD+V/qMnVUP8EjbY462BB9AK3+GTLNCW4MpAg2tvuVne6IDg==" />
+    </item>
+  </channel>
+</rss>

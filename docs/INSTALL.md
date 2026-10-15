@@ -15,8 +15,10 @@ no account and no API key.
 
 ### Homebrew (recommended)
 
+Two routes, same version. The formula builds; the cask downloads.
+
 ```bash
-brew install tiwari1999/tap/agent-island
+brew install tiwari1999/tap/agent-island        # builds locally, no Gatekeeper warning
 agent-island
 ```
 
@@ -26,6 +28,24 @@ agent-island
   step copies the app to `~/Applications`, adds the agent hooks, sets up the login item and
   starts the app.
 - To update, run `brew upgrade agent-island && agent-island`.
+
+```bash
+brew install --cask tiwari1999/tap/agent-island  # 2.4MB prebuilt DMG, seconds
+```
+
+- Installs the prebuilt app straight into `/Applications`, with no Swift toolchain and no build.
+- **Apple silicon only.** The DMG is an arm64 build, so brew refuses it on an Intel Mac; use the
+  formula above there, which compiles natively.
+- Because the DMG is downloaded, macOS quarantines it and the app is not notarized yet, so the
+  **first launch needs right-click → Open → Open**. After that it opens normally.
+- Finish the setup from the app's own welcome screen, which adds the hooks and starts the island.
+- To update, either let the app update itself (Sparkle reads
+  [the appcast](https://agentisland.in/appcast.xml)) or run `brew upgrade --cask agent-island`.
+
+The tap prefix is required. `brew install --cask agent-island` on its own looks in
+homebrew-cask, which only accepts apps that are both notarized and
+[notable](https://docs.brew.sh/Package-Acceptance-Policy#notability) — 225 stars for a
+self-submission. Neither is true yet, so the name is not registered there.
 
 ### From source
 
