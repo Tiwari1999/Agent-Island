@@ -152,6 +152,17 @@ agent-island      # copies the app to ~/Applications, adds the hooks, starts it
 It builds on your Mac in about a minute, so there is no Gatekeeper warning and no notarization
 involved. Update with `brew upgrade agent-island && agent-island`.
 
+Or, on Apple silicon, take the prebuilt 2.4MB DMG instead, which installs in seconds:
+
+```bash
+brew install --cask tiwari1999/tap/agent-island
+```
+
+That one is quarantined by macOS and not notarized yet, so its **first launch needs
+right-click → Open**. The tap prefix is needed either way: the bare name `agent-island` is not
+in homebrew-cask, which requires notarization and
+[225 stars for a self-submission](https://docs.brew.sh/Package-Acceptance-Policy#notability).
+
 **From source:**
 
 ```bash

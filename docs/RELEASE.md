@@ -79,6 +79,9 @@ fails on the user's machine instead of on yours.
 ## Homebrew cask
 
 `packaging/homebrew/Casks/agent-island.rb` is the template for the tap; `release.sh` fills it.
+The cask declares `depends_on arch: :arm64`, because `make-app.sh` builds for the host only and
+the published DMG has been arm64. Build a universal binary and that line should go; until then an
+Intel Mac must take the formula, which compiles natively.
 `brew uninstall` runs the bundled `uninstall-hooks.py` before removing the app (brew also does on
 `reinstall`, after which the app's welcome re-adds the hooks), and `--zap` clears preferences.
 Until notarization, brew users get the same right-click → Open on first launch as DMG users.
