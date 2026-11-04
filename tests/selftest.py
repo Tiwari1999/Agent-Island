@@ -78,7 +78,10 @@ check("agents with pid resolve a Warp URL", len(got)>0, f"{len(got)}/{len(withpi
 # owner's tab by definition — that is where its conversation is displayed.
 # Claude's background jobs run in a pre-warmed `bg-spare` on a pty of its own: a tty, but no tab.
 def claude_bg(pid):
-    return "--bg-spare" in subprocess.run(["ps","-o","command=","-p",str(pid)],capture_output=True,text=True).stdout
+    cmd=lambda p: subprocess.run(["ps","-o","command=","-p",str(p)],capture_output=True,text=True).stdout
+    pp=subprocess.run(["ps","-o","ppid=","-p",str(pid)],capture_output=True,text=True).stdout.strip()
+    # 2.1.30x runs them as a --fork-session resume under the bg-pty-host instead of a bg-spare.
+    return "--bg-spare" in cmd(pid) or (pp.isdigit() and "--bg-pty-host" in cmd(pp))
 _own=[a for a in withpid if has_tty(a["pid"]) and not claude_bg(a["pid"])]
 _owned=[u for u in (focus_url(a["pid"]) for a in _own) if u]
 check("each interactive agent maps to a DISTINCT tab",
@@ -2721,6 +2724,21 @@ if _cc:
     os.kill(_bgp, 9); os.waitpid(_bgp, 0); os.close(_bgfd)
     check("a Claude background job is no tab: its row offers attach, never the launching tab",
           "host=background" in _bgj, _bgj.strip())
+    # Since 2.1.30x the job is a `--fork-session` resume whose parent is the bg-pty-host; same rule.
+    with open(f"{_lt}/host.c", "w") as _f:
+        _f.write('#include <unistd.h>\nint main(int c,char**v){if(fork()==0){char*a[]={"claude","--fork-session",0};'
+                 'char*e[]={"KITTY_WINDOW_ID=7",0};execve(v[1],a,e);_exit(1);}sleep(30);return 0;}\n')
+    subprocess.run(["cc", "-o", f"{_lt}/host", f"{_lt}/host.c"], capture_output=True)
+    _hp, _hfd = pty.fork()
+    if _hp == 0:
+        os.execv(f"{_lt}/host", ["claude", f"{_lt}/claude", "--bg-pty-host"])
+    time.sleep(0.5)
+    _hk = [int(x) for x in subprocess.run(["pgrep", "-P", str(_hp)], capture_output=True, text=True).stdout.split()]
+    _hj = subprocess.run([os.path.join(REPO, ".build/debug/AgentIsland"), "--jump-pid", str(_hk[0])],
+                         capture_output=True, text=True, timeout=30).stdout if _hk else "no child"
+    for _k in _hk: os.kill(_k, 9)
+    os.kill(_hp, 9); os.waitpid(_hp, 0); os.close(_hfd)
+    check("a background job under Claude's bg-pty-host is no tab either", "host=background" in _hj, _hj.strip())
     # cmux says TERM_PROGRAM=ghostty and hands its launcher's WARP_FOCUS_URL to every terminal;
     # following either landed in the wrong app. Its surface id is the AppleScript terminal id.
     _cmp, _cmfd = pty.fork()
@@ -2761,19 +2779,24 @@ check("a reply typed in the notch reaches a cmux session's own terminal and is s
       and 'perform action "text:\\\\\\\\r" on terminal id "\\(sid)"' in _tw_cm
       and _tw_cm.count('withBundleIdentifier: "com.cmuxterm.app").isEmpty else { return false }') == 1)
 # Answering in the terminal left the card up: a click then "worked" on nothing, and the next ask queued behind it.
+# Settling by session/callKey (or wiping a session on Stop) also killed sibling subagent asks that
+# share a session_id — pair each card with its PreToolUse tool_use_id, and withdraw by id.
 _hs_st = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()
 _isl_st = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
-check("an approval answered in the terminal leaves the notch: same call ran, turn ended, or its hook died",
-      'if event == "PostToolUse", let tool = obj["tool_name"] as? String {' in _hs_st
-      and "approvals.removeAll { $0.session == session && $0.callKey == key }" in _hs_st
-      and 'if ["Stop", "StopFailure", "SessionEnd", "UserPromptSubmit"].contains(event) {' in _hs_st
-      and "settled.removeAll { $0.session == approval.session && ($0.key == approval.callKey || $0.key.isEmpty) }" in _hs_st
-      and "for s in settled { self.onSettled?(s.session, s.key) }" in _hs_st
+check("an approval answered in the terminal leaves the notch: PostToolUse by tool_use_id, or ap_withdrawn by id",
+      'if event == "PostToolUse",\n                   let tid = obj["tool_use_id"] as? String, !tid.isEmpty {' in _hs_st
+      and "approvals.removeAll { $0.toolUseID == tid }" in _hs_st
+      and 'if let wid = obj["ap_withdrawn"] as? String, Approvals.validID(wid)' in _hs_st
+      and 'if ["Stop", "StopFailure", "SessionEnd", "UserPromptSubmit"].contains(event) {' not in _hs_st
+      and "settled.removeAll { $0.session == approval.session" not in _hs_st
+      and "for s in settled { self.onSettled?(s) }" in _hs_st
+      and (_hs_st.index("for s in settled { self.onSettled?(s) }")
+          < _hs_st.index("for a in approvals { self.onApproval?(a) }"))
       and "if replay { attention = []; approvals = []; questions = []; settled = [] }" in _hs_st
-      and "store.hooks.onSettled = { [weak self] session, key in self?.settled(session, key) }" in _isl_st
-      and "queuedApprovals.removeAll(where: match)" in _isl_st
-      and "if case .approval(let a) = state, a.abandoned { settled(a.session, a.callKey); return }" in _isl_st
-      and "queuedApprovals.removeAll { $0.deadline <= now || $0.abandoned }" in _isl_st)
+      and "store.hooks.onSettled = { [weak self] match in self?.settled(match) }" in _isl_st
+      and "a.id == match || a.toolUseID == match" in _isl_st
+      and "if case .approval(let a) = state, a.abandoned { settled(a.id); return }" in _isl_st
+      and "for a in queuedApprovals where a.deadline <= now || a.abandoned { Approvals.release(a.id) }" in _isl_st)
 
 # A plan is often better answered in the chat, whose prompt offers auto-accept and keep-planning.
 _isl_c = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
@@ -4069,7 +4092,7 @@ check("the composer is never hidden — every session has some route",
       "keyboard.badge.ellipsis" not in _cvw and "takes no input" not in _cvw
       and re.search(r'private var composer: some View \{\s*\n\s*if let row \{', _cvw) is not None)
 check("a scriptable terminal is written to directly, idle or busy",
-      "case .typed:  ok = TerminalWrite.send(line, to: row.host)" in _cvw
+      "case .typed:\n            ok = TerminalWrite.send(line, to: row.host)" in _cvw
       and "if TerminalWrite.canWrite(row.host) { return .typed }" in _cvw)
 check("one with a turn still running gets the line left for its Stop hook",
       "case .queued: ok = TerminalWrite.queue(line, session: row.agent.sessionId)" in _cvw)
@@ -4485,8 +4508,10 @@ _pp = subprocess.run(["node", os.path.join(REPO, "tests/opencode-plugin.mjs")], 
 _shutil.rmtree(_pd, ignore_errors=True)
 try: _pj = json.loads(_pp.stdout)
 except ValueError: _pj = {"calls": [], "spool": []}
-_ev = [l.get("payload", {}).get("hook_event_name") for l in _pj["spool"]]
+_ev = [l.get("payload", {}).get("hook_event_name") for l in _pj["spool"]
+       if isinstance(l.get("payload"), dict)]
 _ap = [l for l in _pj["spool"] if "ap_request_id" in l]
+_wd = [l for l in _pj["spool"] if "ap_withdrawn" in l]
 check("opencode plugin: busy, tool, ask and idle reach the spool in the island's vocabulary",
       _ev == ["UserPromptSubmit", "PreToolUse", "Notification", "PermissionRequest", "Stop"],
       str(_ev) + _pp.stderr[-200:])
@@ -4499,6 +4524,8 @@ check("opencode plugin: the ask has the permission hook's exact shape",
 check("opencode plugin: allow in the notch replies 'once' to that permission",
       _pj["calls"] == [{"path": {"id": "ses_1", "permissionID": "per_1"}, "body": {"response": "once"}}],
       str(_pj["calls"]))
+check("opencode plugin: the wait ending withdraws the card",
+      len(_wd) == 1 and _wd[0].get("ap_withdrawn") == _ap[0]["ap_request_id"], str(_wd))
 
 # Installers, against a throwaway HOME seeded with another tool's Gemini hook.
 _ih = tempfile.mkdtemp(prefix="ai-gohome-")
@@ -5048,6 +5075,103 @@ check("settings offer Off / 2 / 5 / 10 min, default 5",
       "ForEach([0.0, 2, 5, 10], id: \\.self)" in _rm_set
       and "remindMinutes = d.object(forKey: Self.remindKey) as? Double ?? 5" in _rm_set
       and "self?.reminders.setInterval(minutes * 60)" in _rm_ctl)
+
+print("\n=== 60. approval settle: tool_use_id, withdraw, timeout, cmux fallback ===")
+import signal as _signal
+_hs60 = open(os.path.join(REPO, "Sources/AgentIsland/HookStream.swift")).read()
+_isl60 = open(os.path.join(REPO, "Sources/AgentIsland/Island.swift")).read()
+_pr60 = open(os.path.join(REPO, "Sources/AgentIsland/Proc.swift")).read()
+_cv60 = open(os.path.join(REPO, "Sources/AgentIsland/ConsoleView.swift")).read()
+_ph60 = open(os.path.join(REPO, "hooks/agentisland-permission.sh")).read()
+_oc60 = open(os.path.join(REPO, "hooks/agentisland-opencode.js")).read()
+_ih60 = open(os.path.join(REPO, "scripts/install-hooks.py")).read()
+
+# 1. PermissionRequest harness timeout must outlive the hook's 300s ceiling, and re-install
+# must rewrite a stale 30s entry rather than leaving it alone for the life of the install.
+check("PermissionRequest timeout is 310s (above the hook's 300s ceiling)",
+      '("PermissionRequest", PERM,     {"timeout": 310})' in _ih60)
+_to_home = tempfile.mkdtemp(prefix="ai-to310-")
+os.makedirs(f"{_to_home}/.claude", exist_ok=True)
+_ih_env = dict(os.environ, HOME=_to_home)
+subprocess.run([sys.executable, os.path.join(REPO, "scripts/install-hooks.py"), REPO],
+               capture_output=True, text=True, timeout=60, env=_ih_env)
+_cfg_path = f"{_to_home}/.claude/settings.json"
+_cfg30 = json.load(open(_cfg_path))
+for _g in _cfg30.get("hooks", {}).get("PermissionRequest", []):
+    for _h in _g.get("hooks", []):
+        if "agentisland-permission.sh" in _h.get("command", ""):
+            _h["timeout"] = 30
+json.dump(_cfg30, open(_cfg_path, "w"), indent=2)
+subprocess.run([sys.executable, os.path.join(REPO, "scripts/install-hooks.py"), REPO],
+               capture_output=True, text=True, timeout=60, env=_ih_env)
+_cfg310 = json.load(open(_cfg_path))
+_perm_to = [h.get("timeout") for g in _cfg310.get("hooks", {}).get("PermissionRequest", [])
+            for h in g.get("hooks", []) if "agentisland-permission.sh" in h.get("command", "")]
+_shutil.rmtree(_to_home, ignore_errors=True)
+check("re-install updates a stale PermissionRequest timeout to 310",
+      _perm_to == [310], str(_perm_to))
+
+# 2. PreToolUse tool_use_id is remembered and stamped onto the Approval.
+check("PreToolUse tool_use_id is remembered per session/agent/callKey",
+      "preToolIDs[Self.preKey(session: session, agent: agent, callKey: key)] = tid" in _hs60
+      and "toolUseID: toolUseID)" in _hs60
+      and "var toolUseID: String? = nil" in _hs60)
+check("an approval with no toolUseID is never settled by PostToolUse",
+      "approvals.removeAll { $0.toolUseID == tid }" in _hs60
+      and "$0.callKey == key" not in _hs60.split('case "PreToolUse", "PostToolUse":')[1]
+                                            .split('case "Notification"')[0])
+check("settled queued cards release their hold and cancel their reminder",
+      "Approvals.release(a.id)\n            forget(a.session, a.id)" in _isl60
+      and "presentNext()\n        refreshHitRegion()" in _isl60)
+
+# 3. Proc.alive must not trap on an oversized pid parsed from an approval id.
+check("Proc.alive rejects a non-Int32 pid instead of trapping",
+      "guard let p = Int32(exactly: pid), p > 0 else { return false }" in _pr60)
+
+# 4. cmux send failure falls back to the Stop-hook queue for a working Claude session.
+check("a failed cmux reply falls back to the queue for a working Claude session",
+      "if !ok, case .cmux = row.host,\n               row.agent.vendor == .claude, row.isWorking || row.waiting {" in _cv60
+      and "ok = TerminalWrite.queue(line, session: row.agent.sessionId)" in _cv60
+      and "if ok { how = .queued }" in _cv60)
+
+# 5. Hooks emit ap_withdrawn; SIGTERM mid-wait must leave one and empty stdout.
+check("permission hook traps EXIT/TERM/INT to withdraw, TERM exits 0, nothing on stdout",
+      'printf \'{"ap_withdrawn":"%s"}\\n\' "$id" >> "$SPOOL"' in _ph60
+      and "[ -n \"$withdrawn\" ] && return" in _ph60
+      and "trap 'withdraw; exit 0' TERM INT" in _ph60
+      and "trap 'withdraw' EXIT" in _ph60)
+check("opencode withdraws after its wait loop ends",
+      "JSON.stringify({ ap_withdrawn: id })" in _oc60)
+_wd = tempfile.mkdtemp(prefix="ai-wd-")
+os.makedirs(f"{_wd}/dec"); open(f"{_wd}/alive", "w").close()
+_wd_spool = f"{_wd}/spool.jsonl"; open(_wd_spool, "w").close()
+_wd_env = dict(os.environ, AGENTISLAND_SPOOL=_wd_spool, AGENTISLAND_DECISIONS=f"{_wd}/dec",
+               AGENTISLAND_ALIVE=f"{_wd}/alive", AGENTISLAND_TIMEOUT_TENTHS="200",
+               AGENTISLAND_HOLD_HARD_TENTHS="200")
+_wd_req = '{"session_id":"wd","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"x"}}'
+_wd_box = {}
+_wd_p = subprocess.Popen(["bash", os.path.join(REPO, "hooks/agentisland-permission.sh")],
+                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         env=_wd_env, text=True)
+_wd_th = threading.Thread(target=lambda: _wd_box.setdefault(
+    "out", _wd_p.communicate(input=_wd_req)[0]))
+_wd_th.start()
+for _ in range(50):
+    if os.path.exists(_wd_spool) and "ap_request_id" in open(_wd_spool).read():
+        break
+    time.sleep(0.05)
+_wd_p.send_signal(_signal.SIGTERM)
+_wd_th.join(timeout=5)
+_wd_out = _wd_box.get("out", "")
+time.sleep(0.1)
+_wd_lines = [l for l in open(_wd_spool) if l.strip()]
+_wd_ids = [json.loads(l)["ap_request_id"] for l in _wd_lines if "ap_request_id" in l]
+_wd_w = [json.loads(l)["ap_withdrawn"] for l in _wd_lines if "ap_withdrawn" in l]
+_shutil.rmtree(_wd, ignore_errors=True)
+check("SIGTERM mid-wait writes ap_withdrawn and leaves stdout empty",
+      _wd_p.returncode == 0 and not (_wd_out or "").strip()
+      and len(_wd_ids) == 1 and _wd_w == _wd_ids,
+      f"rc={_wd_p.returncode} out={_wd_out!r} spool={_wd_lines}")
 
 # The README advertises a number of checks; it had drifted to 411 against a real 760. A floor
 # rather than an equality: opt-in sections add checks, and bulk deletion is the failure that

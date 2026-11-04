@@ -103,10 +103,17 @@ struct ConsoleView: View {
     private func send(to row: AgentRow) {
         let line = draft
         guard !line.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        let how = delivery(row)
+        var how = delivery(row)
         var ok: Bool
         switch how {
-        case .typed:  ok = TerminalWrite.send(line, to: row.host)
+        case .typed:
+            ok = TerminalWrite.send(line, to: row.host)
+            // cmux Automation can fail; a working Claude session can still take the Stop-hook queue.
+            if !ok, case .cmux = row.host,
+               row.agent.vendor == .claude, row.isWorking || row.waiting {
+                ok = TerminalWrite.queue(line, session: row.agent.sessionId)
+                if ok { how = .queued }
+            }
         case .queued: ok = TerminalWrite.queue(line, session: row.agent.sessionId)
         case .pasted:
             // Nothing can put this line into an idle Warp tab from outside, so the clipboard

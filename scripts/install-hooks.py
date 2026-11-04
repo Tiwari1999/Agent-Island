@@ -216,7 +216,7 @@ claude_events = ["PreToolUse", "PostToolUse", "Notification", "Stop", "SessionSt
 claude_plan = [(e, HOOK, {}) for e in claude_events]
 claude_plan += [
     ("PermissionRequest", RULES,    {"first": True, "timeout": 10}),   # rules run before we ask
-    ("PermissionRequest", PERM,     {"timeout": 30}),
+    ("PermissionRequest", PERM,     {"timeout": 310}),
     ("PreToolUse",        QUESTION, {"matcher": "AskUserQuestion", "timeout": 310}),
     # Answers a reply typed in the notch for a terminal that takes no input of its own.
     ("Stop",              INPUT,    {"timeout": 5}),

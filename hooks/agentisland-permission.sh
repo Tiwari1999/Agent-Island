@@ -37,6 +37,19 @@ mkdir -p "$DECISIONS" 2>/dev/null
 chmod 700 "$DECISIONS" 2>/dev/null
 printf '{"ap_request_id":"%s","payload":%s}\n' "$id" "${INPUT//$'\n'/}" >> "$SPOOL" 2>/dev/null
 
+# Esc/"No" and Claude's own timeout both SIGTERM us; the card must leave with the hook.
+# stdout is the decision channel — the trap must never write there. TERM exits 0 so Claude
+# falls through to its own prompt rather than treating the kill as a hook failure.
+# Once only: TERM's `exit 0` also fires EXIT, and a double line is noise not a second settle.
+withdrawn=
+withdraw() {
+    [ -n "$withdrawn" ] && return
+    withdrawn=1
+    printf '{"ap_withdrawn":"%s"}\n' "$id" >> "$SPOOL" 2>/dev/null || true
+}
+trap 'withdraw; exit 0' TERM INT
+trap 'withdraw' EXIT
+
 # The island writes $id.touched once, when the reader engages with the card; past the base
 # timeout the wait continues only if that mark exists, up to a ceiling so a dead island can
 # never park the session forever. The mark is written once and never refreshed: the version
