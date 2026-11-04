@@ -5112,8 +5112,9 @@ check("re-install updates a stale PermissionRequest timeout to 310",
       _perm_to == [310], str(_perm_to))
 
 # 2. PreToolUse tool_use_id is remembered and stamped onto the Approval.
-check("PreToolUse tool_use_id is remembered per session/agent/callKey",
-      "preToolIDs[Self.preKey(session: session, agent: agent, callKey: key)] = tid" in _hs60
+check("PreToolUse tool_use_id is remembered per session/callKey, so a subagent's ask pairs too",
+      "preToolIDs[Self.preKey(session: session, callKey: key)] = tid" in _hs60
+      and "let preKey = Self.preKey(session: session, callKey: key)" in _hs60
       and "toolUseID: toolUseID)" in _hs60
       and "var toolUseID: String? = nil" in _hs60)
 check("an approval with no toolUseID is never settled by PostToolUse",

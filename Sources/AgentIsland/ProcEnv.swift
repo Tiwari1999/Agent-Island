@@ -24,7 +24,7 @@ enum ProcEnv {
         var resumeSession: String?
         /// Spawned by a desktop UI a person types into (MonoCode), so its headless mode is not automation.
         var uiDriven = false
-        /// A Claude Code background job, run in a pre-warmed `bg-spare` on its own pty: no tab of yours.
+        /// A Claude Code background job on its own pty under `bg-pty-host`: no tab of yours.
         var claudeBackground = false
     }
 

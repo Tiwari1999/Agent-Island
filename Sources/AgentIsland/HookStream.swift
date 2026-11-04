@@ -145,7 +145,7 @@ final class HookStream: ObservableObject {
     private var source: DispatchSourceFileSystemObject?
     /// Owned by the drain queue alone; never touched from the main thread.
     private var carried: [String: LiveState] = [:]
-    /// Latest PreToolUse tool_use_id per (session, agent_id, callKey) — PermissionRequest has none.
+    /// Latest PreToolUse tool_use_id per (session, callKey). No agent_id: PermissionRequest has none to match it with.
     private var preToolIDs: [String: String] = [:]
 
     /// session id -> the agent process that ran the hook. This is the only exact way to bind a
@@ -350,10 +350,9 @@ final class HookStream: ObservableObject {
                    let input = payload["tool_input"] as? [String: Any],
                    let p = input["plan"] as? String, !p.isEmpty { plan = p }
                 let session = payload["session_id"] as? String ?? ""
-                let agent = payload["agent_id"] as? String ?? ""
                 let key = Self.callKey(tool: tool, input: payload["tool_input"])
                 // PermissionRequest carries no tool_use_id; the PreToolUse just before it does.
-                let preKey = Self.preKey(session: session, agent: agent, callKey: key)
+                let preKey = Self.preKey(session: session, callKey: key)
                 let toolUseID = preToolIDs.removeValue(forKey: preKey)
                 let approval = Approval(
                     id: reqID,
@@ -408,9 +407,8 @@ final class HookStream: ObservableObject {
                 if event == "PreToolUse",
                    let tid = obj["tool_use_id"] as? String, !tid.isEmpty,
                    let tool = obj["tool_name"] as? String {
-                    let agent = obj["agent_id"] as? String ?? ""
                     let key = Self.callKey(tool: tool, input: obj["tool_input"])
-                    preToolIDs[Self.preKey(session: session, agent: agent, callKey: key)] = tid
+                    preToolIDs[Self.preKey(session: session, callKey: key)] = tid
                 }
                 // The call ran — settle only the approval paired with this tool_use_id.
                 if event == "PostToolUse",
@@ -484,7 +482,7 @@ final class HookStream: ObservableObject {
         carried.merge(updates) { _, new in new }
         let cutoff = Date().addingTimeInterval(-3600)
         carried = carried.filter { $0.value.at > cutoff }
-        // PermissionRequest lands in the same second as its PreToolUse; keep a short bound.
+        // shortcut: arbitrary eviction; fine while a PermissionRequest lands right after its PreToolUse.
         if preToolIDs.count > 256 {
             let drop = preToolIDs.count - 128
             for k in preToolIDs.keys.prefix(drop) { preToolIDs.removeValue(forKey: k) }
@@ -559,8 +557,8 @@ final class HookStream: ObservableObject {
     static func callKey(tool: String, input: Any?) -> String { tool + "\u{1F}" + (fullText(tool: tool, input: input) ?? "") }
 
     /// Drain-queue key for the PreToolUse → PermissionRequest pairing.
-    static func preKey(session: String, agent: String, callKey: String) -> String {
-        session + "\u{1E}" + agent + "\u{1E}" + callKey
+    static func preKey(session: String, callKey: String) -> String {
+        session + "\u{1E}" + callKey
     }
 
     /// The whole ask, not the one-line summary the row shows.
