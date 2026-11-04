@@ -10,8 +10,10 @@ private func proc_pidinfo(_ pid: Int32, _ flavor: Int32, _ arg: UInt64,
 enum Proc {
     /// Does this pid still exist? signal 0 tests existence without delivering anything.
     /// EPERM means it exists and belongs to someone else — only ESRCH means gone.
+    /// Int32(exactly:) — an oversized pid in an `ap-<pid>-…` id used to trap here.
     static func alive(_ pid: Int) -> Bool {
-        kill(Int32(pid), 0) == 0 || errno == EPERM
+        guard let p = Int32(exactly: pid), p > 0 else { return false }
+        return kill(p, 0) == 0 || errno == EPERM
     }
 
     /// pid → parent pid, for walking up from a hook's shell to the agent that ran it.

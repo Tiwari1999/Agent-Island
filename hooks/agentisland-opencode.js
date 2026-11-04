@@ -56,6 +56,8 @@ export const AgentIsland = async ({ client, directory }) => {
       }
       await sleep(100)
     }
+    // Any outcome — answered, timed out, or replied in the TUI — the card must leave.
+    try { appendFileSync(SPOOL, JSON.stringify({ ap_withdrawn: id }) + "\n", { mode: 0o600 }) } catch {}
     for (const f of [file + ".touched", file + ".skip"]) try { unlinkSync(f) } catch {}
   }
 

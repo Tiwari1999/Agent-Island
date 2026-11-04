@@ -16,7 +16,9 @@ struct Approval: Identifiable, Equatable {
     var cwd: String?          // where the session runs, for reading its transcript
     var fullInput: String?    // the complete ask, untruncated — a heredoc is unreviewable at one line
     var rule: AlwaysRule?     // what "Always allow" would save; nil means the card offers no such thing
-    var callKey = ""          // tool + full input: a PostToolUse with the same key means it was answered elsewhere
+    var callKey = ""          // tool + full input — pairs a PermissionRequest with the PreToolUse before it
+    /// From the PreToolUse that preceded this ask; PostToolUse settles by this, not by callKey.
+    var toolUseID: String? = nil
     /// Its hook (`ap-<pid>-<ts>`) has exited: Esc in the terminal kills it, and so does its timeout.
     var abandoned: Bool { Int(id.split(separator: "-").dropFirst().first ?? "").map { !Proc.alive($0) } ?? false }
 }
@@ -136,13 +138,15 @@ final class HookStream: ObservableObject {
     var onAttention: ((String, String, Bool) -> Void)?
     /// A tool is blocked waiting for the user to allow or deny it.
     var onApproval: ((Approval) -> Void)?
-    /// An ask answered outside the island: (session, callKey), where "" means all of that session's.
-    var onSettled: ((String, String) -> Void)?
+    /// An ask answered outside the island: the approval id, or its tool_use_id.
+    var onSettled: ((String) -> Void)?
     /// An agent asked a multiple-choice question and is blocked on the answer.
     var onQuestion: ((Question) -> Void)?
     private var source: DispatchSourceFileSystemObject?
     /// Owned by the drain queue alone; never touched from the main thread.
     private var carried: [String: LiveState] = [:]
+    /// Latest PreToolUse tool_use_id per (session, callKey). No agent_id: PermissionRequest has none to match it with.
+    private var preToolIDs: [String: String] = [:]
 
     /// session id -> the agent process that ran the hook. This is the only exact way to bind a
     /// session started without `--resume`, whose id appears nowhere in its own argv.
@@ -271,8 +275,8 @@ final class HookStream: ObservableObject {
         var fails: [String: String] = [:]
         var revived: Set<String> = []
         var answered: Set<String> = []
-        // Asks settled outside the island, oldest first: (session, callKey), "" = every ask of that session.
-        var settled: [(session: String, key: String)] = []
+        // Asks settled outside the island, oldest first: an approval id or a tool_use_id.
+        var settled: [String] = []
         for line in text.split(separator: "\n") {
             guard let d = line.data(using: .utf8),
                   var obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any]
@@ -280,6 +284,13 @@ final class HookStream: ObservableObject {
 
             let stamp = (obj["ai_ts"] as? NSNumber).map {
                 Date(timeIntervalSince1970: $0.doubleValue) }
+
+            // Hook exited (Esc, timeout, or answered elsewhere) — drop that card by id.
+            if let wid = obj["ap_withdrawn"] as? String, Approvals.validID(wid) {
+                approvals.removeAll { $0.id == wid }
+                settled.append(wid)
+                continue
+            }
 
             if let qid = obj["ap_question_id"] as? String, Approvals.validID(qid),
                let raw = obj["items"] as? [[String: Any]], !raw.isEmpty {
@@ -338,9 +349,14 @@ final class HookStream: ObservableObject {
                 if tool == "ExitPlanMode",
                    let input = payload["tool_input"] as? [String: Any],
                    let p = input["plan"] as? String, !p.isEmpty { plan = p }
+                let session = payload["session_id"] as? String ?? ""
+                let key = Self.callKey(tool: tool, input: payload["tool_input"])
+                // PermissionRequest carries no tool_use_id; the PreToolUse just before it does.
+                let preKey = Self.preKey(session: session, callKey: key)
+                let toolUseID = preToolIDs.removeValue(forKey: preKey)
                 let approval = Approval(
                     id: reqID,
-                    session: payload["session_id"] as? String ?? "",
+                    session: session,
                     tool: tool,
                     detail: plan != nil ? "proposed a plan — review it here"
                         : Self.describe(tool: tool, input: payload["tool_input"]) ?? tool,
@@ -351,9 +367,8 @@ final class HookStream: ObservableObject {
                     fullInput: Self.fullText(tool: tool, input: payload["tool_input"]),
                     rule: AlwaysAllow.rule(tool: tool, input: payload["tool_input"] as? [String: Any],
                                            cwd: payload["cwd"] as? String),
-                    callKey: Self.callKey(tool: tool, input: payload["tool_input"]))
-                // Anything settled earlier in this batch predates this ask, so must not dismiss it.
-                settled.removeAll { $0.session == approval.session && ($0.key == approval.callKey || $0.key.isEmpty) }
+                    callKey: key,
+                    toolUseID: toolUseID)
                 approvals.append(approval)
                 obj = payload
             }
@@ -366,11 +381,6 @@ final class HookStream: ObservableObject {
             }
             var state = updates[session] ?? carried[session] ?? LiveState()
             state.at = stamp ?? (replay ? .distantPast : Date())
-            // The turn ended (a "No" in the terminal interrupts it) or moved on: none of its asks is pending.
-            if ["Stop", "StopFailure", "SessionEnd", "UserPromptSubmit"].contains(event) {
-                approvals.removeAll { $0.session == session }
-                settled.append((session, ""))
-            }
 
             switch event {
             case "PreToolUse", "PostToolUse":
@@ -394,11 +404,17 @@ final class HookStream: ObservableObject {
                 // PostToolUse for the same tool means the answer already came back.
                 state.waiting = event == "PreToolUse"
                     && obj["tool_name"] as? String == "AskUserQuestion"
-                // The call ran, so it was approved, in the terminal if not here.
-                if event == "PostToolUse", let tool = obj["tool_name"] as? String {
+                if event == "PreToolUse",
+                   let tid = obj["tool_use_id"] as? String, !tid.isEmpty,
+                   let tool = obj["tool_name"] as? String {
                     let key = Self.callKey(tool: tool, input: obj["tool_input"])
-                    approvals.removeAll { $0.session == session && $0.callKey == key }
-                    settled.append((session, key))
+                    preToolIDs[Self.preKey(session: session, callKey: key)] = tid
+                }
+                // The call ran — settle only the approval paired with this tool_use_id.
+                if event == "PostToolUse",
+                   let tid = obj["tool_use_id"] as? String, !tid.isEmpty {
+                    approvals.removeAll { $0.toolUseID == tid }
+                    settled.append(tid)
                 }
             case "Notification", "PermissionRequest":
                 // `idle_prompt` just means the session finished its turn and is sitting at a
@@ -455,15 +471,22 @@ final class HookStream: ObservableObject {
             }
             updates[session] = state
         }
+        // Replay must not re-raise cards or settle ones that are already gone.
         if replay { attention = []; approvals = []; questions = []; settled = [] }
         guard !updates.isEmpty || !attention.isEmpty || !approvals.isEmpty
                 || !questions.isEmpty || !fails.isEmpty || !revived.isEmpty
-                || !planUpdates.isEmpty || !pidUpdates.isEmpty || !answered.isEmpty else { return }
+                || !planUpdates.isEmpty || !pidUpdates.isEmpty || !answered.isEmpty
+                || !settled.isEmpty else { return }
         // Carry state forward on the drain queue. Reading the published `live` from here raced
         // the main thread's merge of the same dictionary, which is a crash, not a stale read.
         carried.merge(updates) { _, new in new }
         let cutoff = Date().addingTimeInterval(-3600)
         carried = carried.filter { $0.value.at > cutoff }
+        // shortcut: arbitrary eviction; fine while a PermissionRequest lands right after its PreToolUse.
+        if preToolIDs.count > 256 {
+            let drop = preToolIDs.count - 128
+            for k in preToolIDs.keys.prefix(drop) { preToolIDs.removeValue(forKey: k) }
+        }
         DispatchQueue.main.async {
             self.live.merge(updates) { _, new in new }
             self.plans.merge(planUpdates) { _, new in new }
@@ -475,8 +498,9 @@ final class HookStream: ObservableObject {
                 self.pendingQuestions[q.session] = q
                 self.onQuestion?(q)
             }
+            // Settles first: a batch that both withdraws and re-asks must drop before raising.
+            for s in settled { self.onSettled?(s) }
             for a in approvals { self.onApproval?(a) }
-            for s in settled { self.onSettled?(s.session, s.key) }
             for (s, m, needs) in attention { self.onAttention?(s, m, needs) }
         }
     }
@@ -529,8 +553,13 @@ final class HookStream: ObservableObject {
         return nil
     }
 
-    /// Same call, same key: an ask and the PostToolUse that shows it ran.
+    /// Same call, same key: an ask and the PreToolUse that carried its tool_use_id.
     static func callKey(tool: String, input: Any?) -> String { tool + "\u{1F}" + (fullText(tool: tool, input: input) ?? "") }
+
+    /// Drain-queue key for the PreToolUse → PermissionRequest pairing.
+    static func preKey(session: String, callKey: String) -> String {
+        session + "\u{1E}" + callKey
+    }
 
     /// The whole ask, not the one-line summary the row shows.
     static func fullText(tool: String, input: Any?) -> String? {
