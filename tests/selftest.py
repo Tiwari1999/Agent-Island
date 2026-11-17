@@ -4352,6 +4352,8 @@ check("only the app shell, Settings and Updater touch Sparkle",
       _up_users == ["App.swift", "Settings.swift", "Updater.swift"], ", ".join(_up_users))
 # A release built with the placeholder key could never be auto-updated again.
 _up_env = {k: v for k, v in os.environ.items() if not k.startswith("SPARKLE_")}
+# Placeholder by env, not the repo file: with the real key committed, release.sh would build and overwrite dist/.
+_up_env["SPARKLE_PUBLIC_ED_KEY"] = "REPLACE_ME_WITH_generate_keys_-p_OUTPUT"
 _up_rel = subprocess.run([os.path.join(REPO, "scripts/release.sh")], capture_output=True,
                          text=True, env=_up_env, timeout=60)
 check("release.sh refuses the placeholder Sparkle key before building",
