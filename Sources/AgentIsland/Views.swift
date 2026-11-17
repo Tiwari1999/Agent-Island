@@ -192,6 +192,16 @@ struct PeekView: View {
     }
 }
 
+extension AgentRow {
+    var tint: Color {
+        if waiting { return Theme.waiting }
+        if isWorking { return Theme.working }
+        if agent.phase == "failed" { return Theme.failed }
+        if dormantBlocked { return Theme.muted }
+        return Theme.idle
+    }
+}
+
 struct AgentRowView: View {
     static let height: CGFloat = 64
 
@@ -252,13 +262,7 @@ struct AgentRowView: View {
         withAnimation(Motion.settle) { glow = 0 }
     }
 
-    private var tint: Color {
-        if row.waiting { return Theme.waiting }
-        if row.isWorking { return Theme.working }
-        if row.agent.phase == "failed" { return Theme.failed }
-        if row.dormantBlocked { return Theme.muted }
-        return Theme.idle
-    }
+    private var tint: Color { row.tint }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {

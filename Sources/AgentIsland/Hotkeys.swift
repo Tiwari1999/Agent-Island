@@ -15,6 +15,7 @@ final class Hotkeys {
     /// Registered once for the life of the app. Card keys come and go with `bind`/`unbind`; a
     /// summon chord must outlive them, so it is kept in its own id range that unbind never clears.
     private static let lastingBase: UInt32 = 900
+    private var nextLasting = lastingBase
 
     /// Registered only while a card is on screen, so these keys stay free the rest of the time.
     func bind(_ bindings: [(key: Int, mods: Int, action: () -> Void)]) {
@@ -41,8 +42,10 @@ final class Hotkeys {
     /// A chord that stays registered whatever the cards do.
     func bindLasting(_ bindings: [(key: Int, mods: Int, action: () -> Void)]) {
         installHandlerIfNeeded()
-        for (i, b) in bindings.enumerated() {
-            let id = Self.lastingBase + UInt32(i)
+        for b in bindings {
+            // A running counter, not the array index: a second caller would overwrite the first's ids.
+            let id = nextLasting
+            nextLasting += 1
             actions[id] = b.action
             var ref: EventHotKeyRef?
             let err = RegisterEventHotKey(UInt32(b.key), UInt32(b.mods),
@@ -82,4 +85,5 @@ final class Hotkeys {
     static let cmdOpt = cmdKey | optionKey
     /// Jumping between the questions of one ask. Shift distinguishes it from picking an option.
     static let cmdOptShift = cmdKey | optionKey | shiftKey
+    static let cmdShift = cmdKey | shiftKey
 }

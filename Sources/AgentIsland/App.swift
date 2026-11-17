@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let store = AgentStore()
     private let status = StatusStore()
     private var island: Island!
+    private var switcher: Switcher!
     private var statusItem: NSStatusItem?
 
     func applicationDidFinishLaunching(_ note: Notification) {
@@ -13,6 +14,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Notifier.requestAuthorization()
         island = Island(store: store, status: status)
         island.install()
+        switcher = Switcher(store: store)
+        switcher.install()
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = NSImage(systemSymbolName: "circle.hexagongrid",
@@ -53,6 +56,7 @@ struct AgentIslandApp {
         if CommandLine.arguments.contains("--costs-json") { print(Costs.json()); exit(0) }
         if CommandLine.arguments.contains("--check-proc") { exit(ProcCheck.run()) }
         if CommandLine.arguments.contains("--check-host") { exit(HostCheck.run()) }
+        if CommandLine.arguments.contains("--check-switcher") { exit(SwitcherCheck.run()) }
         // The island's own half of the round trip, headlessly. Everything the suite proved
         // before this wrote the decision file from Python — so "clicking allow produces
         // something the hook accepts" was the one step never actually tested.
