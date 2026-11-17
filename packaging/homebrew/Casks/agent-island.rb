@@ -1,7 +1,7 @@
 # Template for the Tiwari1999/homebrew-tap repo; scripts/release.sh fills version and sha256.
 cask "agent-island" do
-  version "0.5.13"
-  sha256 "85dc3ad910fdaf74fc97a0f599f94596b01a70d468d3a2035e8df094213390fa"
+  version "0.5.14"
+  sha256 "526fa13c9859c01a9ad9514d01e3a4615d265ea1097b7d52dbce94b7a8cb9a6b"
 
   url "https://github.com/Tiwari1999/Agent-Island/releases/download/v#{version}/AgentIsland-#{version}.dmg"
   name "AgentIsland"
