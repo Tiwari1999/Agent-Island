@@ -69,6 +69,7 @@ Agent Island puts the answer where your eyes already are.
 | | |
 |---|---|
 | 🎬 **Precise jump** | Click a row → land on that agent's **exact tab** — Warp, iTerm2, Terminal.app, kitty or WezTerm — not just the app |
+| 🔎 **Session switcher** | `⌘⌥O` opens a Raycast-style picker in the middle of the screen: type to filter by title, project, branch or terminal, `↑↓` to preview a session's status, context and recent transcript, `↵` or `⌘1`–`⌘9` to jump, `⌥1`–`⌥6` to colour-tag a session in Finder's tag colours (then search by colour name), `esc` to close. Lists running sessions only, most recently active first |
 | 💠 **Cost breakdown** | API-equivalent spend per model, today and this month — from the vendors' own token accounting |
 | 📋 **Plan review** | Read the full Markdown plan and approve it from the notch, with a 55s window instead of 20 |
 | 📊 **Pick your agent** | One control in the header switches which agent it reports on — that agent's own limit windows and its own spend, defaulting to whichever you use most |
