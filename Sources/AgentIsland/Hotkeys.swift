@@ -85,5 +85,4 @@ final class Hotkeys {
     static let cmdOpt = cmdKey | optionKey
     /// Jumping between the questions of one ask. Shift distinguishes it from picking an option.
     static let cmdOptShift = cmdKey | optionKey | shiftKey
-    static let cmdShift = cmdKey | shiftKey
 }

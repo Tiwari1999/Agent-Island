@@ -4954,8 +4954,11 @@ check("the IDE resolver maps VS Code and Cursor terminals to their focus URI",
       _hc.returncode == 0 and "host checks: ok" in _hc.stdout, (_hc.stdout + _hc.stderr).strip()[:120])
 _sw = subprocess.run([os.path.join(REPO, ".build/release/AgentIsland"), "--check-switcher"],
                      capture_output=True, text=True, timeout=30)
-check("the ⌘⇧Space switcher keeps a row only when every typed word matches it",
+check("the ⌘⌥O switcher keeps a row only when every typed word matches it",
       _sw.returncode == 0 and "switcher checks: ok" in _sw.stdout, (_sw.stdout + _sw.stderr).strip()[:160])
+# A lasting chord is global; ⌘⇧Space took Trigger Parameter Hints from VS Code and Cursor.
+check("the switcher is summoned with ⌘⌥O",
+      "bindLasting([(kVK_ANSI_O, Hotkeys.cmdOpt," in open(os.path.join(REPO, "Sources/AgentIsland/Switcher.swift")).read())
 # An editor launched from a Warp tab inherits WARP_FOCUS_URL; the editor still owns the shell.
 check("an IDE or Ghostty terminal outranks an inherited Warp URL",
       _ide_ht.index("if let h = ide(termProgram:") < _ide_ht.index("if let u = i.focusURL")

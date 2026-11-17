@@ -47,7 +47,8 @@ final class Switcher {
     init(store: AgentStore) { self.store = store }
 
     func install() {
-        Hotkeys.shared.bindLasting([(kVK_Space, Hotkeys.cmdShift, { [weak self] in self?.toggle() })])
+        // ⌘⌥ like the island's other chords; ⌘⇧Space is Trigger Parameter Hints in VS Code and Cursor.
+        Hotkeys.shared.bindLasting([(kVK_ANSI_O, Hotkeys.cmdOpt, { [weak self] in self?.toggle() })])
     }
 
     func toggle() { panel?.isVisible == true ? close() : open() }
